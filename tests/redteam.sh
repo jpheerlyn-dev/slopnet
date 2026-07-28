@@ -305,6 +305,188 @@ except crew.CrewError:
 PY
 }
 
+attack_27() {
+  # A worker without a successful setup probe must be refused before its
+  # command can touch the real repository.
+  python3 - <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("crew", pathlib.Path("crew.py"))
+crew = importlib.util.module_from_spec(spec); spec.loader.exec_module(crew)
+root = pathlib.Path.cwd()
+crew.save_crew(root, {
+    "planner": {},
+    "fleet": [{
+        "kind": "cli",
+        "name": "unproven-test-agent",
+        "command": "touch unproven-ran",
+        "proven": False,
+        "proof": "ran but changed nothing",
+        "timeout": 900,
+    }],
+    "test_command": "",
+})
+try:
+    crew.run(root, lambda message: None)
+except crew.CrewError as exc:
+    if "unproven-test-agent is unproven" not in str(exc):
+        sys.exit(1)
+else:
+    sys.exit(1)
+if (root / "unproven-ran").exists():
+    sys.exit(1)
+PY
+}
+
+attack_28() {
+  # Prompts over 100 KiB must travel through stdin without truncation and
+  # their temporary file must be cleaned up afterwards.
+  python3 - <<'PY'
+import importlib.util, pathlib, sys, tempfile
+spec = importlib.util.spec_from_file_location("crew", pathlib.Path("crew.py"))
+crew = importlib.util.module_from_spec(spec); spec.loader.exec_module(crew)
+root = pathlib.Path.cwd()
+tempfile.tempdir = str(root)
+worker = {
+    "kind": "cli",
+    "name": "long-prompt-test-agent",
+    "command": "false {prompt}",
+    "long_command": (
+        "python3 -c 'import pathlib,sys; "
+        "pathlib.Path(\"received.txt\").write_text(sys.stdin.read())'"
+    ),
+    "long_transport": "stdin",
+    "timeout": 10,
+}
+prompt = "complete-brief\n" + ("x" * (crew.LONG_PROMPT_BYTES + 1))
+crew.ask_worker(worker, prompt, cwd=str(root))
+if (root / "received.txt").read_text() != prompt:
+    sys.exit(1)
+if list(root.glob(".slopnet-prompt-*.txt")):
+    sys.exit(1)
+PY
+}
+
+attack_29() {
+  # An agent timeout must be an explicit failed attempt, never an empty
+  # response that later gates could mistake for success.
+  python3 - <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("crew", pathlib.Path("crew.py"))
+crew = importlib.util.module_from_spec(spec); spec.loader.exec_module(crew)
+worker = {
+    "kind": "cli",
+    "name": "timeout-test-agent",
+    "command": "exec python3 -c 'import time; time.sleep(5)' {prompt}",
+    "timeout": 1,
+}
+try:
+    crew.ask_worker(worker, "wait", cwd=str(pathlib.Path.cwd()))
+except crew.CrewError as exc:
+    if str(exc) == "agent timed out after 1s":
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+attack_30() {
+  # A token in the environment for an env-cli worker must never appear in
+  # any file the run writes — not .slopnet/, not the register, not cwd.
+  # Token is assembled at runtime so this script itself does not contain it.
+  python3 - <<'PY'
+import importlib.util, os, pathlib, sys
+spec = importlib.util.spec_from_file_location("crew", pathlib.Path("crew.py"))
+crew = importlib.util.module_from_spec(spec); spec.loader.exec_module(crew)
+root = pathlib.Path.cwd()
+# Split so the full secret never appears as a literal in the harness source.
+token = "rt-j02-" + "secret" + "-never-leak-" + "9f3a2c"
+os.environ["ZAI_API_KEY"] = token
+# Prove classified failures name the cause (report §7).
+if crew.classify_failure("Authentication required") != "not logged in":
+    sys.exit(1)
+if crew.classify_failure("Rate limit reached") != "rate limited":
+    sys.exit(1)
+if crew.classify_failure("1113 Insufficient Balance") != (
+        "insufficient balance (wrong endpoint or plan)"):
+    sys.exit(1)
+# env-cli run: host command writes an output file; token must not land
+# in that file, crew.json, or anywhere under the workspace.
+worker = {
+    "kind": "env-cli",
+    "name": "token-leak-test",
+    "command": (
+        "python3 -c 'import os,pathlib; "
+        "pathlib.Path(\"env-cli-out.txt\").write_text("
+        "\"ran base=\" + os.environ.get(\"ANTHROPIC_BASE_URL\",\"\")"
+        ")' {prompt}"
+    ),
+    "env": {
+        "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+        "ANTHROPIC_AUTH_TOKEN": "$ZAI_API_KEY",
+    },
+    "timeout": 10,
+}
+crew.ask_worker(worker, "ping", cwd=str(root))
+# Persist providers catalog the same way setup does — only $VAR form.
+crew.save_crew(root, {
+    "planner": {"kind": "env-cli", "name": "token-leak-test",
+                "env": worker["env"]},
+    "fleet": [],
+    "test_command": "",
+    "providers": crew.providers_catalog(),
+})
+# Register-style prose must not receive the token either.
+reg = root / "register" / "token-check.md"
+reg.parent.mkdir(exist_ok=True)
+reg.write_text(
+    "## check\n- env-cli ran; providers saved with $VAR indirection only.\n",
+    encoding="utf-8",
+)
+# Only files the run wrote after the baseline copy: skip the harness itself
+# and other pre-existing template files that never see the secret.
+written = [
+    root / "env-cli-out.txt",
+    root / ".slopnet" / "crew.json",
+    reg,
+]
+leaks = []
+for path in written:
+    if not path.is_file():
+        sys.stderr.write("missing written file: %s\n" % path)
+        sys.exit(1)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if token in text:
+        leaks.append(str(path.relative_to(root)))
+# Also scan every new path under .slopnet/ and register/ for the secret.
+for folder in (root / ".slopnet", root / "register"):
+    if not folder.exists():
+        continue
+    for path in folder.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if token in text:
+            rel = str(path.relative_to(root))
+            if rel not in leaks:
+                leaks.append(rel)
+if leaks:
+    sys.stderr.write("token leaked into: " + ", ".join(leaks) + "\n")
+    sys.exit(1)
+# crew.json must keep the $ indirection, never the resolved secret.
+crew_text = (root / ".slopnet" / "crew.json").read_text(encoding="utf-8")
+if "$ZAI_API_KEY" not in crew_text:
+    sys.exit(1)
+if token in crew_text:
+    sys.exit(1)
+# The host command must have actually run.
+if "ran base=https://api.z.ai/api/anthropic" not in (
+        root / "env-cli-out.txt").read_text(encoding="utf-8"):
+    sys.exit(1)
+PY
+}
+
 record_landed() {
   local number=$1
   local label=$2
@@ -313,7 +495,7 @@ record_landed() {
     printf '\n## Redteam — attack %s landed\n\n' "$number"
     printf -- '- %s landed in the temporary workspace; inspect the failing check before changing this script.\n' "$label"
   } >> register/PENDING_OPERATOR.md
-  printf 'SCORE: %s/26\n' "$score"
+  printf 'SCORE: %s/30\n' "$score"
   exit 1
 }
 
@@ -356,6 +538,10 @@ run_attack 23 'staged junk via CLI check' attack_23
 run_attack 24 'MCP garbage input (fuzz)' attack_24
 run_attack 25 'MCP missing argument (fuzz)' attack_25
 run_attack 26 'fake test gate refused (crew)' attack_26
+run_attack 27 'unproven agent refused (crew)' attack_27
+run_attack 28 'long prompt preserved (crew)' attack_28
+run_attack 29 'agent timeout explicit (crew)' attack_29
+run_attack 30 'env-cli token never written (crew)' attack_30
 
-printf 'SCORE: %s/26\n' "$score"
-[[ "$score" -eq 26 ]]
+printf 'SCORE: %s/30\n' "$score"
+[[ "$score" -eq 30 ]]

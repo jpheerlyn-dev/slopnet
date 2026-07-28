@@ -25,12 +25,22 @@ import os
 import pathlib
 import re
 import shutil
+import signal
+import socket
 import subprocess
+import tempfile
+import time
 import urllib.error
 import urllib.request
 
 CREW_FILE = ".slopnet/crew.json"
 WAVES_FILE = "WAVES.md"
+DEFAULT_AGENT_TIMEOUT = 900
+LONG_PROMPT_BYTES = 100 * 1024
+PROBE_JOB = (
+    "Create a file named probe.txt containing the word ready. "
+    "Do nothing else."
+)
 
 # How to make each agent do ONE job and stop. Verified on 2026-07-28 by
 # reading each tool's own --help; jobs/J01_agent_adapters.md keeps this
@@ -38,13 +48,65 @@ WAVES_FILE = "WAVES.md"
 # waits forever for a human to confirm each edit. That is safe here only
 # because every attempt runs inside a throwaway git worktree.
 KNOWN_AGENTS = {
-    "claude": '{exe} --dangerously-skip-permissions -p {prompt}',
-    "codex": '{exe} exec {prompt}',
-    "gemini": '{exe} --yolo -p {prompt}',
-    "grok": '{exe} --permission-mode bypassPermissions -p {prompt}',
-    "kimi": '{exe} --auto -p {prompt}',
-    "hermes": '{exe} -z {prompt}',
-    "cursor-agent": '{exe} --print {prompt}',
+    "claude": {
+        "invocation": "{exe} {auto_approve} -p {prompt}",
+        "auto_approve": "--dangerously-skip-permissions",
+        "long_invocation": "{exe} {auto_approve} -p",
+        "long_transport": "stdin",
+        "probe": PROBE_JOB,
+    },
+    "codex": {
+        "invocation": "{exe} exec {auto_approve} {prompt}",
+        "auto_approve": "--dangerously-bypass-approvals-and-sandbox",
+        "long_invocation": "{exe} exec {auto_approve} -",
+        "long_transport": "stdin",
+        "probe": PROBE_JOB,
+    },
+    "gemini": {
+        "invocation": "{exe} {auto_approve} -p {prompt}",
+        "auto_approve": "--yolo",
+        "long_invocation": "{exe} {auto_approve}",
+        "long_transport": "stdin",
+        "probe": PROBE_JOB,
+    },
+    "grok": {
+        "invocation": "{exe} {auto_approve} -p {prompt}",
+        "auto_approve": "--permission-mode bypassPermissions",
+        "long_invocation": (
+            "{exe} {auto_approve} --prompt-file {prompt_file} "
+            "--output-format plain"
+        ),
+        "long_transport": "file",
+        "probe": PROBE_JOB,
+    },
+    "kimi": {
+        "invocation": "{exe} {auto_approve} -p {prompt}",
+        # Kimi 0.29.2 rejects --auto/--yolo together with --prompt. Its
+        # installed prompt-mode implementation creates the headless session
+        # with permission "auto", so -p alone is the unattended form.
+        "auto_approve": "",
+        "long_invocation": "{exe} {auto_approve} -p {prompt}",
+        "long_transport": "file-reference",
+        "probe": PROBE_JOB,
+    },
+    "hermes": {
+        "invocation": "{exe} {auto_approve} -z {prompt}",
+        # Hermes one-shot mode auto-bypasses approvals; its --help says
+        # that explicitly, so adding a second guessed flag would be wrong.
+        "auto_approve": "",
+        "long_invocation": "{exe} {auto_approve} -z {prompt}",
+        "long_transport": "file-reference",
+        "probe": PROBE_JOB,
+    },
+    # Preserved for operators who already use it. Setup's real edit probe,
+    # not this table, decides whether this invocation can receive work.
+    "cursor-agent": {
+        "invocation": "{exe} {auto_approve} --print {prompt}",
+        "auto_approve": "",
+        "long_invocation": "{exe} {auto_approve} --print {prompt}",
+        "long_transport": "file-reference",
+        "probe": PROBE_JOB,
+    },
 }
 
 # Tools that look like coding agents but are NOT, so setup never offers
@@ -59,30 +121,56 @@ NOT_CODERS = {
 # Some CLIs install outside the default PATH; look there too.
 EXTRA_BINS = ["~/.kimi-code/bin", "~/.grok/bin", "~/.local/bin"]
 
-# HOSTED BRAINS — a different model driven through a host CLI you already
-# have, by setting env vars for that one run. This is how a coding plan
-# that ships no CLI of its own still joins the fleet, and it means those
-# models inherit the host's permission model, prompt format, and output
-# shape: one protocol instead of five.
-#
-# Only key-based plans can do this. A subscription that logs in through
-# the vendor's own account (Claude, Google AI Pro, ChatGPT, Grok) is tied
-# to that vendor's CLI and CANNOT be redirected — see jobs/J08.
+# PROVIDERS — non-CLI coding subscriptions, verified only from
+# jobs/RESEARCH_subscriptions_REPORT.md (2026-07-28). A worker of kind
+# env-cli runs an existing host CLI with extra env vars for that one
+# invocation: never exported globally, never written to disk, never logged.
 #
 # "$NAME" means "read this from the operator's environment at run time",
-# so tokens never live in a config file. base_url values are left blank
-# on purpose: the operator fills them in from the provider's own docs
-# (or its setup helper), because inventing an endpoint would be a guess.
-HOSTED_BRAINS = {
+# so tokens never live in a config file. Only report-confirmed values.
+#
+# Kimi is NOT listed here: it ships its own CLI (KNOWN_AGENTS) and the
+# report confirms the coding plan covers that CLI. zAI ships no coding
+# CLI; it is reached by pointing Claude Code at Z.AI's Anthropic-compatible
+# endpoint (subscription covers that path as Coding Plan quota).
+PROVIDERS = {
     "zai-glm": {
+        "display_name": "zAI GLM Coding Plan",
+        "kind": "env-cli",
         "host": "claude",
-        "docs": "https://docs.z.ai/devpack/tool/claude — or run: npx @z_ai/coding-helper",
-        "env": {"ANTHROPIC_BASE_URL": "", "ANTHROPIC_AUTH_TOKEN": "$ZAI_API_KEY"},
-        "note": "Z.AI's GLM coding plan, driven through Claude Code.",
+        "docs": "https://docs.z.ai/devpack/tool/claude",
+        "env": {
+            # Report §2: exact ANTHROPIC_BASE_URL for the GLM coding plan.
+            "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+            "ANTHROPIC_AUTH_TOKEN": "$ZAI_API_KEY",
+            # Report §2: platform defaults (GLM-4.7 / GLM-4.5-Air).
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "GLM-4.7",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "GLM-4.7",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "GLM-4.5-Air",
+        },
+        "model": "GLM-4.7",
+        "key_env": "ZAI_API_KEY",
+        # Report: "GLM calls made in supported tools will strictly use your
+        # Coding Plan quota. Once your plan's quota runs out, the system will
+        # not deduct from your cash or account balance."
+        "subscription_covers_terminal": True,
+        "billing_caveat": None,
+        "note": (
+            "Z.AI's GLM models, driven through Claude Code. "
+            "Uses your Coding Plan quota, not a separate cash/API balance."
+        ),
     },
 }
 
+# Report §2 also documents an OpenAI-compatible coding endpoint for hosts
+# that speak Chat Completions (not Claude Code). Kept for the providers
+# section only — naked custom HTTP clients are not listed as supported
+# tools, so we do not add a raw `api` worker for it.
+ZAI_OPENAI_COMPAT_URL = "https://api.z.ai/api/coding/paas/v4"
+
 # API providers, if someone would rather use a key than a logged-in CLI.
+# Endpoints here are the vendor public APIs already known to the fleet;
+# zAI's coding plan is NOT added as raw HTTP (see PROVIDERS / env-cli).
 KNOWN_KEYS = {
     "ANTHROPIC_API_KEY": ("anthropic", "https://api.anthropic.com/v1/messages"),
     "OPENAI_API_KEY": ("openai", "https://api.openai.com/v1/chat/completions"),
@@ -91,6 +179,28 @@ KNOWN_KEYS = {
     "MOONSHOT_API_KEY": ("openai", "https://api.moonshot.cn/v1/chat/completions"),
     "XAI_API_KEY": ("openai", "https://api.x.ai/v1/chat/completions"),
 }
+
+# Report §7 failure strings → short cause. Only patterns the report
+# verified (or that already appear on this machine's live probes).
+_FAILURE_CAUSES = (
+    (re.compile(r"1113\s*Insufficient Balance", re.I),
+     "insufficient balance (wrong endpoint or plan)"),
+    (re.compile(r"No assistant message found", re.I),
+     "endpoint/schema mismatch"),
+    (re.compile(r"Rate limit reached", re.I), "rate limited"),
+    (re.compile(r"Request rejected\s*\(429\)", re.I), "rate limited"),
+    (re.compile(r"Server is temporarily limiting requests", re.I),
+     "provider overloaded"),
+    (re.compile(r"Authentication failed", re.I), "not logged in"),
+    (re.compile(r"Authentication required|\bauth required\b", re.I),
+     "not logged in"),
+    (re.compile(r"401\s*\(?Unauthorized\)?", re.I), "not logged in"),
+    (re.compile(r"OAuth session expired", re.I), "not logged in"),
+    (re.compile(r"Failed to authenticate", re.I), "not logged in"),
+    (re.compile(r"Please set an Auth method|no authentication method", re.I),
+     "not logged in"),
+    (re.compile(r"apiKeyHelper script is failing", re.I), "not logged in"),
+)
 
 
 class CrewError(Exception):
@@ -140,33 +250,175 @@ def find_exe(name):
     return None
 
 
+def _render_invocation(template, exe, auto_approve):
+    """Resolve executable/permission placeholders, leaving prompt transport
+    placeholders for the runner."""
+    import shlex
+    return (template.replace("{exe}", shlex.quote(exe))
+            .replace("{auto_approve}", auto_approve)).replace("  ", " ").strip()
+
+
+def _cli_worker(name, exe, spec):
+    return {
+        "kind": "cli",
+        "name": name,
+        "command": _render_invocation(
+            spec["invocation"], exe, spec["auto_approve"]),
+        "auto_approve": spec["auto_approve"],
+        "long_command": _render_invocation(
+            spec["long_invocation"], exe, spec["auto_approve"]),
+        "long_transport": spec["long_transport"],
+        "probe": spec["probe"],
+        "timeout": DEFAULT_AGENT_TIMEOUT,
+    }
+
+
+def _env_cli_worker(name, host_exe, host_spec, provider):
+    """A host CLI plus per-invocation env overrides (kind env-cli)."""
+    worker = _cli_worker(name, host_exe, host_spec)
+    worker["kind"] = "env-cli"
+    worker["env"] = dict(provider["env"])  # keeps $VAR form — never secrets
+    worker["hosted_by"] = provider["host"]
+    worker["model"] = provider.get("model") or ""
+    worker["display_name"] = provider.get("display_name") or name
+    worker["note"] = provider.get("note") or ""
+    if provider.get("billing_caveat"):
+        worker["billing_caveat"] = provider["billing_caveat"]
+    return worker
+
+
+def providers_catalog():
+    """Serialisable providers section for crew.json — no secrets, only
+    the $VAR indirection form and report-verified fields."""
+    catalog = {}
+    for name, spec in PROVIDERS.items():
+        entry = {
+            "display_name": spec["display_name"],
+            "reach": spec["kind"],
+            "host": spec.get("host"),
+            "env": dict(spec["env"]),
+            "model": spec.get("model") or "",
+            "key_env": spec.get("key_env"),
+            "subscription_covers_terminal": bool(
+                spec.get("subscription_covers_terminal")),
+            "docs": spec.get("docs") or "",
+            "note": spec.get("note") or "",
+        }
+        if name == "zai-glm":
+            entry["openai_compat_url"] = ZAI_OPENAI_COMPAT_URL
+        if spec.get("billing_caveat"):
+            entry["billing_caveat"] = spec["billing_caveat"]
+        catalog[name] = entry
+    return catalog
+
+
+def _worker_label(worker):
+    kind = worker.get("kind")
+    if kind == "cli":
+        return f"{worker['name']} (logged-in CLI)"
+    if kind == "env-cli":
+        host = worker.get("hosted_by") or "host CLI"
+        return f"{worker['name']} (via {host}, env overrides)"
+    if kind == "api":
+        return f"{worker['name']} (API key)"
+    return worker["name"]
+
+
 def available_workers():
     """Everything on this machine that could do a job, CLIs first."""
     found = []
-    for name, template in KNOWN_AGENTS.items():
+    for name, spec in KNOWN_AGENTS.items():
         exe = find_exe(name)
         if exe:
-            found.append({"kind": "cli", "name": name, "command":
-                          template.replace("{exe}", exe)})
+            found.append(_cli_worker(name, exe, spec))
     for env, (api, url) in KNOWN_KEYS.items():
         if os.environ.get(env):
             found.append({"kind": "api", "name": env.replace("_API_KEY", "").lower(),
-                          "api": api, "url": url, "key_env": env, "model": ""})
-    # Hosted brains: offered only when their host CLI exists AND the
-    # operator's key is in the environment. Anything else would be a
-    # worker that cannot possibly work.
-    for name, spec in HOSTED_BRAINS.items():
-        host_exe = find_exe(spec["host"])
-        key_var = next((v[1:] for v in spec["env"].values() if v.startswith("$")), "")
-        if host_exe and key_var and os.environ.get(key_var):
-            if not spec["env"].get("ANTHROPIC_BASE_URL"):
-                continue  # endpoint not filled in yet — see jobs/J08
-            found.append({
-                "kind": "cli", "name": name,
-                "command": KNOWN_AGENTS[spec["host"]].replace("{exe}", host_exe),
-                "env": spec["env"], "hosted_by": spec["host"],
-            })
+                          "api": api, "url": url, "key_env": env, "model": "",
+                          "probe": PROBE_JOB, "timeout": DEFAULT_AGENT_TIMEOUT})
+    # env-cli providers (e.g. zAI via Claude): host CLI must exist, key
+    # must be present, and the report must have confirmed terminal cover.
+    for name, spec in PROVIDERS.items():
+        if not spec.get("subscription_covers_terminal"):
+            continue
+        host = spec.get("host")
+        host_exe = find_exe(host) if host else None
+        key_var = spec.get("key_env") or ""
+        if not host_exe or not key_var or not os.environ.get(key_var):
+            continue
+        if not (spec.get("env") or {}).get("ANTHROPIC_BASE_URL"):
+            continue  # never invent an endpoint
+        if host not in KNOWN_AGENTS:
+            continue
+        found.append(_env_cli_worker(name, host_exe, KNOWN_AGENTS[host], spec))
     return found
+
+
+def missing_provider_hints():
+    """Providers the report supports but this shell cannot run yet."""
+    hints = []
+    for name, spec in PROVIDERS.items():
+        if not spec.get("subscription_covers_terminal"):
+            continue
+        host = spec.get("host")
+        key_var = spec.get("key_env") or ""
+        host_ok = bool(host and find_exe(host))
+        key_ok = bool(key_var and os.environ.get(key_var))
+        if host_ok and key_ok:
+            continue
+        if not host_ok and not key_ok:
+            hints.append(
+                f"{name} — install {host} and set {key_var} "
+                f"({spec.get('note') or spec.get('display_name')})")
+        elif not host_ok:
+            hints.append(
+                f"{name} — needs host CLI `{host}` installed "
+                f"({spec.get('note') or ''})".rstrip())
+        else:
+            hints.append(
+                f"{name} — set {key_var} in your shell "
+                f"({spec.get('note') or ''})".rstrip())
+    return hints
+
+
+def _proof_fields(proven, reason):
+    return {
+        "proven": proven,
+        "proven_on": datetime.date.today().isoformat(),
+        "proof": reason,
+    }
+
+
+def _probe_worker(worker):
+    """Ask a worker to make one exact edit in a disposable git repo."""
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix=f"slopnet-probe-{worker['name']}-") as raw:
+        root = pathlib.Path(raw)
+        proc = subprocess.run(
+            ["git", "init", "-q"], cwd=root, capture_output=True, text=True)
+        if proc.returncode != 0:
+            return False, "could not create the throwaway probe repo", 0
+        try:
+            ask_worker(
+                worker,
+                worker.get("probe") or PROBE_JOB,
+                cwd=str(root),
+                timeout=_worker_timeout(worker),
+            )
+        except CrewError as exc:
+            elapsed = max(0, int(time.monotonic() - started))
+            return False, str(exc), elapsed
+        elapsed = max(0, int(time.monotonic() - started))
+        probe = root / "probe.txt"
+        if not probe.exists():
+            return False, "ran but changed nothing (probe.txt was not created)", elapsed
+        try:
+            content = probe.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError):
+            return False, "created probe.txt but it could not be read", elapsed
+        if content != "ready":
+            return False, "created probe.txt with the wrong contents", elapsed
+        return True, f"wrote the file in {elapsed}s", elapsed
 
 
 def setup(root, ask, say):
@@ -179,11 +431,18 @@ def setup(root, ask, say):
             "(claude, codex, gemini, hermes) or set an API key like "
             "ANTHROPIC_API_KEY, then run `slopnet setup` again.")
 
-    labels = [f"{w['name']} ({'logged-in CLI' if w['kind'] == 'cli' else 'API key'})"
-              for w in workers]
+    labels = [_worker_label(w) for w in workers]
     say("Found on this machine:")
-    for label in labels:
+    for worker, label in zip(workers, labels):
         say(f"  - {label}")
+        # Billing surprise guard: one plain sentence before they pick.
+        caveat = worker.get("billing_caveat")
+        if caveat:
+            say(f"      Billing: {caveat}")
+        elif worker.get("kind") == "env-cli" and worker.get("note"):
+            say(f"      {worker['note']}")
+    for hint in missing_provider_hints():
+        say(f"  - {hint}")
     for name, why in NOT_CODERS.items():
         if find_exe(name):
             say(f"  - {name} — NOT offered: {why}")
@@ -200,12 +459,30 @@ def setup(root, ask, say):
         except CrewError as exc:
             say(str(exc))
 
+    selected = [workers[planner_i]] + [workers[i] for i in fleet_is]
+    unique = []
+    seen = set()
+    for worker in selected:
+        identity = (worker["kind"], worker["name"])
+        if identity not in seen:
+            unique.append(worker)
+            seen.add(identity)
+
+    say("\nProving the selected agents in throwaway git repos:")
+    for worker in unique:
+        proven, reason, _ = _probe_worker(worker)
+        worker.update(_proof_fields(proven, reason))
+        mark = "[OK]" if proven else "[!!]"
+        say(f"{mark} {worker['name']} — {reason}")
+
     crew = {
         "planner": workers[planner_i],
         "fleet": [workers[i] for i in fleet_is],
         "test_command": (test_cmd or "").strip(),
         "max_parallel": 2,
         "created": datetime.date.today().isoformat(),
+        # Report-verified non-CLI subscriptions (env forms only — no tokens).
+        "providers": providers_catalog(),
     }
     path = save_crew(root, crew)
     say(f"\nCrew saved to {path.relative_to(root)}.")
@@ -218,34 +495,130 @@ def setup(root, ask, say):
 
 # ------------------------------------------------------------- talking to a worker
 
+def _worker_timeout(worker, override=None):
+    raw = worker.get("timeout", DEFAULT_AGENT_TIMEOUT) if override is None else override
+    try:
+        timeout = float(raw)
+    except (TypeError, ValueError):
+        raise CrewError(f"{worker['name']} has an invalid timeout in {CREW_FILE}.")
+    if timeout <= 0:
+        raise CrewError(f"{worker['name']} has an invalid timeout in {CREW_FILE}.")
+    return int(timeout) if timeout.is_integer() else timeout
+
+
+def _short_failure(output, limit=240):
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    return lines[-1][:limit]
+
+
+def classify_failure(output, returncode=None, http_code=None):
+    """Map verified failure strings (report §7) to a short cause.
+
+    Returns a plain phrase like 'not logged in' or 'rate limited'. Falls
+    back to a short last-line snippet when nothing matches — never invents
+    a diagnosis the report did not support.
+    """
+    text = output or ""
+    for pattern, cause in _FAILURE_CAUSES:
+        if pattern.search(text):
+            return cause
+    if http_code == 401:
+        return "not logged in"
+    if http_code == 429:
+        return "rate limited"
+    if http_code is not None:
+        return f"HTTP {http_code}"
+    detail = _short_failure(text)
+    if detail:
+        return detail
+    if returncode is not None:
+        return f"exited {returncode}"
+    return "failed"
+
+
+def _resolve_worker_env(worker):
+    """Build a subprocess env for env-cli. Secrets stay in memory only."""
+    if not worker.get("env"):
+        return None
+    env = os.environ.copy()
+    for name, value in worker["env"].items():
+        if value.startswith("$"):
+            resolved = os.environ.get(value[1:], "")
+            if not resolved:
+                raise CrewError(
+                    f"{worker['name']} needs {value[1:]} set in your shell. "
+                    f"Add it, then run this again.")
+            env[name] = resolved
+        else:
+            env[name] = value
+    return env
+
+
 def _run_cli(worker, prompt, cwd, timeout):
     import shlex
-    cmd = worker["command"].replace("{prompt}", shlex.quote(prompt))
-    # A "hosted brain": a different model driven through a host CLI by
-    # setting env vars for this one invocation only. Never exported to
-    # your shell, never written to disk, never printed.
-    env = None
-    if worker.get("env"):
-        env = os.environ.copy()
-        for name, value in worker["env"].items():
-            if value.startswith("$"):          # indirect: read another var
-                resolved = os.environ.get(value[1:], "")
-                if not resolved:
-                    raise CrewError(
-                        f"{worker['name']} needs {value[1:]} set in your shell. "
-                        f"Add it, then run this again.")
-                env[name] = resolved
+    timeout = _worker_timeout(worker, timeout)
+    prompt_path = None
+    stdin = None
+    if len(prompt.encode("utf-8")) > LONG_PROMPT_BYTES:
+        if not cwd:
+            raise CrewError("a working directory is required for a long agent prompt")
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", prefix=".slopnet-prompt-",
+                suffix=".txt", delete=False) as handle:
+            handle.write(prompt)
+            prompt_path = pathlib.Path(handle.name)
+        transport = worker.get("long_transport")
+        cmd = worker.get("long_command", "")
+        if transport == "stdin":
+            stdin = prompt_path.read_text(encoding="utf-8")
+        elif transport == "file":
+            cmd = cmd.replace("{prompt_file}", shlex.quote(str(prompt_path)))
+        elif transport == "file-reference":
+            reference = (
+                f"Read the complete task brief at {prompt_path}, then follow every "
+                "instruction in it. Do not skip or truncate the file."
+            )
+            cmd = cmd.replace("{prompt}", shlex.quote(reference))
+        else:
+            prompt_path.unlink(missing_ok=True)
+            raise CrewError(
+                f"{worker['name']} has no safe long-prompt transport in {CREW_FILE}.")
+    else:
+        cmd = worker["command"].replace("{prompt}", shlex.quote(prompt))
+    try:
+        # env-cli / hosted brain: env vars for this one invocation only.
+        # Never exported to the shell, never written to disk, never printed.
+        env = _resolve_worker_env(worker)
+        popen_options = {"start_new_session": True} if os.name == "posix" else {}
+        proc = subprocess.Popen(
+            cmd, shell=True, cwd=cwd, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True, env=env,
+            **popen_options)
+        try:
+            stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if os.name == "posix":
+                os.killpg(proc.pid, signal.SIGKILL)
             else:
-                env[name] = value
-    proc = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True,
-                          text=True, timeout=timeout, env=env)
-    return proc.stdout + proc.stderr
+                proc.kill()
+            proc.communicate()
+            raise CrewError(f"agent timed out after {timeout}s")
+        output = stdout + stderr
+        if proc.returncode != 0:
+            raise CrewError(classify_failure(output, returncode=proc.returncode))
+        return output
+    finally:
+        if prompt_path is not None:
+            prompt_path.unlink(missing_ok=True)
 
 
 def _run_api(worker, prompt, timeout):
+    timeout = _worker_timeout(worker, timeout)
     key = os.environ.get(worker["key_env"], "")
     if not key:
-        raise CrewError(f"{worker['key_env']} is not set in this shell.")
+        raise CrewError("not logged in")
     model = worker.get("model") or ""
     if worker["api"] == "anthropic":
         body = {"model": model or "claude-sonnet-5", "max_tokens": 8192,
@@ -262,8 +635,19 @@ def _run_api(worker, prompt, timeout):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
+    except (TimeoutError, socket.timeout):
+        raise CrewError(f"agent timed out after {timeout}s")
     except urllib.error.HTTPError as exc:
-        raise CrewError(f"{worker['name']} refused the job: HTTP {exc.code}")
+        body = ""
+        try:
+            body = exc.read().decode(errors="replace")
+        except Exception:
+            body = ""
+        raise CrewError(classify_failure(body, http_code=exc.code))
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+            raise CrewError(f"agent timed out after {timeout}s")
+        raise CrewError(f"{worker['name']} unreachable: {exc.reason}")
     except Exception as exc:
         raise CrewError(f"{worker['name']} unreachable: {exc}")
     if "content" in data:  # anthropic shape
@@ -271,11 +655,21 @@ def _run_api(worker, prompt, timeout):
     return data["choices"][0]["message"]["content"]
 
 
-def ask_worker(worker, prompt, cwd=None, timeout=900):
+def ask_worker(worker, prompt, cwd=None, timeout=None):
     """One job, one answer. Never trusted — always validated by the caller."""
-    if worker["kind"] == "cli":
+    timeout = _worker_timeout(worker, timeout)
+    if worker["kind"] in ("cli", "env-cli"):
         return _run_cli(worker, prompt, cwd, timeout)
     return _run_api(worker, prompt, timeout)
+
+
+def require_proven(worker):
+    if worker.get("proven") is True:
+        return
+    reason = worker.get("proof") or "no successful setup probe"
+    raise CrewError(
+        f"{worker['name']} is unproven: {reason}. "
+        "Run `slopnet setup` before giving it real work.")
 
 
 # ------------------------------------------------------------------ planning
@@ -361,6 +755,7 @@ def parse_waves(text):
 def plan(root, idea, say):
     crew = load_crew(root)
     worker = crew["planner"]
+    require_proven(worker)
     say(f"[planner] {worker['name']} is thinking about: {idea[:60]}...")
     prompt = f"{PLANNER_BRIEF}\n\n# The idea\n{idea}\n"
     if crew.get("test_command"):
@@ -458,13 +853,15 @@ def _attempt(root, task, worker, crew, base_branch, say):
 
 def run(root, say, only_wave=None):
     crew = load_crew(root)
+    fleet = crew["fleet"]
+    if not fleet:
+        raise CrewError("Your crew has nobody to write code. Run `slopnet setup`.")
+    for worker in fleet:
+        require_proven(worker)
     waves_path = root / WAVES_FILE
     if not waves_path.exists():
         raise CrewError(f"No {WAVES_FILE} yet. Run `slopnet plan \"your idea\"` first.")
     waves = parse_waves(waves_path.read_text(encoding="utf-8"))
-    fleet = crew["fleet"]
-    if not fleet:
-        raise CrewError("Your crew has nobody to write code. Run `slopnet setup`.")
     refuse_fake_gate(crew.get("test_command", ""))
 
     code, dirty = _git(["status", "--porcelain"], root)

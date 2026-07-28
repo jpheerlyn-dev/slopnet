@@ -10,10 +10,15 @@ Three commands, in order:
 slopnet setup
 ```
 Meets your crew. It looks for coding agents you are already logged into
-(claude, codex, gemini, hermes, cursor-agent) and any API keys in your
-shell, then asks three plain questions: who plans, who writes code, and
-what command runs your tests. Saved to `.slopnet/crew.json` — edit it by
-hand any time.
+(claude, codex, gemini, grok, kimi, hermes, cursor-agent), any API keys in
+your shell, and non-CLI coding plans that the research report verified
+(today: **zAI GLM** via Claude Code when `ZAI_API_KEY` is set). Billing
+caveats from that report are printed in plain English before you pick.
+Each selected agent then has to create one exact file in a throwaway git
+repo. The command, 900-second default timeout, proof result, reason, date,
+and a `providers` section (env-var names and endpoints only — never
+tokens) are saved to `.slopnet/crew.json` — edit the timeout by hand any
+time.
 
 ```bash
 slopnet plan "a small web page that shows today's weather"
@@ -57,10 +62,43 @@ Every failure line says why: a wall's RULE, a test's last lines, or a
 merge conflict (that branch is kept so you can look). Nothing fails
 silently. Re-run a single wave with `--wave N` after fixing the cause.
 
-## Honest limits
+## Agent commands and proof on this machine
 
-The crew drives coding agents through their non-interactive "do one job"
-mode. Flags differ between tools and change between versions; if an agent
-does nothing, open `.slopnet/crew.json` and fix its `command` line — the
-`{prompt}` placeholder is where the task text goes. API workers default
-to a sensible model; set `"model"` in the same file to choose your own.
+These are the installed tools' real unattended edit commands, checked
+from their own help and then tested by asking each one to write
+`probe.txt`. `{prompt}` is shell-quoted by the runner.
+
+| Agent | Command used for a normal prompt | Edit permission | Prompts over 100 KiB | Probe on 2026-07-28 |
+|---|---|---|---|---|
+| `claude` | `claude --dangerously-skip-permissions -p {prompt}` | explicit bypass flag | stdin from a temporary file | **UNPROVEN** — OAuth session expired |
+| `codex` | `codex exec --dangerously-bypass-approvals-and-sandbox {prompt}` | explicit bypass flag | stdin from a temporary file | **PROVEN** — wrote the file in 10s |
+| `gemini` | `gemini --yolo -p {prompt}` | `--yolo` | stdin from a temporary file | **UNPROVEN** — no authentication method configured |
+| `grok` | `grok --permission-mode bypassPermissions -p {prompt}` | explicit bypass mode | `--prompt-file` | **PROVEN** — wrote the file in 5s |
+| `kimi` | `kimi -p {prompt}` | prompt mode itself uses `auto` permission | temporary file referenced by the prompt | **PROVEN** — wrote the file in 11s |
+| `hermes` | `hermes -z {prompt}` | one-shot mode auto-bypasses approvals | temporary file referenced by the prompt | **PROVEN** — wrote the file in 13s |
+
+On this Mac, Codex, Grok, Kimi, and Hermes are proven. Claude and Gemini
+are installed but are not trusted until the operator logs them in and
+runs `slopnet setup` again. An unproven agent is refused by `slopnet
+plan` and `slopnet run`; a process that exceeds its configured timeout
+fails plainly with `agent timed out after Ns`.
+
+Prompt files are removed after each attempt and task briefs are never
+truncated. API workers default to a sensible model; set `"model"` in
+`.slopnet/crew.json` to choose your own.
+
+## Non-CLI subscriptions (env-cli)
+
+Some coding plans ship no CLI of their own. The research report
+(`jobs/RESEARCH_subscriptions_REPORT.md`) is the only source for how
+they join the fleet:
+
+| Plan | How SlopNet reaches it | Host CLI | Env (token via `$VAR`) | Covers terminal? |
+|---|---|---|---|---|
+| **Kimi coding plan** | Its own CLI (`kimi`) | — | login via `kimi login` | **yes** — membership quota |
+| **zAI GLM coding plan** | `env-cli` worker `zai-glm` | `claude` | `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`, `ANTHROPIC_AUTH_TOKEN=$ZAI_API_KEY`, model defaults GLM-4.7 / GLM-4.5-Air | **yes** — Coding Plan quota, not cash balance |
+
+`env-cli` sets those variables for **one subprocess only**. Tokens are
+never written to `.slopnet/`, never printed, never put in the register.
+Auth/rate-limit failures use the report's §7 strings so you see
+`[!!] kimi — not logged in` rather than a generic exit code.
