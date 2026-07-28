@@ -5,13 +5,23 @@ agent in your browser. Save its answer as
 `jobs/RESEARCH_subscriptions_REPORT.md` in the slopnet repo. Job
 `J02_subscription_router.md` then implements what it finds.
 
-**Why it's needed:** two of the operator's six subscriptions (Moonshot
-Kimi's coding plan, zAI's coding plan) have no dedicated CLI installed on
-the machine. The common pattern is that such plans expose an
-Anthropic- or OpenAI-compatible endpoint you point an existing CLI at —
-but the exact variables, endpoints, and whether a *subscription* (as
-opposed to pay-per-token API credit) may be used this way must be
-verified from primary sources, not assumed.
+**Why it's needed — updated 2026-07-28 after installing both:**
+
+- **Kimi is solved.** Kimi Code CLI 0.29.2 installs to
+  `~/.kimi-code/bin/kimi`, is a real coding agent, and runs headlessly
+  as `kimi --auto -p "PROMPT"` (`--auto` = fully autonomous;
+  `-y/--yolo` still asks questions, so `--auto` is the one for
+  unattended work). Auth is `kimi login` (device-code flow).
+  Already wired into `crew.py`. **Question 1 below is now only about
+  whether the coding plan covers this CLI or bills separately.**
+- **zAI is NOT solved, and `zai-cli` is not the answer.** The installed
+  `zai-cli` v1.1.0 is a client for Z.AI's MCP *services* — vision,
+  search, page reading, repo browsing, and TypeScript tool chains. It
+  does not edit files in a project, so it cannot be a coding agent in
+  the fleet, and `zai-cli doctor` reports `apiKeyPresent: false` (it
+  wants an API key, i.e. credit, not the coding subscription).
+  **Question 2 is therefore the important one: how does the zAI/GLM
+  coding plan actually reach a terminal coding agent?**
 
 ---
 
@@ -28,27 +38,42 @@ The user's subscriptions:
 5. Moonshot Kimi coding plan
 6. zAI coding plan
 
-Already verified locally, do not re-research: claude -p "PROMPT"
-(--dangerously-skip-permissions), codex exec "PROMPT", gemini -p
-"PROMPT" (--yolo), grok -p "PROMPT" (--permission-mode ...),
-hermes -z "PROMPT".
+Already verified locally, do NOT re-research these invocations:
+  claude --dangerously-skip-permissions -p "PROMPT"
+  codex exec "PROMPT"
+  gemini --yolo -p "PROMPT"
+  grok --permission-mode bypassPermissions -p "PROMPT"
+  kimi --auto -p "PROMPT"        (Kimi Code CLI 0.29.2, auth: kimi login)
+  hermes -z "PROMPT"
+Also already established: the npm package `zai-cli` is a Z.AI MCP
+services client (vision/search/read/repo/tool-chains), NOT a coding
+agent, and it wants an API key rather than using the coding plan. Do not
+recommend it as a coding agent.
 
 ANSWER THESE, each with a primary source link (official docs, official
 repo, or vendor dashboard page) and a "last verified" date:
 
-1. MOONSHOT KIMI CODING PLAN
-   a. Does the plan include terminal/CLI use, or is it web/app only?
-   b. Is there an official Kimi CLI? If yes: install command and the
-      non-interactive invocation flags.
-   c. If it works by pointing another CLI at a compatible endpoint
-      (commonly Claude Code via ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN,
-      or an OpenAI-compatible base URL): give the exact variable names,
-      the exact endpoint URL, where the user obtains the token, and
-      whether the SUBSCRIPTION covers it or it bills separately as API
-      credit. Be explicit about that billing distinction.
-   d. Model identifiers to use.
+1. MOONSHOT KIMI CODING PLAN — the CLI is already installed and working
+   headlessly, so answer only:
+   a. Does the Kimi *coding plan* subscription cover use of Kimi Code CLI
+      (`kimi login`), or does CLI use draw on separately-billed API
+      credit? Quote the pricing/plan page.
+   b. Any documented limit on concurrent sessions or automated use.
+   c. Which model alias `-m` should point at for coding work.
 
-2. zAI CODING PLAN — the same four questions (a–d).
+2. zAI / GLM CODING PLAN — the important one. The npm `zai-cli` is an MCP
+   tools client, not a coding agent, so:
+   a. Is there an OFFICIAL zAI/GLM coding-agent CLI? Name, install
+      command, non-interactive flags, auth method.
+   b. If not: does the coding plan expose an Anthropic-compatible or
+      OpenAI-compatible endpoint intended to be used with an existing
+      agent CLI (e.g. Claude Code via ANTHROPIC_BASE_URL +
+      ANTHROPIC_AUTH_TOKEN)? Give the exact variable names, the exact
+      endpoint URL, where the token comes from, and — stated plainly —
+      whether the CODING PLAN covers this or it bills as API credit.
+   c. Model identifiers for coding work.
+   d. Anything in the terms that forbids driving it automatically or in
+      parallel.
 
 3. GROK BUILD — is CLI use included in the standard paid plan, and does
    it authenticate by login or by API key?

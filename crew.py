@@ -42,9 +42,22 @@ KNOWN_AGENTS = {
     "codex": '{exe} exec {prompt}',
     "gemini": '{exe} --yolo -p {prompt}',
     "grok": '{exe} --permission-mode bypassPermissions -p {prompt}',
+    "kimi": '{exe} --auto -p {prompt}',
     "hermes": '{exe} -z {prompt}',
     "cursor-agent": '{exe} --print {prompt}',
 }
+
+# Tools that look like coding agents but are NOT, so setup never offers
+# them a coding job. Being wrong here wastes a whole run, so each entry
+# says what the tool actually is.
+NOT_CODERS = {
+    "zai-cli": "a client for Z.AI's search/vision/web tools — it does not "
+               "edit files in your project. Your zAI coding plan reaches the "
+               "fleet a different way (see jobs/J02).",
+}
+
+# Some CLIs install outside the default PATH; look there too.
+EXTRA_BINS = ["~/.kimi-code/bin", "~/.grok/bin", "~/.local/bin"]
 
 # API providers, if someone would rather use a key than a logged-in CLI.
 KNOWN_KEYS = {
@@ -91,11 +104,24 @@ def save_crew(root, crew):
     return path
 
 
+def find_exe(name):
+    """shutil.which, plus the folders CLI installers commonly use — a tool
+    installed a minute ago may not be on PATH until the shell restarts."""
+    exe = shutil.which(name)
+    if exe:
+        return exe
+    for folder in EXTRA_BINS:
+        candidate = pathlib.Path(folder).expanduser() / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 def available_workers():
     """Everything on this machine that could do a job, CLIs first."""
     found = []
     for name, template in KNOWN_AGENTS.items():
-        exe = shutil.which(name)
+        exe = find_exe(name)
         if exe:
             found.append({"kind": "cli", "name": name, "command":
                           template.replace("{exe}", exe)})
@@ -121,6 +147,9 @@ def setup(root, ask, say):
     say("Found on this machine:")
     for label in labels:
         say(f"  - {label}")
+    for name, why in NOT_CODERS.items():
+        if find_exe(name):
+            say(f"  - {name} — NOT offered: {why}")
     say("")
 
     planner_i = ask("Who should PLAN the work? (best thinker)", labels)
