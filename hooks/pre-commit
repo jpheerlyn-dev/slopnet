@@ -1,0 +1,16 @@
+#!/bin/sh
+# slopnet-armed
+# Runs the fast Lefthook suite when present, or the same checks directly.
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+cd "$root" || exit 1
+
+if [ -x .slopnet/bin/lefthook ] && [ ! -e .slopnet/fallback ]; then
+  exec .slopnet/bin/lefthook run pre-commit --no-auto-install
+fi
+
+for c in checks/*.sh; do
+  sh "$c" || exit 1
+done
+
+exit 0

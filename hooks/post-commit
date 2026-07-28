@@ -1,0 +1,22 @@
+#!/bin/sh
+# slopnet-armed
+# Writes one machine entry after a commit and never blocks work if logging fails.
+
+(
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+  cd "$root" || exit 0
+  day=$(date +%F) || exit 0
+  file="register/$day.md"
+  mkdir -p register || exit 0
+  if [ ! -f "$file" ]; then
+    printf '# Register — %s\n' "$day" > "$file" || exit 0
+  fi
+  time=$(date +%H:%M) || exit 0
+  sha=$(git rev-parse --short HEAD 2>/dev/null) || exit 0
+  author=$(git log -1 --format=%an 2>/dev/null) || exit 0
+  subject=$(git log -1 --format=%s 2>/dev/null) || exit 0
+  files=$(git diff-tree --no-commit-id --name-only -r --root HEAD 2>/dev/null | awk 'END { print NR + 0 }') || exit 0
+  printf -- '- [%s] commit %s by %s: "%s" (%s files)\n' "$time" "$sha" "$author" "$subject" "$files" >> "$file" || exit 0
+) >/dev/null 2>&1
+
+exit 0

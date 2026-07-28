@@ -1,0 +1,15 @@
+pre-commit:
+  parallel: true
+  commands:
+    secrets:
+      run: sh checks/secrets.sh
+    protected-paths:
+      run: sh checks/protected-paths.sh
+    naming:
+      run: sh checks/naming.sh
+    junk:
+      run: sh checks/junk.sh
+    slop-lint:
+      run: sh checks/slop-lint.sh
+    register:
+      run: sh checks/register.sh

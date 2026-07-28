@@ -1,0 +1,8 @@
+title = "SlopNet"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Allow the documented example environment file."
+paths = ['''(^|/)\.env\.example$''']

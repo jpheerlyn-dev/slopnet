@@ -1,0 +1,53 @@
+name: SlopNet
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  law:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+      - name: Run every law check
+        shell: sh
+        run: |
+          set -eu
+          for check in checks/*.sh; do
+            sh "$check" --all
+          done
+
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+      - name: Verify the machinery manifest
+        shell: sh
+        run: |
+          set -eu
+
+          verify_manifest() {
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum -c MANIFEST.sha256 >/dev/null 2>&1
+            elif command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 -c MANIFEST.sha256 >/dev/null 2>&1
+            else
+              return 1
+            fi
+          }
+
+          if ! verify_manifest; then
+            printf '%s\n' 'Machinery changed without a manifest update: this is either tampering or a maintenance change; regenerate MANIFEST.sha256 in the same commit.'
+            exit 1
+          fi
+
+  register-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+      - name: Check the register day-file
+        shell: sh
+        run: sh checks/register.sh --all
