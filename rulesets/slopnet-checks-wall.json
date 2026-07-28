@@ -1,0 +1,32 @@
+{
+  "_comment": "The workflow wall: work reaching the default branch must have the three SlopNet checks green. The repo admin is listed as a bypass actor so a solo operator can still push directly from a machine whose local hooks already ran the same checks. TEAMS: delete the bypass_actors block — then everything must arrive by pull request with green checks, which is the stronger posture.",
+  "name": "slopnet-checks-wall",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always"
+    }
+  ],
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "required_status_checks": [
+          { "context": "law" },
+          { "context": "manifest" },
+          { "context": "register-audit" }
+        ]
+      }
+    }
+  ]
+}

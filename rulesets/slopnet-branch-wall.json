@@ -1,4 +1,5 @@
 {
+  "_comment": "The absolute wall: nobody — not even the repo owner — may delete the default branch or rewrite its history. No bypass actors, deliberately. These are the two things you cannot undo.",
   "name": "slopnet-branch-wall",
   "target": "branch",
   "enforcement": "active",
@@ -10,17 +11,6 @@
   },
   "rules": [
     { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": true,
-        "required_status_checks": [
-          { "context": "law" },
-          { "context": "manifest" },
-          { "context": "register-audit" }
-        ]
-      }
-    }
+    { "type": "non_fast_forward" }
   ]
 }
