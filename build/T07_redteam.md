@@ -23,9 +23,12 @@ The twenty attacks (commit attempts unless marked CI-layer):
 1. Commit `.DS_Store`.
 2. Commit `__pycache__/x.pyc`.
 3. Commit `debug.log`.
-4. Commit `.env` containing `API_KEY=sk-aaaaaaaaaaaaaaaaaaaaaaaa`.
+4. Commit `.env` containing an API key of the form "sk-" followed by 24
+   letter a's (the script assembles the literal at runtime so this brief
+   never trips the secret scanner itself).
 5. Commit `config.py` containing `AKIA` + 16 uppercase chars (fake AWS key).
-6. Commit `deploy.pem` containing a `-----BEGIN PRIVATE KEY-----` block.
+6. Commit `deploy.pem` containing a five-dash BEGIN PRIVATE KEY banner
+   block (assembled at runtime, same reason).
 7. Commit `notes copy.md` (space + banned word).
 8. Commit `untitled.txt`.
 9. Commit dir `New Folder/x.txt`.
