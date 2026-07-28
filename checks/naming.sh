@@ -80,7 +80,7 @@ else
 fi
 
 if [ -n "$hits" ]; then
-  fail "$(printf '%s\n' "$hits" | summarize) break the naming law (spaces, banned words, backup suffixes, or non-lowercase directories)." \
+  fail "Naming law broken: $(printf '%s\n' "$hits" | summarize) (spaces, banned words, backup suffixes, or non-lowercase directories)." \
     "Messy names make files unfindable and hide which version is the real one." \
     "Rename to one clear lowercase hyphenated name and restage; the operator owns all naming."
 fi
