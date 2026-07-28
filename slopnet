@@ -1,0 +1,512 @@
+#!/usr/bin/env python3
+"""slopnet — one command for the whole SlopNet ritual.
+
+  slopnet init             arm this repo: hooks, register, health check
+  slopnet doctor [--fix]   health checklist; --fix re-arms + applies rulesets
+  slopnet check [--all]    run the walls right now (before wasting a commit)
+  slopnet sign "TEXT"      append your register entry for today
+  slopnet orbit new NAME   spin up an idea-repo next door + its registry row
+  slopnet adapt            wire up the coding tools found in this checkout
+  slopnet mcp              serve SlopNet over MCP stdio (the universal adapter)
+
+Standard library only — no installs, ever. The law lives in checks/; this
+file is porcelain around it and must never contain a rule of its own.
+Architecture note (stolen from StormCode): the engine here has zero UI
+dependencies; anything fancier than print() belongs in a separate skin.
+"""
+
+import argparse
+import datetime
+import json
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+
+VERSION = "0.2"
+
+
+# ---------------------------------------------------------------- helpers
+
+def repo_root():
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        die("git is not installed. SlopNet needs git.")
+    if out.returncode != 0:
+        return None
+    return pathlib.Path(out.stdout.strip())
+
+
+def die(msg, code=1):
+    print(msg)
+    sys.exit(code)
+
+
+def sh(cmd, cwd=None):
+    """Run a command, return (exit_code, combined_output)."""
+    proc = subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, shell=isinstance(cmd, str),
+    )
+    return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+
+def today():
+    return datetime.datetime.now().strftime("%Y-%m-%d")
+
+
+def now_hm():
+    return datetime.datetime.now().strftime("%H:%M")
+
+
+def who_am_i(explicit=None):
+    if explicit:
+        return explicit
+    code, name = sh(["git", "config", "user.name"])
+    return name if code == 0 and name else "unknown"
+
+
+def day_file(root):
+    reg = root / "register"
+    reg.mkdir(exist_ok=True)
+    path = reg / f"{today()}.md"
+    if not path.exists():
+        path.write_text(f"# Register — {today()}\n", encoding="utf-8")
+    return path
+
+
+# ------------------------------------------------------------------ check
+
+def run_checks(root, all_mode):
+    """Run every checks/*.sh; return (ok, report_text)."""
+    checks_dir = root / "checks"
+    if not checks_dir.is_dir():
+        return False, "This repo has no checks/ folder — is it a SlopNet repo?"
+    lines, ok = [], True
+    for script in sorted(checks_dir.glob("*.sh")):
+        cmd = ["sh", str(script)] + (["--all"] if all_mode else [])
+        code, out = sh(cmd, cwd=root)
+        if code == 0:
+            lines.append(f"[OK] {script.name}")
+        else:
+            ok = False
+            lines.append(f"[!!] {script.name}")
+            lines.append(out)
+    lines.append("All walls standing." if ok else "A wall said no — read its FIX line.")
+    return ok, "\n".join(lines)
+
+
+def cmd_check(root, args):
+    ok, report = run_checks(root, args.all)
+    print(report)
+    sys.exit(0 if ok else 1)
+
+
+# ------------------------------------------------------------------- sign
+
+def sign_register(root, text, who):
+    path = day_file(root)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(f"\n## {now_hm()} — {who} did\n\n{text.rstrip()}\n")
+    return path
+
+
+def cmd_sign(root, args):
+    path = sign_register(root, args.text, who_am_i(args.who))
+    print(f"Signed {path.relative_to(root)}.")
+
+
+# ----------------------------------------------------------- session data
+
+def pending_open_items(root):
+    path = root / "register" / "PENDING_OPERATOR.md"
+    if not path.exists():
+        return ""
+    lines, keep = [], False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## Open"):
+            keep = True
+            continue
+        if line.startswith("## "):
+            keep = False
+        if keep and line.strip():
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def session_start_text(root):
+    parts = [f"SlopNet session briefing — {today()} {now_hm()}"]
+    reg = root / "register"
+    days = sorted(reg.glob("????-??-??.md")) if reg.is_dir() else []
+    for label, path in [("Today", days[-1] if days else None),
+                        ("Previous day", days[-2] if len(days) > 1 else None)]:
+        if path:
+            parts.append(f"--- {label} ({path.name}) ---\n{path.read_text(encoding='utf-8').strip()}")
+    open_items = pending_open_items(root)
+    parts.append("--- Open questions (answer NOTHING by guessing) ---\n"
+                 + (open_items if open_items else "(none)"))
+    parts.append("Ritual: obey FIX lines; never rename; sign the register "
+                 "before you finish (slopnet sign \"...\").")
+    return "\n\n".join(parts)
+
+
+def cmd_pending(root, args):
+    path = root / "register" / "PENDING_OPERATOR.md"
+    if not path.exists():
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("# PENDING_OPERATOR — questions waiting for the human\n\n"
+                        "## Open\n\n## Ruled\n", encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    entry = f"- [{today()}, {who_am_i(args.who)}] {args.question}\n"
+    marker = "## Open\n"
+    if marker in text:
+        text = text.replace(marker, marker + "\n" + entry, 1)
+    else:
+        text += f"\n## Open\n\n{entry}"
+    path.write_text(text, encoding="utf-8")
+    print("Question filed. Never guess instead.")
+
+
+# ------------------------------------------------------------------- init
+
+def cmd_init(root, args):
+    if root is None:
+        code, out = sh(["git", "init"])
+        if code != 0:
+            die(f"git init failed:\n{out}")
+        print("[OK] Started a fresh git repository.")
+        root = repo_root()
+    installer = root / "install.sh"
+    if installer.exists():
+        code, out = sh(["bash", str(installer)], cwd=root)
+        print(out)
+        if code != 0:
+            die("install.sh failed — read its message above.")
+    else:
+        print("[??] No install.sh here — is this a SlopNet template checkout?")
+    day_file(root)
+    if args.github:
+        if shutil.which("gh") is None:
+            print("[!!] --github needs the gh CLI (cli.github.com), logged in.")
+        else:
+            code, _ = sh(["git", "remote", "get-url", "origin"], cwd=root)
+            if code != 0:
+                name = root.name
+                code, out = sh(["gh", "repo", "create", name, "--private",
+                                "--source", str(root), "--push"], cwd=root)
+                print(out if out else f"[OK] Created private repo {name} and pushed.")
+            apply_sh = root / "rulesets" / "apply-rulesets.sh"
+            if apply_sh.exists():
+                code, out = sh(["bash", str(apply_sh)], cwd=root)
+                print(out)
+    doc = root / "doctor.sh"
+    if doc.exists():
+        code, out = sh(["bash", str(doc)], cwd=root)
+        print(out)
+    print("Armed. Your two habits: work normally, and `slopnet sign` before you stop.")
+
+
+# ----------------------------------------------------------------- doctor
+
+def cmd_doctor(root, args):
+    if args.fix:
+        installer = root / "install.sh"
+        if installer.exists():
+            code, out = sh(["bash", str(installer)], cwd=root)
+            print(out)
+        apply_sh = root / "rulesets" / "apply-rulesets.sh"
+        if apply_sh.exists() and shutil.which("gh"):
+            code, out = sh(["bash", str(apply_sh)], cwd=root)
+            print(out)
+    doc = root / "doctor.sh"
+    if not doc.exists():
+        die("No doctor.sh here — is this a SlopNet repo?")
+    code, out = sh(["bash", str(doc)], cwd=root)
+    print(out)
+    sys.exit(code)
+
+
+# ------------------------------------------------------------------ orbit
+
+ORBIT_README = """# {name}
+
+One or two lines: what this idea is, in plain words.
+
+Part of {trunk}'s SlopNet (see SLOPNET.md in the main repo).
+Status: cooking
+Calls: <which main-app APIs>
+Last known good: {date} against main-repo commit {sha}
+
+## Run it
+<the one or two commands>
+"""
+
+ORBIT_AGENTS = """# AGENTS.md — idea-repo rules (SlopNet)
+
+This is an experiment orbiting the {trunk} main repo. Rules:
+
+1. Talk to the main app over HTTP only (local dev server). Never import
+   its internals; never touch its files or data folders.
+2. Never use production URLs, keys, or user data.
+3. The operator names things. Don't rename anything.
+4. Log every session in LOG.md: date — model — what changed — what's broken.
+5. Keep it small enough to explain to a ten-year-old. If it stops fitting
+   in your head, tell the operator instead of adding folders.
+"""
+
+
+def cmd_orbit(root, args):
+    name = args.name
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
+        die(f"'{name}' breaks the naming law. One clear lowercase-hyphenated "
+            "name, chosen by the operator.")
+    target = root.parent / name
+    if target.exists():
+        die(f"{target} already exists — orbits are never built on top of something.")
+    code, sha = sh(["git", "rev-parse", "--short", "HEAD"], cwd=root)
+    sha = sha if code == 0 else "none"
+    target.mkdir()
+    (target / "README.md").write_text(
+        ORBIT_README.format(name=name, trunk=root.name, date=today(), sha=sha),
+        encoding="utf-8")
+    (target / "AGENTS.md").write_text(
+        ORBIT_AGENTS.format(trunk=root.name), encoding="utf-8")
+    (target / "LOG.md").write_text(
+        f"# LOG — sessions on {name}. Newest at bottom.\n", encoding="utf-8")
+    for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+                ["git", "commit", "-q", "-m", f"{name}: orbit born"]):
+        code, out = sh(cmd, cwd=target)
+        if code != 0:
+            die(f"git step failed in {target}:\n{out}")
+    row = (f"| {name} | (local: ../{name}) | <what it is — operator fills in> "
+           f"| <calls> | cooking | {today()} @ {sha} |")
+    slop = root / "SLOPNET.md"
+    if slop.exists():
+        lines = slop.read_text(encoding="utf-8").splitlines()
+        last_row = None
+        for i, line in enumerate(lines):
+            if line.startswith("Statuses:"):
+                break
+            if line.startswith("|"):
+                last_row = i
+        if last_row is not None:
+            lines.insert(last_row + 1, row)
+            slop.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            print(f"[OK] Registry row added to SLOPNET.md.")
+        else:
+            print(f"[??] Couldn't find the registry table; add this row yourself:\n{row}")
+    print(f"[OK] Orbit '{name}' born at {target}. Build wild — the trunk can't feel it.")
+
+
+# ------------------------------------------------------------------ adapt
+
+def mcp_snippet(root):
+    return json.dumps({
+        "mcpServers": {
+            "slopnet": {
+                "command": "python3",
+                "args": [str(root / "slopnet"), "mcp"],
+            }
+        }
+    }, indent=2)
+
+
+def cmd_adapt(root, args):
+    found = []
+    for tool, marker in [("Claude Code", ".claude"), ("Cursor", ".cursor"),
+                         ("VS Code", ".vscode"), ("Gemini CLI", ".gemini")]:
+        if (root / marker).exists():
+            found.append(tool)
+    for exe in ("claude", "cursor", "codex", "gemini", "hermes"):
+        if shutil.which(exe) and exe not in [f.lower() for f in found]:
+            found.append(f"{exe} (on PATH)")
+    print("Tools detected: " + (", ".join(found) if found else "none yet") + "\n")
+
+    adapter = root / "adapters" / "claude-code"
+    claude_dir = root / ".claude"
+    if adapter.is_dir() and not claude_dir.exists():
+        shutil.copytree(adapter, claude_dir)
+        print("[OK] Claude Code adapter installed to .claude/ "
+              "(prompt auto-logging + protected-path guard + session skill).")
+    elif claude_dir.exists():
+        print("[OK] .claude/ already present — leaving it alone.")
+
+    print("\nFor ANY MCP-capable tool (Cursor, Codex, Gemini CLI, VS Code, "
+          "Hermes…), give it this server config:\n")
+    print(mcp_snippet(root))
+    print("\nThat single server is the universal adapter — session briefing, "
+          "register signing, and the walls, callable from inside the tool.")
+
+
+# -------------------------------------------------------------------- mcp
+
+MCP_TOOLS = [
+    {"name": "session_start",
+     "description": "Read this FIRST each session: today's register, the "
+                    "previous day, and every open question you must not guess at.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "check",
+     "description": "Run the SlopNet walls now, before attempting a commit. "
+                    "Returns RULE/WHY/FIX lines for anything that would be blocked.",
+     "inputSchema": {"type": "object", "properties": {
+         "scope": {"type": "string", "enum": ["staged", "all"]}}}},
+    {"name": "sign_register",
+     "description": "Append your session entry to today's register. Do this "
+                    "before your final message: files touched, commands run, "
+                    "what changed, what's left.",
+     "inputSchema": {"type": "object", "properties": {
+         "text": {"type": "string"}, "who": {"type": "string"}},
+         "required": ["text"]}},
+    {"name": "pending_add",
+     "description": "File a question for the human operator instead of guessing.",
+     "inputSchema": {"type": "object", "properties": {
+         "question": {"type": "string"}, "who": {"type": "string"}},
+         "required": ["question"]}},
+    {"name": "doctor",
+     "description": "Run the SlopNet health checklist for this repo.",
+     "inputSchema": {"type": "object", "properties": {}}},
+]
+
+
+def mcp_call(root, name, arguments):
+    if name == "session_start":
+        return True, session_start_text(root)
+    if name == "check":
+        ok, report = run_checks(root, arguments.get("scope", "staged") == "all")
+        return ok, report
+    if name == "sign_register":
+        who = arguments.get("who") or "agent (via MCP)"
+        path = sign_register(root, arguments["text"], who)
+        return True, f"Signed {path.name}."
+    if name == "pending_add":
+        ns = argparse.Namespace(question=arguments["question"],
+                                who=arguments.get("who"))
+        cmd_pending(root, ns)
+        return True, "Question filed in register/PENDING_OPERATOR.md."
+    if name == "doctor":
+        doc = root / "doctor.sh"
+        if not doc.exists():
+            return False, "No doctor.sh in this repo."
+        code, out = sh(["bash", str(doc)], cwd=root)
+        return code == 0, out
+    return False, f"Unknown tool: {name}"
+
+
+def cmd_mcp(root, args):
+    def reply(msg_id, result=None, error=None):
+        msg = {"jsonrpc": "2.0", "id": msg_id}
+        if error is not None:
+            msg["error"] = error
+        else:
+            msg["result"] = result
+        sys.stdout.write(json.dumps(msg) + "\n")
+        sys.stdout.flush()
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        method, msg_id = msg.get("method", ""), msg.get("id")
+        params = msg.get("params") or {}
+        if method == "initialize":
+            reply(msg_id, {
+                "protocolVersion": params.get("protocolVersion", "2025-06-18"),
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "slopnet", "version": VERSION},
+            })
+        elif method.startswith("notifications/"):
+            continue
+        elif method == "ping":
+            reply(msg_id, {})
+        elif method == "tools/list":
+            reply(msg_id, {"tools": MCP_TOOLS})
+        elif method == "tools/call":
+            try:
+                ok, text = mcp_call(root, params.get("name", ""),
+                                    params.get("arguments") or {})
+                reply(msg_id, {"content": [{"type": "text", "text": text}],
+                               "isError": not ok})
+            except Exception as exc:  # a tool crash must not kill the server
+                reply(msg_id, {"content": [{"type": "text",
+                                            "text": f"slopnet error: {exc}"}],
+                               "isError": True})
+        elif msg_id is not None:
+            reply(msg_id, error={"code": -32601,
+                                 "message": f"Method not found: {method}"})
+
+
+# ------------------------------------------------------------------- main
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="slopnet", description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--version", action="version", version=f"slopnet {VERSION}")
+    sub = parser.add_subparsers(dest="command")
+
+    p = sub.add_parser("init", help="arm this repo")
+    p.add_argument("--github", action="store_true",
+                   help="also create the private GitHub repo, push, apply rulesets (needs gh)")
+
+    p = sub.add_parser("doctor", help="health checklist")
+    p.add_argument("--fix", action="store_true", help="re-arm hooks + apply rulesets first")
+
+    p = sub.add_parser("check", help="run the walls now")
+    p.add_argument("--all", action="store_true", help="whole tree, not just staged")
+
+    p = sub.add_parser("sign", help="append your register entry for today")
+    p.add_argument("text")
+    p.add_argument("--who", default=None)
+
+    p = sub.add_parser("pending", help="file a question for the operator")
+    p.add_argument("question")
+    p.add_argument("--who", default=None)
+
+    p = sub.add_parser("orbit", help="idea-repo commands")
+    orbit_sub = p.add_subparsers(dest="orbit_command")
+    p2 = orbit_sub.add_parser("new", help="spin up an idea-repo next door")
+    p2.add_argument("name")
+
+    sub.add_parser("adapt", help="wire up detected coding tools")
+    sub.add_parser("mcp", help="serve SlopNet over MCP stdio")
+
+    args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        return
+
+    root = repo_root()
+    if args.command == "init":
+        cmd_init(root, args)
+        return
+    if root is None:
+        die("Not inside a git repository. Run `slopnet init` to start one.")
+
+    if args.command == "doctor":
+        cmd_doctor(root, args)
+    elif args.command == "check":
+        cmd_check(root, args)
+    elif args.command == "sign":
+        cmd_sign(root, args)
+    elif args.command == "pending":
+        cmd_pending(root, args)
+    elif args.command == "orbit":
+        if args.orbit_command != "new":
+            die("Usage: slopnet orbit new <name>")
+        cmd_orbit(root, args)
+    elif args.command == "adapt":
+        cmd_adapt(root, args)
+    elif args.command == "mcp":
+        cmd_mcp(root, args)
+
+
+if __name__ == "__main__":
+    main()
