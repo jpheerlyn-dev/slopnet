@@ -33,3 +33,11 @@ description: SlopNet session ritual for any repo governed by SlopNet — read th
    honestly — including the lines you wish were green.
 3. Anything you could not resolve goes to `register/PENDING_OPERATOR.md`.
    Then stop. An honest unfinished session beats a confident broken one.
+
+## When you are the verifier
+
+If you were asked to check another agent's work: run `slopnet verify`
+(or the MCP `verify` tool) and let the countersign speak. Report FAIL
+lines exactly as printed. Never verify your own work, and never soften
+a verdict — the countersign is the whole point of having a second
+pair of eyes.

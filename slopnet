@@ -5,6 +5,9 @@
   slopnet doctor [--fix]   health checklist; --fix re-arms + applies rulesets
   slopnet check [--all]    run the walls right now (before wasting a commit)
   slopnet sign "TEXT"      append your register entry for today
+  slopnet verify [--quick] re-run every proof and COUNTERSIGN the register —
+                           meant to be run by a DIFFERENT agent than the one
+                           whose work is being verified
   slopnet orbit new NAME   spin up an idea-repo next door + its registry row
   slopnet adapt            wire up the coding tools found in this checkout
   slopnet mcp              serve SlopNet over MCP stdio (the universal adapter)
@@ -230,6 +233,57 @@ def cmd_doctor(root, args):
     sys.exit(code)
 
 
+# ----------------------------------------------------------------- verify
+
+def run_verification(root, quick, who):
+    """Re-run every proof; countersign the register; return (ok, report)."""
+    results = []
+
+    ok, _ = run_checks(root, all_mode=True)
+    results.append(("walls (checks --all)", ok))
+
+    if (root / "MANIFEST.sha256").exists():
+        code, _ = sh("shasum -a 256 -c MANIFEST.sha256 >/dev/null 2>&1 "
+                     "|| sha256sum -c MANIFEST.sha256 >/dev/null 2>&1", cwd=root)
+        results.append(("machinery manifest", code == 0))
+
+    doc = root / "doctor.sh"
+    if doc.exists():
+        code, _ = sh(["bash", str(doc)], cwd=root)
+        results.append(("doctor", code == 0))
+
+    redteam = root / "tests" / "redteam.sh"
+    if redteam.exists() and not quick:
+        code, out = sh(["bash", str(redteam)], cwd=root)
+        score = next((l for l in out.splitlines() if l.startswith("SCORE:")), "no score")
+        results.append((f"red-team ({score.strip()})", code == 0))
+    elif quick:
+        results.append(("red-team", None))  # skipped, say so honestly
+
+    ok_all = all(ok for _, ok in results if ok is not None)
+    lines = []
+    for name, ok in results:
+        mark = "SKIPPED (--quick)" if ok is None else ("PASS" if ok else "FAIL")
+        lines.append(f"- {mark} — {name}")
+    code, sha = sh(["git", "rev-parse", "--short", "HEAD"], cwd=root)
+    verdict = "verified" if ok_all else "NOT verified — read the FAIL lines"
+    body = (f"COUNTERSIGN at commit {sha if code == 0 else 'unknown'}:\n\n"
+            + "\n".join(lines) + f"\n\nVerdict: {verdict}")
+
+    path = day_file(root)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(f"\n## {now_hm()} — {who} countersigned\n\n{body}\n")
+    return ok_all, body
+
+
+def cmd_verify(root, args):
+    ok, body = run_verification(root, args.quick, who_am_i(args.who))
+    print(body)
+    print("\nCountersign written to the register. An honest FAIL is worth "
+          "more than a polite PASS.")
+    sys.exit(0 if ok else 1)
+
+
 # ------------------------------------------------------------------ orbit
 
 ORBIT_README = """# {name}
@@ -369,6 +423,14 @@ MCP_TOOLS = [
     {"name": "doctor",
      "description": "Run the SlopNet health checklist for this repo.",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "verify",
+     "description": "COUNTERSIGN another agent's work: re-run the walls, "
+                    "manifest, and doctor, then write the countersign to the "
+                    "register. Run this when you are the second, independent "
+                    "verifier — never on your own work. (The full red-team is "
+                    "CLI-only: `slopnet verify` without --quick.)",
+     "inputSchema": {"type": "object", "properties": {
+         "who": {"type": "string"}}}},
 ]
 
 
@@ -393,6 +455,9 @@ def mcp_call(root, name, arguments):
             return False, "No doctor.sh in this repo."
         code, out = sh(["bash", str(doc)], cwd=root)
         return code == 0, out
+    if name == "verify":
+        who = arguments.get("who") or "second agent (via MCP)"
+        return run_verification(root, True, who)
     return False, f"Unknown tool: {name}"
 
 
@@ -470,6 +535,10 @@ def main():
     p.add_argument("question")
     p.add_argument("--who", default=None)
 
+    p = sub.add_parser("verify", help="re-run every proof and countersign the register")
+    p.add_argument("--quick", action="store_true", help="skip the red-team (faster, weaker)")
+    p.add_argument("--who", default=None)
+
     p = sub.add_parser("orbit", help="idea-repo commands")
     orbit_sub = p.add_subparsers(dest="orbit_command")
     p2 = orbit_sub.add_parser("new", help="spin up an idea-repo next door")
@@ -498,6 +567,8 @@ def main():
         cmd_sign(root, args)
     elif args.command == "pending":
         cmd_pending(root, args)
+    elif args.command == "verify":
+        cmd_verify(root, args)
     elif args.command == "orbit":
         if args.orbit_command != "new":
             die("Usage: slopnet orbit new <name>")

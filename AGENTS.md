@@ -9,6 +9,8 @@ The machinery in `checks/` is the law — this file only points.
 4. Do not create empty folders.
 5. New ideas go in orbit repos described in `SLOPNET.md`, never in this main repo.
 6. Sign a LOG-style entry in the register before finishing.
+7. Work is DONE only when a different agent has run `slopnet verify` and
+   its countersign shows in the register. Never countersign your own work.
 
 ## If you are a small model
 
