@@ -59,6 +59,29 @@ NOT_CODERS = {
 # Some CLIs install outside the default PATH; look there too.
 EXTRA_BINS = ["~/.kimi-code/bin", "~/.grok/bin", "~/.local/bin"]
 
+# HOSTED BRAINS — a different model driven through a host CLI you already
+# have, by setting env vars for that one run. This is how a coding plan
+# that ships no CLI of its own still joins the fleet, and it means those
+# models inherit the host's permission model, prompt format, and output
+# shape: one protocol instead of five.
+#
+# Only key-based plans can do this. A subscription that logs in through
+# the vendor's own account (Claude, Google AI Pro, ChatGPT, Grok) is tied
+# to that vendor's CLI and CANNOT be redirected — see jobs/J08.
+#
+# "$NAME" means "read this from the operator's environment at run time",
+# so tokens never live in a config file. base_url values are left blank
+# on purpose: the operator fills them in from the provider's own docs
+# (or its setup helper), because inventing an endpoint would be a guess.
+HOSTED_BRAINS = {
+    "zai-glm": {
+        "host": "claude",
+        "docs": "https://docs.z.ai/devpack/tool/claude — or run: npx @z_ai/coding-helper",
+        "env": {"ANTHROPIC_BASE_URL": "", "ANTHROPIC_AUTH_TOKEN": "$ZAI_API_KEY"},
+        "note": "Z.AI's GLM coding plan, driven through Claude Code.",
+    },
+}
+
 # API providers, if someone would rather use a key than a logged-in CLI.
 KNOWN_KEYS = {
     "ANTHROPIC_API_KEY": ("anthropic", "https://api.anthropic.com/v1/messages"),
@@ -129,6 +152,20 @@ def available_workers():
         if os.environ.get(env):
             found.append({"kind": "api", "name": env.replace("_API_KEY", "").lower(),
                           "api": api, "url": url, "key_env": env, "model": ""})
+    # Hosted brains: offered only when their host CLI exists AND the
+    # operator's key is in the environment. Anything else would be a
+    # worker that cannot possibly work.
+    for name, spec in HOSTED_BRAINS.items():
+        host_exe = find_exe(spec["host"])
+        key_var = next((v[1:] for v in spec["env"].values() if v.startswith("$")), "")
+        if host_exe and key_var and os.environ.get(key_var):
+            if not spec["env"].get("ANTHROPIC_BASE_URL"):
+                continue  # endpoint not filled in yet — see jobs/J08
+            found.append({
+                "kind": "cli", "name": name,
+                "command": KNOWN_AGENTS[spec["host"]].replace("{exe}", host_exe),
+                "env": spec["env"], "hosted_by": spec["host"],
+            })
     return found
 
 
@@ -184,8 +221,24 @@ def setup(root, ask, say):
 def _run_cli(worker, prompt, cwd, timeout):
     import shlex
     cmd = worker["command"].replace("{prompt}", shlex.quote(prompt))
+    # A "hosted brain": a different model driven through a host CLI by
+    # setting env vars for this one invocation only. Never exported to
+    # your shell, never written to disk, never printed.
+    env = None
+    if worker.get("env"):
+        env = os.environ.copy()
+        for name, value in worker["env"].items():
+            if value.startswith("$"):          # indirect: read another var
+                resolved = os.environ.get(value[1:], "")
+                if not resolved:
+                    raise CrewError(
+                        f"{worker['name']} needs {value[1:]} set in your shell. "
+                        f"Add it, then run this again.")
+                env[name] = resolved
+            else:
+                env[name] = value
     proc = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True,
-                          text=True, timeout=timeout)
+                          text=True, timeout=timeout, env=env)
     return proc.stdout + proc.stderr
 
 

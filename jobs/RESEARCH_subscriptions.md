@@ -61,19 +61,24 @@ repo, or vendor dashboard page) and a "last verified" date:
    b. Any documented limit on concurrent sessions or automated use.
    c. Which model alias `-m` should point at for coding work.
 
-2. zAI / GLM CODING PLAN — the important one. The npm `zai-cli` is an MCP
-   tools client, not a coding agent, so:
-   a. Is there an OFFICIAL zAI/GLM coding-agent CLI? Name, install
-      command, non-interactive flags, auth method.
-   b. If not: does the coding plan expose an Anthropic-compatible or
-      OpenAI-compatible endpoint intended to be used with an existing
-      agent CLI (e.g. Claude Code via ANTHROPIC_BASE_URL +
-      ANTHROPIC_AUTH_TOKEN)? Give the exact variable names, the exact
-      endpoint URL, where the token comes from, and — stated plainly —
-      whether the CODING PLAN covers this or it bills as API credit.
-   c. Model identifiers for coding work.
+2. zAI / GLM CODING PLAN — mostly answered by Z.AI's own docs, which say
+   the plan is used by pointing **Claude Code** at it with an API key
+   from z.ai/manage-apikey, and that Claude Code's Opus/Sonnet/Haiku
+   model variables map to GLM models. `npx @z_ai/coding-helper`
+   configures this automatically. So answer only what remains:
+   a. The exact `ANTHROPIC_BASE_URL` value for the GLM coding plan,
+      quoted from Z.AI's own documentation (not a blog). This is the one
+      value SlopNet still needs.
+   b. The current model ids to set for
+      ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL (docs showed GLM-4.7;
+      the page also references a newer GLM-5.2 — say which is current
+      and how to switch).
+   c. Does the CODING PLAN cover this usage, or does it draw
+      pay-per-token API credit? Quote the pricing page.
    d. Anything in the terms that forbids driving it automatically or in
       parallel.
+   e. Is Claude Code the only supported host, or are Codex/other CLIs
+      documented too?
 
 3. GROK BUILD — is CLI use included in the standard paid plan, and does
    it authenticate by login or by API key?
