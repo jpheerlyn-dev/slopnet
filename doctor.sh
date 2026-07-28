@@ -100,7 +100,18 @@ else
   if [[ -z "$repository" || -z "$default_branch" ]]; then
     unknown "$instruction"
   else
-    if required_checks=$(gh api "repos/$repository/branches/$default_branch/protection" \
+    # Rulesets are how GitHub protects branches now; the older
+    # branches/*/protection endpoint cannot see them. Ask about rulesets
+    # first, then fall back so older setups still report correctly.
+    if required_checks=$(gh api "repos/$repository/rulesets?includes_parents=true" \
+      --jq '.[].id' 2>/dev/null | while IFS= read -r ruleset_id; do
+        gh api "repos/$repository/rulesets/$ruleset_id" \
+          --jq 'select(.enforcement=="active") | .rules[]
+                 | select(.type=="required_status_checks")
+                 | .parameters.required_status_checks[].context' 2>/dev/null
+      done) && [[ -n "$required_checks" ]]; then
+      api_status=0
+    elif required_checks=$(gh api "repos/$repository/branches/$default_branch/protection" \
       --jq '[ (.required_status_checks.contexts // []), ((.required_status_checks.checks // []) | map(.context)) ] | add | .[]' \
       2>/dev/null); then
       api_status=0
@@ -126,7 +137,7 @@ else
         fi
       done
       if [[ "$protection_ok" -eq 1 ]]; then
-        ok 'Branch protection requires all three SlopNet checks.'
+        ok 'The server wall requires all three SlopNet checks.'
       else
         bad "$instruction"
       fi
