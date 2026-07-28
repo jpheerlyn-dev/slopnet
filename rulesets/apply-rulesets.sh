@@ -7,11 +7,16 @@
 #   ./rulesets/apply-rulesets.sh          apply every ruleset here
 #   ./rulesets/apply-rulesets.sh --check  list what is already active
 #
-# Plain truth about plans: GitHub ENFORCES rulesets on public repos for
-# free; on private repos enforcement needs a paid plan. Applying them on
-# a free private repo saves the configuration but it will not bite until
-# the repo goes public or the plan changes. doctor.sh tells you which
-# state you are in.
+# Plain truth, verified against the API on 2026-07-28:
+#   * BRANCH rulesets (required checks, no force-push, no deletion) work
+#     on any public repo for free. This is the important one.
+#   * PUSH rulesets (blocking junk paths/extensions/big files at the
+#     server) are ORG-OWNED repos only — GitHub refuses them on
+#     user-owned repos, public or private: "Source only org-owned repos
+#     can have push rules". Nothing you can configure changes that.
+#     Until this repo lives in an organisation, those same rules are
+#     enforced by checks/junk.sh + checks/naming.sh locally and in CI,
+#     which is why SlopNet never relied on the push wall alone.
 
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
