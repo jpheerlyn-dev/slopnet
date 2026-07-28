@@ -20,9 +20,11 @@ paths=$(
       install.sh \
       doctor.sh \
       slopnet \
+      tests/redteam.sh \
       update-manifest.sh \
       .github/workflows/slopnet.yml \
-      .github/workflows/watchman.yml
+      .github/workflows/watchman.yml \
+      .github/workflows/selftest.yml
   } | LC_ALL=C sort
 )
 
