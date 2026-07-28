@@ -19,6 +19,7 @@ paths=$(
       .gitleaks.toml \
       install.sh \
       doctor.sh \
+      slopnet \
       update-manifest.sh \
       .github/workflows/slopnet.yml \
       .github/workflows/watchman.yml

@@ -117,3 +117,35 @@ V01 CLI core (init/doctor/check/sign) → V02 orbit + adapt → V03 MCP
 server → V04 second-agent verification harness → V05 red-team the CLI
 itself (including an MCP-level attack round). T09 (**REDACTED**)
 stays parked behind the naming audit, unchanged.
+
+**Progress note (2026-07-28, same day):** V01–V03 were built directly
+by the operator's session agent rather than dispatched — the `slopnet`
+CLI at repo root now ships init / doctor[--fix] / check[--all] / sign /
+pending / orbit new / adapt / mcp, all scratch-tested (init→check→sign→
+pending→orbit→adapt plus a full piped MCP session: initialize,
+tools/list, tools/call). Still open: V04 (second-agent verification
+harness) and V05 (red-team the CLI + MCP attack round).
+
+## 7. Harvested from StormCode (the operator's own orchestrator)
+
+StormCode (~/Desktop/stormcode) is a working multi-agent pipeline —
+planner → plan.yaml → scheduler → implementer-in-worktree → tests-as-
+oracle → reviewer gate → merge — with live-proven runs. It independently
+converged on SlopNet's philosophy, which is strong evidence for both.
+Taken into SlopNet now or next:
+
+- **Engine/UI separation** (StormCode's engine has zero UI imports) —
+  adopted as a stated rule in the CLI's docstring.
+- **Refuse fake gates:** StormCode refuses a live run if the test
+  command looks like an always-pass stub (`exit 0`, `echo OK`). Steal
+  for v0.3: a doctor line that sniffs stub test-gates.
+- **Protected-path globs** in its gates.py — v0.3 upgrade path for
+  PROTECTED.txt from prefixes to globs.
+- **Plan contract validation** (unique ids, real deps, acyclic, one
+  repair round, "a bad plan never executes") — the blueprint for
+  SlopNet wave-briefs when multi-agent dispatch arrives.
+- **Relationship:** StormCode is the factory, SlopNet is the law. A
+  StormCode swarm working inside a SlopNet repo already hits the walls
+  at every merge; wiring StormCode's `gates.test_command` to
+  `slopnet check --all` + tests makes the marriage explicit. StormCode
+  joins STACK.md as a worker companion.
