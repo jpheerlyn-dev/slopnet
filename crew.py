@@ -673,7 +673,10 @@ def _run_cli(worker, prompt, cwd, timeout, cancel_event=None):
         output = stdout + stderr
         if proc.returncode != 0:
             raise CrewError(classify_failure(output, returncode=proc.returncode))
-        return output
+        # Agent CLIs commonly write progress (including an echoed copy of
+        # the final answer) to stderr and the machine-readable answer to
+        # stdout. Feeding both to the plan parser duplicates valid tasks.
+        return stdout if stdout.strip() else stderr
     finally:
         if prompt_path is not None:
             prompt_path.unlink(missing_ok=True)

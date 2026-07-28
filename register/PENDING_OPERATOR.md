@@ -1,7 +1,5 @@
 ## Open
 
-- [2026-07-28, Codex] J03's required real-agent acceptance is blocked by this execution sandbox. The installed Codex worker reached its probe but failed with 'failed to initialize in-process app-server client: Operation not permitted'; the other installed workers also failed their probes. An unsandboxed retry was denied because the disposable idea/task prompt and repo files would be sent to an external coding service without destination-specific approval. Operator: approve sending that disposable acceptance payload to OpenAI Codex, or run the exact J03 acceptance command in Apple Terminal.
-
 - [2026-07-28, Codex] J01 live probe: Gemini is installed but unproven because no authentication method is configured. Please configure Gemini CLI authentication, then rerun `python3 ./slopnet setup`.
 
 - [2026-07-28, Codex] J01 live probe: Claude is installed but unproven because its OAuth session expired and could not be refreshed. Please log Claude Code in, then rerun `python3 ./slopnet setup`.
@@ -16,3 +14,5 @@
 
 - [2026-07-28, Grok J02] Does the Kimi *coding plan* cover raw `MOONSHOT_API_KEY` HTTP use, or only the Kimi Code CLI / login-linked key? Report confirms CLI membership cover; API-credit boundary for naked HTTP was not verified, so no billing caveat was hard-coded on that `api` worker.
 ## Ruled
+
+- [2026-07-28, operator] Approved sending the disposable J03 acceptance prompt and scratch-repository contents to OpenAI Codex. The real run then merged `T1-print-current-date`, passed its pytest and all walls, reused the crew and unchanged plan on the second run, and left a clean tree with no worktree or branch leftovers after Ctrl-C.
