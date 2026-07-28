@@ -11,7 +11,7 @@ cd "$root" || exit 1
 
 paths=$(
   {
-    for path in checks/*.sh hooks/*; do
+    for path in checks/*.sh hooks/* rulesets/*; do
       printf '%s\n' "$path"
     done
     printf '%s\n' \
@@ -20,7 +20,8 @@ paths=$(
       install.sh \
       doctor.sh \
       update-manifest.sh \
-      .github/workflows/slopnet.yml
+      .github/workflows/slopnet.yml \
+      .github/workflows/watchman.yml
   } | LC_ALL=C sort
 )
 
