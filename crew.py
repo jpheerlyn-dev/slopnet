@@ -32,13 +32,17 @@ import urllib.request
 CREW_FILE = ".slopnet/crew.json"
 WAVES_FILE = "WAVES.md"
 
-# Agents we know how to drive, and the flag that makes them do one
-# non-interactive job. Onboarding only offers what you actually have.
+# How to make each agent do ONE job and stop. Verified on 2026-07-28 by
+# reading each tool's own --help; jobs/J01_agent_adapters.md keeps this
+# table honest. The auto-approve flags matter: without them an agent
+# waits forever for a human to confirm each edit. That is safe here only
+# because every attempt runs inside a throwaway git worktree.
 KNOWN_AGENTS = {
-    "claude": '{exe} --print {prompt}',
+    "claude": '{exe} --dangerously-skip-permissions -p {prompt}',
     "codex": '{exe} exec {prompt}',
-    "gemini": '{exe} --prompt {prompt}',
-    "hermes": '{exe} --print {prompt}',
+    "gemini": '{exe} --yolo -p {prompt}',
+    "grok": '{exe} --permission-mode bypassPermissions -p {prompt}',
+    "hermes": '{exe} -z {prompt}',
     "cursor-agent": '{exe} --print {prompt}',
 }
 
