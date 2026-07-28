@@ -12,6 +12,11 @@
   slopnet adapt            wire up the coding tools found in this checkout
   slopnet mcp              serve SlopNet over MCP stdio (the universal adapter)
 
+  slopnet setup            meet your crew: which agents plan, which write code
+  slopnet plan "IDEA"      the planner turns your idea into WAVES.md
+  slopnet run [--wave N]   the crew works: parallel worktrees, walls + tests
+                           as judge, only proven work merged
+
 Standard library only — no installs, ever. The law lives in checks/; this
 file is porcelain around it and must never contain a rule of its own.
 Architecture note (stolen from StormCode): the engine here has zero UI
@@ -396,6 +401,73 @@ def cmd_adapt(root, args):
           "register signing, and the walls, callable from inside the tool.")
 
 
+# ------------------------------------------------------------------- crew
+
+def load_crew_module(root):
+    """crew.py lives beside this file; import it without needing a package."""
+    import importlib.util
+    path = pathlib.Path(__file__).resolve().parent / "crew.py"
+    if not path.exists():
+        die("crew.py is missing — this checkout is incomplete.")
+    spec = importlib.util.spec_from_file_location("slopnet_crew", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def ask_operator(question, options, multi=False):
+    """Plain-language prompt. Returns an index, or a list of indexes."""
+    print(f"\n{question}")
+    if options is None:
+        return input("> ").strip()
+    for i, option in enumerate(options, start=1):
+        print(f"  {i}. {option}")
+    while True:
+        raw = input("> ").strip()
+        try:
+            picks = [int(p) - 1 for p in raw.replace(" ", "").split(",") if p]
+        except ValueError:
+            picks = []
+        if picks and all(0 <= p < len(options) for p in picks):
+            return picks if multi else picks[0]
+        print("Type the number(s) you want, like: 1" + (" or 1,2" if multi else ""))
+
+
+def cmd_setup(root, args):
+    crew = load_crew_module(root)
+    try:
+        crew.setup(root, ask_operator, print)
+    except crew.CrewError as exc:
+        die(str(exc))
+    print("\nNext: slopnet plan \"what you want built\"")
+
+
+def cmd_plan(root, args):
+    crew = load_crew_module(root)
+    try:
+        crew.plan(root, args.idea, print)
+    except crew.CrewError as exc:
+        die(str(exc))
+    print("Read WAVES.md. If it looks right: slopnet run")
+
+
+def cmd_run(root, args):
+    crew = load_crew_module(root)
+    try:
+        done, failed = crew.run(root, print, only_wave=args.wave)
+    except crew.CrewError as exc:
+        die(str(exc))
+    print(f"\nMerged: {len(done)}   Failed: {len(failed)}")
+    if failed:
+        print("Nothing failed silently — each line above says why.")
+    sign_register(root, "Crew run — merged: "
+                  + (", ".join(done) if done else "none")
+                  + ("; failed: " + "; ".join(f"{t} ({w})" for t, w in failed)
+                     if failed else ""),
+                  "the crew")
+    sys.exit(1 if failed else 0)
+
+
 # -------------------------------------------------------------------- mcp
 
 MCP_TOOLS = [
@@ -547,6 +619,14 @@ def main():
     sub.add_parser("adapt", help="wire up detected coding tools")
     sub.add_parser("mcp", help="serve SlopNet over MCP stdio")
 
+    sub.add_parser("setup", help="meet your crew (onboarding)")
+
+    p = sub.add_parser("plan", help="turn an idea into WAVES.md")
+    p.add_argument("idea")
+
+    p = sub.add_parser("run", help="the crew works through WAVES.md")
+    p.add_argument("--wave", type=int, default=None, help="run just this wave")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -577,6 +657,12 @@ def main():
         cmd_adapt(root, args)
     elif args.command == "mcp":
         cmd_mcp(root, args)
+    elif args.command == "setup":
+        cmd_setup(root, args)
+    elif args.command == "plan":
+        cmd_plan(root, args)
+    elif args.command == "run":
+        cmd_run(root, args)
 
 
 if __name__ == "__main__":
