@@ -34,6 +34,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 
 VERSION = "0.2"
 ARM_CHECKS = (
@@ -548,12 +549,174 @@ def cmd_plan(root, args):
     print("Read WAVES.md. If it looks right: slopnet run")
 
 
+# ----------------------------------------------------------- live status view
+#
+# The runner (crew.py) does the work and reports state through an `emit`
+# callback as plain snapshots. Every byte of the display lives here in the
+# skin: the engine moves no cursor. A wide terminal is repainted in place
+# with plain ANSI; anything piped (or too narrow) degrades to one clean
+# line per state change, with no escape codes at all.
+
+def _fmt_clock(seconds):
+    seconds = max(0, int(seconds))
+    return "%dm%02ds" % (seconds // 60, seconds % 60)
+
+
+def _live_state_text(task):
+    state = task.get("state", "")
+    if state == "FAILED":
+        reason = task.get("reason") or ""
+        return "FAILED — " + reason if reason else "FAILED"
+    return state
+
+
+def _live_pad(left, right, width):
+    gap = width - len(left) - len(right)
+    if gap < 2:
+        text = left + "  " + right
+        return text if len(text) <= width else text[:width]
+    return left + " " * gap + right
+
+
+class LiveView:
+    """Paints the runner's status snapshots.
+
+    In a wide terminal it draws a block and redraws it in place; piped or
+    narrow output prints one line per change. Nothing is written until the
+    first snapshot arrives, and the final block is left on screen."""
+
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.width = shutil.get_terminal_size((80, 24)).columns
+        self.is_wide_tty = (
+            self.width >= 60 and self._stream_is_tty(stream))
+        self._drawn = 0
+        self._wave = 0
+        self._plain_wave = 0
+        self._plain_prev = {}
+        self._plain_note = ""
+
+    @staticmethod
+    def _stream_is_tty(stream):
+        try:
+            return stream.isatty()
+        except Exception:
+            return False
+
+    def render(self, snapshot):
+        # wave 0 is the brief instant before the first wave starts; paint
+        # nothing for it so no placeholder line lingers above the block.
+        if not snapshot.get("wave", 0):
+            return
+        if self.is_wide_tty:
+            self._paint(snapshot)
+        else:
+            self._plain(snapshot)
+
+    def _paint(self, snapshot):
+        now = time.monotonic()
+        wave = snapshot.get("wave", 0)
+        if wave != self._wave:
+            # Moving from one finished wave to the next: leave the old
+            # block on screen and start the new one below it.
+            if self._wave >= 1:
+                self._drawn = 0
+            self._wave = wave
+        lines = self._block(snapshot, now)
+        prev = self._drawn
+        # Move to the top of the block (if any), then clear-and-write each
+        # line. A leading \r on every line keeps columns honest even when a
+        # raw PTY does not translate \n into \r\n.
+        body = ("\r\033[%dA" % prev) if prev else ""
+        body += "".join("\r\033[2K" + line + "\n" for line in lines)
+        # If the block shrank (e.g. a silence hint just vanished), wipe the
+        # stale lines left behind, then climb back to just past the block.
+        leftover = prev - len(lines)
+        if leftover > 0:
+            body += "".join("\r\033[2K\n" for _ in range(leftover))
+            body += "\r\033[%dA" % leftover
+        self.stream.write(body)
+        self.stream.flush()
+        self._drawn = len(lines)
+
+    def _block(self, snapshot, now):
+        width = self.width
+        tasks = snapshot.get("tasks", [])
+        wave = snapshot.get("wave", 0)
+        lines = []
+        if wave:
+            head = "Wave %d of %d" % (wave, snapshot.get("wave_total") or wave)
+            elapsed = _fmt_clock(now - snapshot.get("wave_started", now))
+            lines.append(_live_pad(head, elapsed, width))
+        else:
+            lines.append("Starting…")
+        id_w = min(22, max([len(t.get("id", "")) for t in tasks] + [8]))
+        ag_w = min(14, max([len(t.get("agent", "")) for t in tasks] + [6]))
+        for task in tasks:
+            state = _live_state_text(task)
+            base = task.get("started") or snapshot.get("wave_started", now)
+            elapsed = _fmt_clock(now - base)
+            left = ("  " + task.get("id", "").ljust(id_w) + "  "
+                    + task.get("agent", "").ljust(ag_w) + "  " + state)
+            lines.append(_live_pad(left, elapsed, width))
+            silent_for = now - task.get("last_event", now)
+            if task.get("state") == "working…" and silent_for > 120:
+                hint = "    (%s is still thinking — %s)" % (
+                    task.get("agent") or "agent", _fmt_clock(silent_for))
+                lines.append(self.DIM + hint + self.RESET)
+        note = snapshot.get("note") or ""
+        if note:
+            lines.append(self.DIM + "  " + note + self.RESET)
+        return lines
+
+    def _plain(self, snapshot):
+        wave = snapshot.get("wave", 0)
+        out = []
+        if wave and wave != self._plain_wave:
+            self._plain_wave = wave
+            out.append("--- Wave %d of %d ---" % (
+                wave, snapshot.get("wave_total") or wave))
+        for task in snapshot.get("tasks", []):
+            tid = task.get("id", "")
+            disp = _live_state_text(task)
+            if self._plain_prev.get(tid) != disp:
+                self._plain_prev[tid] = disp
+                out.append("  %s  %s  %s" % (
+                    tid, task.get("agent", ""), disp))
+        note = snapshot.get("note") or ""
+        if note and note != self._plain_note:
+            self._plain_note = note
+            out.append("  " + note)
+        if out:
+            self.stream.write("\n".join(out) + "\n")
+            self.stream.flush()
+
+    def finish(self):
+        # The last painted block is meant to stay. On a raw PTY the final
+        # line feed leaves the cursor off column zero, so nudge it back;
+        # a pipe gets nothing extra (the acceptance wants no escape codes).
+        if self.is_wide_tty:
+            self.stream.write("\r")
+        try:
+            self.stream.flush()
+        except Exception:
+            pass
+        self._drawn = 0
+
+
 def cmd_run(root, args):
     crew = load_crew_module(root)
+    view = LiveView(sys.stdout)
     try:
-        done, failed = crew.run(root, print, only_wave=args.wave)
+        done, failed = crew.run(
+            root, print, only_wave=args.wave, emit=view.render)
     except crew.CrewError as exc:
+        view.finish()
         die(str(exc))
+    view.finish()
     print(f"\nMerged: {len(done)}   Failed: {len(failed)}")
     if failed:
         print("Nothing failed silently — each line above says why.")
@@ -689,6 +852,7 @@ def cmd_go(root, args):
             die(str(exc))
 
     crew = load_crew_module(root)
+    view = LiveView(sys.stdout)
     try:
         if not (root / crew.CREW_FILE).exists():
             crew.setup(
@@ -719,8 +883,10 @@ def cmd_go(root, args):
                 print("The plan was kept. Nothing ran.")
                 return 0
 
-        done, failed = crew.run(root, print, only_wave=args.wave)
+        done, failed = crew.run(
+            root, print, only_wave=args.wave, emit=view.render)
     except crew.RunInterrupted as exc:
+        view.finish()
         text = ("Go run interrupted — merged before interruption: "
                 + (", ".join(exc.done) if exc.done else "none")
                 + ("; earlier failures: "
@@ -737,6 +903,7 @@ def cmd_go(root, args):
                   interrupted=True)
         return 130
     except KeyboardInterrupt:
+        view.finish()
         try:
             record_go(root, "Go was interrupted before the crew run began.")
         except RuntimeError as record_error:
@@ -745,6 +912,7 @@ def cmd_go(root, args):
         report_go([], [], walls_ok, go_next_command(args), interrupted=True)
         return 130
     except (crew.CrewError, RuntimeError) as exc:
+        view.finish()
         failed = [("go", str(exc))]
         try:
             record_go(root, f"Go stopped — {exc}")
@@ -754,6 +922,7 @@ def cmd_go(root, args):
         report_go([], failed, walls_ok, go_next_command(args))
         return 1
 
+    view.finish()
     walls_ok, walls_report = run_checks(root, all_mode=True)
     if not walls_ok:
         failed.append(("walls", walls_report.replace("\n", " / ")))

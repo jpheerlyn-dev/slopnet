@@ -871,8 +871,15 @@ def _git(args, cwd):
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
-def _attempt(root, task, worker, crew, base_branch, say, cancel_event=None):
-    """One task, in its own worktree. Returns (ok, branch, note)."""
+def _attempt(root, task, worker, crew, base_branch, say, cancel_event=None,
+             set_state=None):
+    """One task, in its own worktree. Returns (ok, branch, note).
+
+    `set_state`, when given, is told the task's plain-word state as it moves
+    through the gates (working…, checking…, testing…). It is the only hook
+    the live view has into the runner; all rendering stays with the caller,
+    so the engine never moves a cursor.
+    """
     tid = task["id"]
     branch = f"slopnet/{tid}"
     wt = pathlib.Path(root / ".slopnet" / "worktrees" / tid)
@@ -883,6 +890,8 @@ def _attempt(root, task, worker, crew, base_branch, say, cancel_event=None):
         return False, branch, f"could not make a workspace: {out}"
 
     try:
+        if set_state:
+            set_state("working…")
         prompt = WORKER_BRIEF + f"{tid}\n{task['body']}\n"
         try:
             ask_worker(worker, prompt, cwd=str(wt),
@@ -898,6 +907,8 @@ def _attempt(root, task, worker, crew, base_branch, say, cancel_event=None):
         # Gate 1 — the walls, judging the STAGED work. This must happen
         # BEFORE the commit: the checks read the staged diff, so checking
         # afterwards would find an empty stage and pass on anything.
+        if set_state:
+            set_state("checking…")
         for check in sorted((root / "checks").glob("*.sh")):
             proc = subprocess.run(["sh", str(check)], cwd=wt,
                                   capture_output=True, text=True)
@@ -912,6 +923,8 @@ def _attempt(root, task, worker, crew, base_branch, say, cancel_event=None):
 
         # Gate 2 — the project's own tests. An agent never self-certifies.
         if crew.get("test_command"):
+            if set_state:
+                set_state("testing…")
             popen_options = (
                 {"start_new_session": True} if os.name == "posix" else {})
             proc = subprocess.Popen(
@@ -953,7 +966,116 @@ def _cleanup_run(root, task_ids):
         _git(["branch", "-D", f"slopnet/{tid}"], root)
 
 
-def run(root, say, only_wave=None):
+# ------------------------------------------------------------- live status
+#
+# The runner keeps the work; this object keeps the clock. It holds each
+# task's plain-word state and pushes a plain snapshot through `emit` about
+# once a second — so the clock keeps moving even while an agent is silent.
+# It moves no cursor and writes no text: every byte of the display is the
+# caller's job (the engine stays UI-free, inherited from StormCode).
+
+class LiveStatus:
+    """Per-task state + a ticking emit. UI-free: state only, never rendered."""
+
+    def __init__(self, emit, interval=1.0):
+        self._emit = emit
+        self._interval = interval
+        self._lock = threading.Lock()
+        self._wave = 0
+        self._wave_total = 0
+        self._wave_started = time.monotonic()
+        self._note = ""
+        self._tasks = []
+        self._index = {}
+        self._stop = threading.Event()
+        self._thread = None
+
+    @staticmethod
+    def _blank(tid, agent):
+        now = time.monotonic()
+        return {"id": tid, "agent": agent, "state": "waiting", "reason": "",
+                "started": None, "last_event": now}
+
+    def assign(self, tid, agent):
+        with self._lock:
+            if tid not in self._index:
+                self._index[tid] = len(self._tasks)
+                self._tasks.append(self._blank(tid, agent))
+            else:
+                self._tasks[self._index[tid]]["agent"] = agent
+
+    def start_wave(self, number, total):
+        with self._lock:
+            self._wave = number
+            self._wave_total = total
+            self._wave_started = time.monotonic()
+            self._tasks = []
+            self._index = {}
+            self._note = ""
+
+    def set_state(self, tid, state, reason=""):
+        now = time.monotonic()
+        with self._lock:
+            if tid not in self._index:
+                self._index[tid] = len(self._tasks)
+                self._tasks.append(self._blank(tid, ""))
+            task = self._tasks[self._index[tid]]
+            task["state"] = state
+            task["reason"] = reason or ""
+            task["last_event"] = now
+            if task["started"] is None and state == "working…":
+                task["started"] = now
+
+    def set_note(self, note):
+        with self._lock:
+            self._note = note or ""
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "wave": self._wave,
+                "wave_total": self._wave_total,
+                "wave_started": self._wave_started,
+                "note": self._note,
+                "tasks": [dict(task) for task in self._tasks],
+            }
+
+    def start(self):
+        def loop():
+            while True:
+                try:
+                    self._emit(self.snapshot())
+                except Exception:
+                    pass
+                if self._stop.wait(self._interval):
+                    try:
+                        self._emit(self.snapshot())
+                    except Exception:
+                        pass
+                    return
+        self._thread = threading.Thread(
+            target=loop, name="slopnet-live-tick", daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+        self._thread = None
+
+
+def _make_set_state(live, tid):
+    """Bind a task id to LiveStatus.set_state, or return None when no live
+    view is attached (so _attempt's calls simply vanish)."""
+    if live is None:
+        return None
+
+    def set_state(state, reason=""):
+        live.set_state(tid, state, reason)
+    return set_state
+
+
+def run(root, say, only_wave=None, emit=None):
     crew = load_crew(root)
     fleet = crew["fleet"]
     if not fleet:
@@ -972,6 +1094,19 @@ def run(root, say, only_wave=None):
                         "from a clean tree so nothing of yours can be lost.")
     _, base_branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], root)
 
+    # A live view is entirely optional. When `emit` is given, the runner
+    # reports state through it (and stays silent about the lines the live
+    # block already shows); without it, behaviour is exactly as before.
+    live = LiveStatus(emit) if emit else None
+    if live is not None:
+        live.start()
+
+    def announce(message):
+        # The lines the live block already renders are not printed twice.
+        if live is not None:
+            return
+        say(message)
+
     done, failed = [], []
     cancel_event = threading.Event()
     task_ids = [task["id"] for wave in waves for task in wave]
@@ -979,17 +1114,22 @@ def run(root, say, only_wave=None):
         for number, wave in enumerate(waves, start=1):
             if only_wave and number != only_wave:
                 continue
-            say(f"\n=== Wave {number}: {len(wave)} task(s) ===")
+            if live is not None:
+                live.start_wave(number, len(waves))
+            announce(f"\n=== Wave {number}: {len(wave)} task(s) ===")
             limit = max(1, int(crew.get("max_parallel", 2)))
             pool = concurrent.futures.ThreadPoolExecutor(max_workers=limit)
             futures = {}
             try:
                 for i, task in enumerate(wave):
                     worker = fleet[i % len(fleet)]
-                    say(f"  {task['id']} → {worker['name']}")
+                    if live is not None:
+                        live.assign(task["id"], worker["name"])
+                    announce(f"  {task['id']} → {worker['name']}")
+                    set_state = _make_set_state(live, task["id"])
                     future = pool.submit(
                         _attempt, root, task, worker, crew, base_branch, say,
-                        cancel_event)
+                        cancel_event, set_state)
                     futures[future] = task
                 results = []
                 for future in concurrent.futures.as_completed(futures):
@@ -998,6 +1138,9 @@ def run(root, say, only_wave=None):
                         ok, branch, note = future.result()
                     except Exception as exc:
                         ok, branch, note = False, None, f"crashed: {exc}"
+                    # Show a failure the moment it happens, not only at merge.
+                    if live is not None and not ok:
+                        live.set_state(task["id"], "FAILED", note)
                     results.append((task, ok, branch, note))
             except KeyboardInterrupt:
                 cancel_event.set()
@@ -1015,23 +1158,33 @@ def run(root, say, only_wave=None):
                     code, out = _git(["merge", "--no-ff", branch, "-m",
                                       f"{task['id']}: proven by the crew"], root)
                     if code == 0:
-                        say(f"  [MERGED] {task['id']} — {note}")
+                        if live is not None:
+                            live.set_state(task["id"], "MERGED")
+                        announce(f"  [MERGED] {task['id']} — {note}")
                         done.append(task["id"])
                     else:
                         _git(["merge", "--abort"], root)
-                        say(f"  [CONFLICT] {task['id']} — left on branch {branch}")
+                        if live is not None:
+                            live.set_state(task["id"], "FAILED", "merge conflict")
+                        announce(f"  [CONFLICT] {task['id']} — left on branch {branch}")
                         failed.append((task["id"], "merge conflict"))
                         continue
                 else:
-                    say(f"  [FAILED] {task['id']} — {note}")
+                    announce(f"  [FAILED] {task['id']} — {note}")
                     failed.append((task["id"], note))
                 _git(["branch", "-D", branch], root)
             if failed:
-                say("  (later waves may depend on the failed work — "
-                    "check before continuing)")
+                note_text = ("later waves may depend on the failed work — "
+                             "check before continuing")
+                if live is not None:
+                    live.set_note(note_text)
+                announce("  (" + note_text + ")")
     except KeyboardInterrupt:
         cancel_event.set()
         _git(["merge", "--abort"], root)
         _cleanup_run(root, task_ids)
         raise RunInterrupted(done, failed)
+    finally:
+        if live is not None:
+            live.stop()
     return done, failed
