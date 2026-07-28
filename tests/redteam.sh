@@ -259,6 +259,31 @@ attack_23() {
   ! python3 ./slopnet check >/dev/null 2>&1
 }
 
+attack_24() {
+  # Garbage on stdin must not kill the MCP server: it skips the junk
+  # line and still answers the ping that follows.
+  local out
+  out=$(printf '%s\n' \
+    'this is not json {{{' \
+    '{"jsonrpc":"2.0","id":1,"method":"ping"}' \
+    | python3 ./slopnet mcp) || return 1
+  printf '%s' "$out" | grep -q '"id": 1'
+}
+
+attack_25() {
+  # A tool call missing its required argument must come back as isError,
+  # and the server must keep serving afterwards. A crashed guard is an
+  # open gate.
+  local out
+  out=$(printf '%s\n' \
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sign_register","arguments":{}}}' \
+    '{"jsonrpc":"2.0","id":3,"method":"ping"}' \
+    | python3 ./slopnet mcp) || return 1
+  printf '%s' "$out" | grep -q '"isError": true' || return 1
+  printf '%s' "$out" | grep -c '"jsonrpc"' | grep -qx '3'
+}
+
 record_landed() {
   local number=$1
   local label=$2
@@ -267,7 +292,7 @@ record_landed() {
     printf '\n## Redteam — attack %s landed\n\n' "$number"
     printf -- '- %s landed in the temporary workspace; inspect the failing check before changing this script.\n' "$label"
   } >> register/PENDING_OPERATOR.md
-  printf 'SCORE: %s/23\n' "$score"
+  printf 'SCORE: %s/25\n' "$score"
   exit 1
 }
 
@@ -307,6 +332,8 @@ run_attack 20 'weird name (1).txt' attack_20
 run_attack 21 'orbit bad name (CLI)' attack_21
 run_attack 22 'MCP unknown tool' attack_22
 run_attack 23 'staged junk via CLI check' attack_23
+run_attack 24 'MCP garbage input (fuzz)' attack_24
+run_attack 25 'MCP missing argument (fuzz)' attack_25
 
-printf 'SCORE: %s/23\n' "$score"
-[[ "$score" -eq 23 ]]
+printf 'SCORE: %s/25\n' "$score"
+[[ "$score" -eq 25 ]]
