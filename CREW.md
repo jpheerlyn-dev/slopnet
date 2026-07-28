@@ -4,6 +4,26 @@ SlopNet's walls stop bad work landing. The crew is how good work gets
 made: one agent **plans**, several agents **write code at the same time**,
 and the walls plus your own tests decide what is allowed to stay.
 
+The everyday path is one command:
+
+```bash
+slopnet go "a small web page that shows today's weather"
+```
+
+It starts or arms the repository, runs the same setup wizard when there
+is no saved crew, asks an agent for a plan, shows that plan, and asks
+`Run this? (y/n/edit) [y]` before calling the existing runner. `edit`
+opens `WAVES.md` in `$EDITOR` (or `nano`). Use `--yes` to accept the
+sensible defaults without questions, or `--wave N` to pass one wave to
+the runner. Running `go` again reuses the crew and offers the existing
+`WAVES.md`; it never silently replaces either one.
+
+If a run is interrupted, SlopNet stops the active agents, removes their
+disposable worktrees and attempt branches, aborts any half-merge, and
+records the interruption before returning to a clean tree.
+
+The three commands underneath `go` remain available separately:
+
 Three commands, in order:
 
 ```bash

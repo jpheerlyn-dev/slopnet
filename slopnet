@@ -16,6 +16,7 @@
   slopnet plan "IDEA"      the planner turns your idea into WAVES.md
   slopnet run [--wave N]   the crew works: parallel worktrees, walls + tests
                            as judge, only proven work merged
+  slopnet go "IDEA"        arm, choose, plan, approve, and run in one command
 
 Standard library only — no installs, ever. The law lives in checks/; this
 file is porcelain around it and must never contain a rule of its own.
@@ -26,13 +27,23 @@ dependencies; anything fancier than print() belongs in a separate skin.
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 
 VERSION = "0.2"
+ARM_CHECKS = (
+    "junk.sh",
+    "naming.sh",
+    "protected-paths.sh",
+    "register.sh",
+    "secrets.sh",
+    "slop-lint.sh",
+)
 
 
 # ---------------------------------------------------------------- helpers
@@ -85,6 +96,83 @@ def day_file(root):
     if not path.exists():
         path.write_text(f"# Register — {today()}\n", encoding="utf-8")
     return path
+
+
+def git_path(root, name):
+    code, path = sh(["git", "rev-parse", "--git-path", name], cwd=root)
+    if code != 0:
+        die(f"Could not find this repository's Git files:\n{path}")
+    path = pathlib.Path(path)
+    return path if path.is_absolute() else root / path
+
+
+def repo_is_armed(root):
+    hooks = [git_path(root, f"hooks/{name}")
+             for name in ("pre-commit", "post-commit")]
+    hooks_ok = all(
+        path.is_file() and "# slopnet-armed" in
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in hooks
+    )
+    checks = root / "checks"
+    checks_ok = checks.is_dir() and all(
+        (checks / name).is_file() for name in ARM_CHECKS)
+    return hooks_ok and checks_ok and day_file(root).exists()
+
+
+def arm_from_installation(root):
+    """Install the small local law set when the command runs outside its
+    template checkout. Existing project files are always left untouched."""
+    source = pathlib.Path(__file__).resolve().parent
+    source_checks = source / "checks"
+    source_hooks = source / "hooks"
+    if not source_checks.is_dir() or not source_hooks.is_dir():
+        die("This SlopNet installation is missing its checks and hooks. "
+            "Reinstall it before arming this folder.")
+
+    checks = root / "checks"
+    checks.mkdir(exist_ok=True)
+    for source_path in sorted(source_checks.glob("*.sh")):
+        target = checks / source_path.name
+        if not target.exists():
+            shutil.copy2(source_path, target)
+
+    for name in (".gitleaks.toml", "banned-names.txt", "PROTECTED.txt"):
+        source_path = source / name
+        target = root / name
+        if source_path.exists() and not target.exists():
+            shutil.copy2(source_path, target)
+
+    hooks = git_path(root, "hooks")
+    hooks.mkdir(parents=True, exist_ok=True)
+    for name in ("pre-commit", "post-commit"):
+        target = hooks / name
+        if target.exists():
+            text = target.read_text(encoding="utf-8", errors="replace")
+            if "# slopnet-armed" not in text:
+                die(f"{target} already exists and is not a SlopNet hook. "
+                    "It was left untouched.")
+        else:
+            shutil.copy2(source_hooks / name, target)
+            target.chmod(0o755)
+
+    exclude = git_path(root, "info/exclude")
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    existing_lines = set(existing.splitlines())
+    ignore_source = source / ".gitignore"
+    ignore_lines = (
+        ignore_source.read_text(encoding="utf-8").splitlines()
+        if ignore_source.exists() else [".slopnet/"])
+    missing_lines = [
+        line for line in ignore_lines
+        if line and not line.startswith("#") and line not in existing_lines
+    ]
+    if missing_lines:
+        with exclude.open("a", encoding="utf-8") as handle:
+            if existing and not existing.endswith("\n"):
+                handle.write("\n")
+            handle.write("\n".join(missing_lines) + "\n")
 
 
 # ------------------------------------------------------------------ check
@@ -182,20 +270,23 @@ def cmd_pending(root, args):
 # ------------------------------------------------------------------- init
 
 def cmd_init(root, args):
+    quiet = getattr(args, "quiet", False)
     if root is None:
         code, out = sh(["git", "init"])
         if code != 0:
             die(f"git init failed:\n{out}")
-        print("[OK] Started a fresh git repository.")
+        if not quiet:
+            print("[OK] Started a fresh git repository.")
         root = repo_root()
     installer = root / "install.sh"
     if installer.exists():
         code, out = sh(["bash", str(installer)], cwd=root)
-        print(out)
+        if not quiet and out:
+            print(out)
         if code != 0:
             die("install.sh failed — read its message above.")
     else:
-        print("[??] No install.sh here — is this a SlopNet template checkout?")
+        arm_from_installation(root)
     day_file(root)
     if args.github:
         if shutil.which("gh") is None:
@@ -214,8 +305,11 @@ def cmd_init(root, args):
     doc = root / "doctor.sh"
     if doc.exists():
         code, out = sh(["bash", str(doc)], cwd=root)
-        print(out)
-    print("Armed. Your two habits: work normally, and `slopnet sign` before you stop.")
+        if not quiet and out:
+            print(out)
+    if not quiet:
+        print("Armed. Your two habits: work normally, and `slopnet sign` before you stop.")
+    return root
 
 
 # ----------------------------------------------------------------- doctor
@@ -417,13 +511,16 @@ def load_crew_module(root):
 
 def ask_operator(question, options, multi=False):
     """Plain-language prompt. Returns an index, or a list of indexes."""
-    print(f"\n{question}")
+    default = " [1]" if options is not None else ""
+    print(f"\n{question}{default}")
     if options is None:
         return input("> ").strip()
     for i, option in enumerate(options, start=1):
         print(f"  {i}. {option}")
     while True:
         raw = input("> ").strip()
+        if not raw:
+            return [0] if multi else 0
         try:
             picks = [int(p) - 1 for p in raw.replace(" ", "").split(",") if p]
         except ValueError:
@@ -466,6 +563,214 @@ def cmd_run(root, args):
                      if failed else ""),
                   "the crew")
     sys.exit(1 if failed else 0)
+
+
+def git_has_head(root):
+    code, _ = sh(["git", "rev-parse", "--verify", "HEAD"], cwd=root)
+    return code == 0
+
+
+def git_is_clean(root):
+    code, status = sh(["git", "status", "--porcelain"], cwd=root)
+    return code == 0 and not status
+
+
+def checkpoint(root, message, paths=None):
+    """Record go's own generated state without firing the post-commit logger.
+
+    The same walls still judge the staged change explicitly. Skipping only
+    the logger avoids its after-commit line immediately making the tree dirty.
+    """
+    add = ["git", "add", "-A"]
+    if paths:
+        add.extend(["--"] + [str(path) for path in paths])
+    code, out = sh(add, cwd=root)
+    if code != 0:
+        raise RuntimeError(f"could not stage SlopNet's own state: {out}")
+    code, staged = sh(["git", "diff", "--cached", "--name-only"], cwd=root)
+    if code != 0:
+        raise RuntimeError(f"could not inspect SlopNet's own state: {staged}")
+    if not staged:
+        return
+    ok, report = run_checks(root, all_mode=False)
+    if not ok:
+        raise RuntimeError(report)
+    code, out = sh(
+        ["git", "-c", "user.name=slopnet", "-c",
+         "user.email=crew@slopnet", "-c", "core.hooksPath=/dev/null",
+         "commit", "-m", message],
+        cwd=root,
+    )
+    if code != 0:
+        raise RuntimeError(f"could not record SlopNet's own state: {out}")
+
+
+def ask_to_start_repo():
+    while True:
+        answer = input(
+            "This folder is not a Git repository; start one here? [y] "
+        ).strip().lower()
+        if answer in ("", "y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+        print("Type y or n.")
+
+
+def show_and_approve_plan(root):
+    plan_path = root / "WAVES.md"
+    while True:
+        print("\nHere is the plan:\n")
+        print(plan_path.read_text(encoding="utf-8").rstrip())
+        answer = input("\nRun this? (y/n/edit) [y] ").strip().lower()
+        if answer in ("", "y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+        if answer in ("e", "edit"):
+            editor = os.environ.get("EDITOR") or "nano"
+            try:
+                code = subprocess.run(
+                    shlex.split(editor) + [str(plan_path)], cwd=root).returncode
+            except FileNotFoundError:
+                print(f"I could not open {editor}. Set EDITOR and try again.")
+                continue
+            if code != 0:
+                print(f"The editor exited with status {code}; WAVES.md was kept.")
+            continue
+        print("Type y, n, or edit.")
+
+
+def go_next_command(args):
+    command = f"slopnet go {shlex.quote(args.idea)}"
+    if args.wave is not None:
+        command += f" --wave {args.wave}"
+    return command
+
+
+def record_go(root, text):
+    path = sign_register(root, text, "slopnet go")
+    checkpoint(root, "SlopNet: record go result", [path.relative_to(root)])
+
+
+def report_go(done, failed, walls_ok, next_command, interrupted=False):
+    print("\nWork report")
+    print("Merged: " + (", ".join(done) if done else "nothing"))
+    if interrupted:
+        print("Stopped: the run was interrupted; unfinished work was cleaned up.")
+    if failed:
+        print("Failed:")
+        for task, why in failed:
+            print(f"  - {task}: {why}")
+    else:
+        print("Failed: nothing")
+    print("Walls: green." if walls_ok else "Walls: not green — read the failure above.")
+    print(f"Next: {next_command}")
+
+
+def cmd_go(root, args):
+    if root is None:
+        if not args.yes and not ask_to_start_repo():
+            print("Nothing changed.")
+            return 0
+        root = cmd_init(
+            None, argparse.Namespace(github=False, quiet=True))
+    elif git_has_head(root) and not git_is_clean(root):
+        die("This repository has uncommitted work. Commit or stash it, then "
+            "run the same command again.")
+
+    if not repo_is_armed(root):
+        root = cmd_init(
+            root, argparse.Namespace(github=False, quiet=True))
+    if not git_has_head(root) or not git_is_clean(root):
+        try:
+            checkpoint(root, "SlopNet: arm repository")
+        except RuntimeError as exc:
+            die(str(exc))
+
+    crew = load_crew_module(root)
+    try:
+        if not (root / crew.CREW_FILE).exists():
+            crew.setup(
+                root, ask_operator, print, automatic=args.yes)
+        else:
+            existing = crew.load_crew(root)
+            planner = existing.get("planner", {}).get("name", "your planner")
+            fleet_size = len(existing.get("fleet", []))
+            print(f"Using the existing crew: {planner} plans, "
+                  f"{fleet_size} agent(s) write.")
+
+        waves_path = root / crew.WAVES_FILE
+        if waves_path.exists():
+            print("WAVES.md already exists, so it was left untouched and "
+                  "is offered again.")
+        else:
+            crew.plan(root, args.idea, print)
+            checkpoint(root, "SlopNet: record the proposed plan",
+                       [crew.WAVES_FILE])
+
+        if args.yes:
+            print("\nUsing the plan in WAVES.md (--yes).")
+        else:
+            approved = show_and_approve_plan(root)
+            checkpoint(root, "SlopNet: record plan edits", [crew.WAVES_FILE])
+            if not approved:
+                record_go(root, "Go stopped before the run — the operator said no.")
+                print("The plan was kept. Nothing ran.")
+                return 0
+
+        done, failed = crew.run(root, print, only_wave=args.wave)
+    except crew.RunInterrupted as exc:
+        text = ("Go run interrupted — merged before interruption: "
+                + (", ".join(exc.done) if exc.done else "none")
+                + ("; earlier failures: "
+                   + "; ".join(f"{task} ({why})"
+                              for task, why in exc.failed)
+                   if exc.failed else "")
+                + ". Disposable worktrees and attempt branches were removed.")
+        try:
+            record_go(root, text)
+        except RuntimeError as record_error:
+            print(f"Could not record the interruption cleanly: {record_error}")
+        walls_ok, _ = run_checks(root, all_mode=True)
+        report_go(exc.done, exc.failed, walls_ok, go_next_command(args),
+                  interrupted=True)
+        return 130
+    except KeyboardInterrupt:
+        try:
+            record_go(root, "Go was interrupted before the crew run began.")
+        except RuntimeError as record_error:
+            print(f"Could not record the interruption cleanly: {record_error}")
+        walls_ok, _ = run_checks(root, all_mode=True)
+        report_go([], [], walls_ok, go_next_command(args), interrupted=True)
+        return 130
+    except (crew.CrewError, RuntimeError) as exc:
+        failed = [("go", str(exc))]
+        try:
+            record_go(root, f"Go stopped — {exc}")
+        except RuntimeError as record_error:
+            print(f"Could not record the stopped run cleanly: {record_error}")
+        walls_ok, _ = run_checks(root, all_mode=True)
+        report_go([], failed, walls_ok, go_next_command(args))
+        return 1
+
+    walls_ok, walls_report = run_checks(root, all_mode=True)
+    if not walls_ok:
+        failed.append(("walls", walls_report.replace("\n", " / ")))
+    record_text = ("Go run — merged: "
+                   + (", ".join(done) if done else "none")
+                   + ("; failed: "
+                      + "; ".join(f"{task} ({why})" for task, why in failed)
+                      if failed else "")
+                   + f"; walls: {'green' if walls_ok else 'not green'}.")
+    try:
+        record_go(root, record_text)
+    except RuntimeError as exc:
+        failed.append(("register", str(exc)))
+    next_command = (go_next_command(args) if failed
+                    else "git log --oneline --max-count=5")
+    report_go(done, failed, walls_ok, next_command)
+    return 1 if failed or not walls_ok else 0
 
 
 # -------------------------------------------------------------------- mcp
@@ -627,6 +932,13 @@ def main():
     p = sub.add_parser("run", help="the crew works through WAVES.md")
     p.add_argument("--wave", type=int, default=None, help="run just this wave")
 
+    p = sub.add_parser("go", help="arm, plan, and run an idea")
+    p.add_argument("idea")
+    p.add_argument("--yes", action="store_true",
+                   help="accept the sensible defaults and skip plan approval")
+    p.add_argument("--wave", type=int, default=None,
+                   help="pass one wave number to the runner")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -636,7 +948,7 @@ def main():
     if args.command == "init":
         cmd_init(root, args)
         return
-    if root is None:
+    if root is None and args.command != "go":
         die("Not inside a git repository. Run `slopnet init` to start one.")
 
     if args.command == "doctor":
@@ -663,6 +975,8 @@ def main():
         cmd_plan(root, args)
     elif args.command == "run":
         cmd_run(root, args)
+    elif args.command == "go":
+        sys.exit(cmd_go(root, args))
 
 
 if __name__ == "__main__":

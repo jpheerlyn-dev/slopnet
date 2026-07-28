@@ -29,6 +29,7 @@ import signal
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -205,6 +206,17 @@ _FAILURE_CAUSES = (
 
 class CrewError(Exception):
     pass
+
+
+class CrewInterrupted(CrewError):
+    pass
+
+
+class RunInterrupted(KeyboardInterrupt):
+    def __init__(self, done, failed):
+        super().__init__("crew run interrupted")
+        self.done = list(done)
+        self.failed = list(failed)
 
 
 # A test command that always passes is worse than none: it launders bad
@@ -421,7 +433,7 @@ def _probe_worker(worker):
         return True, f"wrote the file in {elapsed}s", elapsed
 
 
-def setup(root, ask, say):
+def setup(root, ask, say, automatic=False):
     """Onboarding. `ask(question, options)` returns the chosen string."""
     say("Let's meet your crew.\n")
     workers = available_workers()
@@ -448,16 +460,39 @@ def setup(root, ask, say):
             say(f"  - {name} — NOT offered: {why}")
     say("")
 
-    planner_i = ask("Who should PLAN the work? (best thinker)", labels)
-    fleet_is = ask("Who should WRITE the code? (pick one or more, comma-separated)",
-                   labels, multi=True)
-    while True:
-        test_cmd = ask("What command runs your tests? (blank = walls only)", None)
-        try:
-            refuse_fake_gate(test_cmd)
-            break
-        except CrewError as exc:
-            say(str(exc))
+    preproven = set()
+    if automatic:
+        say("No questions requested — proving agents in order and using the "
+            "first one that can edit safely.")
+        planner_i = None
+        for i, worker in enumerate(workers):
+            proven, reason, _ = _probe_worker(worker)
+            worker.update(_proof_fields(proven, reason))
+            preproven.add(i)
+            mark = "[OK]" if proven else "[!!]"
+            say(f"{mark} {worker['name']} — {reason}")
+            if proven:
+                planner_i = i
+                break
+        if planner_i is None:
+            raise CrewError(
+                "None of the available agents passed the edit proof. Log one "
+                "in, then run `slopnet setup` again.")
+        fleet_is = [planner_i]
+        test_cmd = ""
+    else:
+        planner_i = ask("Who should PLAN the work? (best thinker)", labels)
+        fleet_is = ask(
+            "Who should WRITE the code? (pick one or more, comma-separated)",
+            labels, multi=True)
+        while True:
+            test_cmd = ask(
+                "What command runs your tests? [walls only]", None)
+            try:
+                refuse_fake_gate(test_cmd)
+                break
+            except CrewError as exc:
+                say(str(exc))
 
     selected = [workers[planner_i]] + [workers[i] for i in fleet_is]
     unique = []
@@ -468,8 +503,12 @@ def setup(root, ask, say):
             unique.append(worker)
             seen.add(identity)
 
-    say("\nProving the selected agents in throwaway git repos:")
+    if not automatic:
+        say("\nProving the selected agents in throwaway git repos:")
     for worker in unique:
+        worker_i = workers.index(worker)
+        if worker_i in preproven:
+            continue
         proven, reason, _ = _probe_worker(worker)
         worker.update(_proof_fields(proven, reason))
         mark = "[OK]" if proven else "[!!]"
@@ -556,7 +595,19 @@ def _resolve_worker_env(worker):
     return env
 
 
-def _run_cli(worker, prompt, cwd, timeout):
+def _stop_process(proc):
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except ProcessLookupError:
+        return
+
+
+def _run_cli(worker, prompt, cwd, timeout, cancel_event=None):
     import shlex
     timeout = _worker_timeout(worker, timeout)
     prompt_path = None
@@ -596,15 +647,29 @@ def _run_cli(worker, prompt, cwd, timeout):
             cmd, shell=True, cwd=cwd, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True, env=env,
             **popen_options)
+        deadline = time.monotonic() + timeout
+        pending_input = stdin
         try:
-            stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            if os.name == "posix":
-                os.killpg(proc.pid, signal.SIGKILL)
-            else:
-                proc.kill()
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    _stop_process(proc)
+                    proc.communicate()
+                    raise CrewInterrupted("run interrupted")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    _stop_process(proc)
+                    proc.communicate()
+                    raise CrewError(f"agent timed out after {timeout}s")
+                try:
+                    stdout, stderr = proc.communicate(
+                        input=pending_input, timeout=min(0.25, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    pending_input = None
+        except KeyboardInterrupt:
+            _stop_process(proc)
             proc.communicate()
-            raise CrewError(f"agent timed out after {timeout}s")
+            raise
         output = stdout + stderr
         if proc.returncode != 0:
             raise CrewError(classify_failure(output, returncode=proc.returncode))
@@ -614,7 +679,9 @@ def _run_cli(worker, prompt, cwd, timeout):
             prompt_path.unlink(missing_ok=True)
 
 
-def _run_api(worker, prompt, timeout):
+def _run_api(worker, prompt, timeout, cancel_event=None):
+    if cancel_event is not None and cancel_event.is_set():
+        raise CrewInterrupted("run interrupted")
     timeout = _worker_timeout(worker, timeout)
     key = os.environ.get(worker["key_env"], "")
     if not key:
@@ -655,12 +722,12 @@ def _run_api(worker, prompt, timeout):
     return data["choices"][0]["message"]["content"]
 
 
-def ask_worker(worker, prompt, cwd=None, timeout=None):
+def ask_worker(worker, prompt, cwd=None, timeout=None, cancel_event=None):
     """One job, one answer. Never trusted — always validated by the caller."""
     timeout = _worker_timeout(worker, timeout)
     if worker["kind"] in ("cli", "env-cli"):
-        return _run_cli(worker, prompt, cwd, timeout)
-    return _run_api(worker, prompt, timeout)
+        return _run_cli(worker, prompt, cwd, timeout, cancel_event)
+    return _run_api(worker, prompt, timeout, cancel_event)
 
 
 def require_proven(worker):
@@ -801,7 +868,7 @@ def _git(args, cwd):
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
-def _attempt(root, task, worker, crew, base_branch, say):
+def _attempt(root, task, worker, crew, base_branch, say, cancel_event=None):
     """One task, in its own worktree. Returns (ok, branch, note)."""
     tid = task["id"]
     branch = f"slopnet/{tid}"
@@ -815,7 +882,8 @@ def _attempt(root, task, worker, crew, base_branch, say):
     try:
         prompt = WORKER_BRIEF + f"{tid}\n{task['body']}\n"
         try:
-            ask_worker(worker, prompt, cwd=str(wt))
+            ask_worker(worker, prompt, cwd=str(wt),
+                       cancel_event=cancel_event)
         except CrewError as exc:
             return False, branch, str(exc)
 
@@ -841,14 +909,45 @@ def _attempt(root, task, worker, crew, base_branch, say):
 
         # Gate 2 — the project's own tests. An agent never self-certifies.
         if crew.get("test_command"):
-            proc = subprocess.run(crew["test_command"], shell=True, cwd=wt,
-                                  capture_output=True, text=True, timeout=1800)
+            popen_options = (
+                {"start_new_session": True} if os.name == "posix" else {})
+            proc = subprocess.Popen(
+                crew["test_command"], shell=True, cwd=wt,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                **popen_options)
+            deadline = time.monotonic() + 1800
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    _stop_process(proc)
+                    proc.communicate()
+                    raise CrewInterrupted("run interrupted")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    _stop_process(proc)
+                    proc.communicate()
+                    return False, branch, "tests timed out after 1800s"
+                try:
+                    stdout, stderr = proc.communicate(
+                        timeout=min(0.25, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
             if proc.returncode != 0:
-                tail = (proc.stdout + proc.stderr).strip().splitlines()[-3:]
+                tail = (stdout + stderr).strip().splitlines()[-3:]
                 return False, branch, "tests failed: " + " / ".join(tail)
         return True, branch, "proven"
     finally:
         _git(["worktree", "remove", "--force", str(wt)], root)
+
+
+def _cleanup_run(root, task_ids):
+    """Remove only the runner's known disposable worktrees and branches."""
+    for tid in task_ids:
+        wt = pathlib.Path(root / ".slopnet" / "worktrees" / tid)
+        _git(["worktree", "remove", "--force", str(wt)], root)
+    _git(["worktree", "prune"], root)
+    for tid in task_ids:
+        _git(["branch", "-D", f"slopnet/{tid}"], root)
 
 
 def run(root, say, only_wave=None):
@@ -871,43 +970,65 @@ def run(root, say, only_wave=None):
     _, base_branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], root)
 
     done, failed = [], []
-    for number, wave in enumerate(waves, start=1):
-        if only_wave and number != only_wave:
-            continue
-        say(f"\n=== Wave {number}: {len(wave)} task(s) ===")
-        limit = max(1, int(crew.get("max_parallel", 2)))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=limit) as pool:
+    cancel_event = threading.Event()
+    task_ids = [task["id"] for wave in waves for task in wave]
+    try:
+        for number, wave in enumerate(waves, start=1):
+            if only_wave and number != only_wave:
+                continue
+            say(f"\n=== Wave {number}: {len(wave)} task(s) ===")
+            limit = max(1, int(crew.get("max_parallel", 2)))
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=limit)
             futures = {}
-            for i, task in enumerate(wave):
-                worker = fleet[i % len(fleet)]
-                say(f"  {task['id']} → {worker['name']}")
-                futures[pool.submit(_attempt, root, task, worker, crew,
-                                    base_branch, say)] = task
-            results = []
-            for future in concurrent.futures.as_completed(futures):
-                task = futures[future]
-                try:
-                    ok, branch, note = future.result()
-                except Exception as exc:
-                    ok, branch, note = False, None, f"crashed: {exc}"
-                results.append((task, ok, branch, note))
-
-        # Merge serially — proven work only, losing branches discarded.
-        for task, ok, branch, note in sorted(results, key=lambda r: r[0]["id"]):
-            if ok:
-                code, out = _git(["merge", "--no-ff", branch, "-m",
-                                  f"{task['id']}: proven by the crew"], root)
-                if code == 0:
-                    say(f"  [MERGED] {task['id']} — {note}")
-                    done.append(task["id"])
-                else:
-                    say(f"  [CONFLICT] {task['id']} — left on branch {branch}")
-                    failed.append((task["id"], "merge conflict"))
-                    continue
+            try:
+                for i, task in enumerate(wave):
+                    worker = fleet[i % len(fleet)]
+                    say(f"  {task['id']} → {worker['name']}")
+                    future = pool.submit(
+                        _attempt, root, task, worker, crew, base_branch, say,
+                        cancel_event)
+                    futures[future] = task
+                results = []
+                for future in concurrent.futures.as_completed(futures):
+                    task = futures[future]
+                    try:
+                        ok, branch, note = future.result()
+                    except Exception as exc:
+                        ok, branch, note = False, None, f"crashed: {exc}"
+                    results.append((task, ok, branch, note))
+            except KeyboardInterrupt:
+                cancel_event.set()
+                for future in futures:
+                    future.cancel()
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
             else:
-                say(f"  [FAILED] {task['id']} — {note}")
-                failed.append((task["id"], note))
-            _git(["branch", "-D", branch], root)
-        if failed and any(f for f in failed):
-            say("  (later waves may depend on the failed work — check before continuing)")
+                pool.shutdown(wait=True)
+
+            # Merge serially — proven work only, losing branches discarded.
+            for task, ok, branch, note in sorted(
+                    results, key=lambda result: result[0]["id"]):
+                if ok:
+                    code, out = _git(["merge", "--no-ff", branch, "-m",
+                                      f"{task['id']}: proven by the crew"], root)
+                    if code == 0:
+                        say(f"  [MERGED] {task['id']} — {note}")
+                        done.append(task["id"])
+                    else:
+                        _git(["merge", "--abort"], root)
+                        say(f"  [CONFLICT] {task['id']} — left on branch {branch}")
+                        failed.append((task["id"], "merge conflict"))
+                        continue
+                else:
+                    say(f"  [FAILED] {task['id']} — {note}")
+                    failed.append((task["id"], note))
+                _git(["branch", "-D", branch], root)
+            if failed:
+                say("  (later waves may depend on the failed work — "
+                    "check before continuing)")
+    except KeyboardInterrupt:
+        cancel_event.set()
+        _git(["merge", "--abort"], root)
+        _cleanup_run(root, task_ids)
+        raise RunInterrupted(done, failed)
     return done, failed
