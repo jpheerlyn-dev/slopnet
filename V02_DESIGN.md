@@ -123,8 +123,20 @@ by the operator's session agent rather than dispatched — the `slopnet`
 CLI at repo root now ships init / doctor[--fix] / check[--all] / sign /
 pending / orbit new / adapt / mcp, all scratch-tested (init→check→sign→
 pending→orbit→adapt plus a full piped MCP session: initialize,
-tools/list, tools/call). Still open: V04 (second-agent verification
-harness) and V05 (red-team the CLI + MCP attack round).
+tools/list, tools/call).
+
+**Progress note 2 (2026-07-28, evening):** V04 and V05 shipped.
+V04 = `slopnet verify` + the MCP `verify` tool: re-runs walls, manifest,
+doctor, and (CLI-only) the full red-team, then writes a COUNTERSIGN
+entry to the register with per-proof PASS/FAIL and the commit sha —
+AGENTS.md rule 7 now requires a countersign from a *different* agent
+before work is DONE. V05 = the red-team extended to 25 attacks with an
+MCP fuzz round (garbage stdin, missing required arguments — the server
+must answer isError and keep serving). v0.2 is feature-complete; what
+remains before calling SlopNet "complete" is operator-side: raise the
+server wall (apply rulesets + branch protection), take the template
+public when ready, and a v0.3 list (fake-gate sniffer, protected-path
+globs, Hermes hook adapter if Hermes grows hooks).
 
 ## 7. Harvested from StormCode (the operator's own orchestrator)
 
