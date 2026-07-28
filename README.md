@@ -1,2 +1,5 @@
-# slopnet
-A way to prevent AI slop from happening. 
+# SlopNet — a template repo that makes AI-agent workspaces structurally slop-proof.
+For anyone building with AI agents who wants a workspace that cannot fill with junk.
+Action 1: click **Use this template** on GitHub.
+Action 2: run `./install.sh`.
+Rules for agents: AGENTS.md. Everything else: MAP.md.

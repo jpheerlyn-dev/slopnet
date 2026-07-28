@@ -1,0 +1,2 @@
+# One path-prefix per line. Commits touching these paths are blocked locally. The operator edits this file; agents never do.
+# core/sealed-feature/

@@ -1,0 +1,1 @@
+# Extra banned name patterns, one per line, shell-glob style. Operator-editable.
