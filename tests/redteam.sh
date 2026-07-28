@@ -284,6 +284,27 @@ attack_25() {
   printf '%s' "$out" | grep -c '"jsonrpc"' | grep -qx '3'
 }
 
+attack_26() {
+  # A test command that can never fail must be refused outright: it would
+  # launder bad work as proven. (StormCode's lesson, learned the hard way
+  # when SlopNet's own crew merged a failing test during development.)
+  python3 - <<'PY'
+import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location("crew", pathlib.Path("crew.py"))
+crew = importlib.util.module_from_spec(spec); spec.loader.exec_module(crew)
+for bad in ("true", "exit 0", "pytest -q || true", "echo tests OK"):
+    try:
+        crew.refuse_fake_gate(bad)
+    except crew.CrewError:
+        continue
+    sys.exit(1)          # a fake gate slipped through
+try:
+    crew.refuse_fake_gate("python3 -m pytest -q")
+except crew.CrewError:
+    sys.exit(1)          # a real gate was wrongly refused
+PY
+}
+
 record_landed() {
   local number=$1
   local label=$2
@@ -292,7 +313,7 @@ record_landed() {
     printf '\n## Redteam — attack %s landed\n\n' "$number"
     printf -- '- %s landed in the temporary workspace; inspect the failing check before changing this script.\n' "$label"
   } >> register/PENDING_OPERATOR.md
-  printf 'SCORE: %s/25\n' "$score"
+  printf 'SCORE: %s/26\n' "$score"
   exit 1
 }
 
@@ -334,6 +355,7 @@ run_attack 22 'MCP unknown tool' attack_22
 run_attack 23 'staged junk via CLI check' attack_23
 run_attack 24 'MCP garbage input (fuzz)' attack_24
 run_attack 25 'MCP missing argument (fuzz)' attack_25
+run_attack 26 'fake test gate refused (crew)' attack_26
 
-printf 'SCORE: %s/25\n' "$score"
-[[ "$score" -eq 25 ]]
+printf 'SCORE: %s/26\n' "$score"
+[[ "$score" -eq 26 ]]

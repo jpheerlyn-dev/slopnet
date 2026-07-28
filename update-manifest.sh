@@ -20,6 +20,7 @@ paths=$(
       install.sh \
       doctor.sh \
       slopnet \
+      crew.py \
       tests/redteam.sh \
       update-manifest.sh \
       .github/workflows/slopnet.yml \
