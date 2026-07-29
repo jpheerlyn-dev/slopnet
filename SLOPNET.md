@@ -49,6 +49,13 @@ Docker socket, host networking, provider credentials, or privileged mode.
 Run it on the VPS with `docker compose run --rm slopnet check --all` after
 Docker Engine and its Compose plugin have been installed there.
 
+The bind-mounted project must belong to the non-root container identity. The
+tested first deployment owns the new `/opt/slopnet` checkout as numeric
+UID/GID `10001:10001`; this changes only that workspace and does not create an
+SSH user or alter root access. Do not solve an ownership mismatch by running
+the gate as root. For another project, choose matching non-root IDs through
+`SLOPNET_UID` and `SLOPNET_GID` instead.
+
 The strict gate deliberately cannot be used for `slopnet go`: a coding agent
 needs selected provider access and credentials, while the gate has neither.
 The later agent-runtime design must earn that access through a separate,

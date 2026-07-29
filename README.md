@@ -25,6 +25,22 @@ and run:
 docker compose run --rm slopnet check --all
 ```
 
+On a fresh VPS, use a dedicated SlopNet workspace with the same numeric owner
+as the container process. The following is the tested **REDACTED** pattern; it
+does not create an SSH user or change root access:
+
+```bash
+git clone --depth 1 https://github.com/jpheerlyn-dev/slopnet.git /opt/slopnet
+chown -R 10001:10001 /opt/slopnet
+cd /opt/slopnet
+docker compose run --rm slopnet check --all
+```
+
+Only use this ownership change after confirming `/opt/slopnet` is the new
+SlopNet checkout. It lets the container stay non-root while Git treats its
+mounted project as safe. Do not override `SLOPNET_UID` or `SLOPNET_GID` to
+`0`; a different workspace needs its own non-root matching IDs instead.
+
 This is intentionally a **gate**, not the AI coding room: the container has
 no network and no provider logins, so it cannot run `slopnet go`. That keeps
 the first container useful even before the separate, credentialed agent
