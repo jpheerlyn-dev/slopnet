@@ -77,10 +77,12 @@ permission. All setup questions appear in the app window. **Check connection**,
 can stay focused on the current request.
 
 Settings also has an **optional local helper**. It starts with the public
-Apache-2.0 `ibm-granite/granite-4.1-8b-GGUF:Q4_K_M` model, but you may enter a
+Apache-2.0 `ibm-granite/granite-4.1-3b-GGUF:Q4_K_M` model, but you may enter a
 different public Hugging Face GGUF in `owner/model:quant` form. Before anything
 downloads, SlopNet shows the real free storage and available memory on the VPS;
-the Granite choice reserves 8 GiB of free disk for its roughly 5.35 GB model.
+the Granite choice reserves 5 GiB of free disk and requires 6 GiB available
+memory for its roughly 2.1 GB model. Those limits come from SlopNet's real
+bounded VPS proof, rather than the model's parameter count alone.
 It installs and proves Llama.cpp only as the private `slopnet` runtime account,
 does not request an API key, and does not start a listening model server. It
 uses a bounded 4,096-token context, small batches, and a 15-minute test so a

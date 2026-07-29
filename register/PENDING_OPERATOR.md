@@ -1,5 +1,7 @@
 ## Open
 
+- [2026-07-29, Codex] Local-model benchmark conclusion needs a later, model-specific tool-call adapter proof: the corrected bounded VPS benchmark measured Granite 4.1 3B at 14.9 tokens/sec / 3.9 GiB peak RSS and SmolLM3 3B at 15.2 tokens/sec / 3.6 GiB. Its first action-shape scorer was invalid because llama.cpp echoed the prompt; a later bare-prompt Granite run started but did not promptly finish a function-shaped answer. Ministral 3B and Qwen3 4B did not complete this generic CLI harness and were manually stopped. Do not offer them as SlopNet presets or claim native tool calling until each has a dedicated chat template, parser, timeout test, and real action-denial proof.
+
 - [2026-07-29, Codex] Real v0.6 local-helper attempt did not pass: on the prepared VPS, Linux reported global OOM and killed llama at anon-rss 23090432 kB (23 GiB); the VPS has 23 GiB RAM and no swap. No local helper configuration was written. v0.7 bounds the helper proof to a 4,096-token context with smaller batches and a timeout; repeat the user-approved live proof before claiming this path works.
 
 - [2026-07-29, Codex] Actual push observation: GitHub allowed direct pushes to main while reporting ‘4 of 4 required status checks are expected.’ Required checks did not gate the pushes. Restore a non-bypassable pull-request/status-check path before release; current branch rules are not evidence of enforcement.

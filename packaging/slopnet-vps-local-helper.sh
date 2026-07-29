@@ -17,7 +17,7 @@ port="$2"
 username="$3"
 model="$4"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
-default_model="ibm-granite/granite-4.1-8b-GGUF:Q4_K_M"
+default_model="ibm-granite/granite-4.1-3b-GGUF:Q4_K_M"
 # A request-rewriter never needs a model's enormous advertised context. This
 # deliberately small bound prevents its KV cache from consuming an otherwise
 # healthy VPS. It is not an agent-runtime limit and does not affect paid CLIs.
@@ -47,7 +47,7 @@ printf '\033]0;SlopNet local helper\007'
 say "Optional SlopNet local helper"
 say "Selected public Hugging Face model: ${model}"
 if [ "$model" = "$default_model" ]; then
-  say "IBM Granite 4.1 8B Q4_K_M is the default. Its published GGUF download is about 5.35 GB."
+  say "IBM Granite 4.1 3B Q4_K_M is the default. Its published GGUF download is about 2.1 GB."
 else
   say "SlopNet does not know this model's size in advance. The server will show its actual free storage and memory before it downloads it."
 fi
@@ -63,7 +63,7 @@ model_b64=$(printf '%s' "$model" | base64 | tr -d '\n')
 remote_setup='set -eu
 umask 077
 model_b64=$1
-default_model="ibm-granite/granite-4.1-8b-GGUF:Q4_K_M"
+default_model="ibm-granite/granite-4.1-3b-GGUF:Q4_K_M"
 helper_context=4096
 model=$(printf "%s" "$model_b64" | base64 -d)
 case "$model" in
@@ -102,11 +102,19 @@ echo
 echo "Protected runtime account: slopnet"
 echo "Free storage: ${disk_free:-unknown} MiB"
 echo "Available memory right now: ${memory_free:-unknown} MiB"
-if [ "$model" = "$default_model" ] && { [ -z "$disk_free" ] || [ "$disk_free" -lt 8000 ]; }; then
-  echo "RULE: IBM Granite 4.1 8B needs more free storage than this server has reserved for a safe download."
-  echo "WHY:  Its Q4_K_M GGUF is about 5.35 GB and SlopNet leaves room for the download and cache."
-  echo "FIX:  Free at least 8000 MiB or choose a smaller public GGUF in Settings. Nothing changed."
-  exit 1
+if [ "$model" = "$default_model" ]; then
+  if [ -z "$disk_free" ] || [ "$disk_free" -lt 5000 ]; then
+    echo "RULE: IBM Granite 4.1 3B needs more free storage than this server has reserved for a safe download."
+    echo "WHY:  Its Q4_K_M GGUF is about 2.1 GB and SlopNet leaves room for the download and cache."
+    echo "FIX:  Free at least 5000 MiB or choose a smaller public GGUF in Settings. Nothing changed."
+    exit 1
+  fi
+  if [ "$memory_free" != "unknown" ] && [ "$memory_free" -lt 6000 ]; then
+    echo "RULE: IBM Granite 4.1 3B needs more available memory than this server has right now."
+    echo "WHY:  Its real bounded proof used about 3.9 GiB RSS; SlopNet keeps room for the server and other work."
+    echo "FIX:  Stop other workloads or use a VPS with at least 6000 MiB available memory. Nothing changed."
+    exit 1
+  fi
 fi
 echo
 echo "Llama.cpp will be installed from its official installer into the slopnet account."

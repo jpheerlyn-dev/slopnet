@@ -159,7 +159,7 @@
     NSButton *recheck = [self button:@"Check what is installed"
                              action:@selector(refreshPressed:)];
 
-    self.localModel = [self field:@"ibm-granite/granite-4.1-8b-GGUF:Q4_K_M"
+    self.localModel = [self field:@"ibm-granite/granite-4.1-3b-GGUF:Q4_K_M"
                        placeholder:@"owner/model:quant"];
     [self.localModel.widthAnchor constraintGreaterThanOrEqualToConstant:360].active = YES;
     NSGridView *localModelRow = [NSGridView gridViewWithViews:@[
