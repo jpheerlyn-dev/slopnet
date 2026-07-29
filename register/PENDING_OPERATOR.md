@@ -13,6 +13,7 @@
 - [2026-07-28, Grok J02] Report documents OpenAI-compatible URL `https://api.z.ai/api/coding/paas/v4` for non-Claude hosts, but also says naked/custom clients that fail the supported-tool check can lose Coding Plan benefits. Stored in `providers.zai-glm.openai_compat_url` for reference only — no raw `api` worker was added. Confirm if you want a supported-host path (e.g. documented Cursor/Cline) wired later.
 
 - [2026-07-28, Grok J02] Does the Kimi *coding plan* cover raw `MOONSHOT_API_KEY` HTTP use, or only the Kimi Code CLI / login-linked key? Report confirms CLI membership cover; API-credit boundary for naked HTTP was not verified, so no billing caveat was hard-coded on that `api` worker.
+- [2026-07-28, Codex J05] README demo test confusions found: the README offers two overlapping walkthroughs without choosing one; it does not distinguish a SlopNet development checkout from a template app despite the orbit rule; a fresh demo clone silently enters setup although the sample output assumes an existing crew; and an active subscription is insufficient without CLI login plus writable CLI state/log directories.
 ## Ruled
 
 - [2026-07-28, operator] Approved sending the disposable J03 acceptance prompt and scratch-repository contents to OpenAI Codex. The real run then merged `T1-print-current-date`, passed its pytest and all walls, reused the crew and unchanged plan on the second run, and left a clean tree with no worktree or branch leftovers after Ctrl-C.
