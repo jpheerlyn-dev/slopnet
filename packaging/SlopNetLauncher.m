@@ -8,11 +8,15 @@
 // AppleScript, no macOS Automation permission.
 //
 // The rule that shapes the layout: never ask someone to do a thing they
-// have already done. Once a VPS is set up, its form goes away into
-// Settings and the window offers the next real step instead.
+// have already done. Once a server is connected, setup lives in the
+// Settings window and this one offers the next real step instead.
+//
+// "Server" means anything you can reach over SSH: a rented box, a
+// dedicated machine, a home server, a Raspberry Pi.
 
 #import <Cocoa/Cocoa.h>
 #import "SlopNetConsole.h"
+#import "SlopNetSettings.h"
 
 static NSString *const kHostKey     = @"SlopNetVPSHost";
 static NSString *const kUserKey     = @"SlopNetVPSUser";
@@ -20,7 +24,7 @@ static NSString *const kPortKey     = @"SlopNetVPSPort";
 static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cleanly
 static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have built
 
-@interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate>
+@interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate, SlopNetSettingsDelegate>
 @property(nonatomic, strong) NSWindow *window;
 
 // sidebar
@@ -29,11 +33,11 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 @property(nonatomic, strong) NSStackView *historyStack;
 @property(nonatomic, strong) NSButton *settingsToggle;
 
-// the VPS form: hidden once connected
-@property(nonatomic, strong) NSBox *settingsBox;
-@property(nonatomic, strong) NSTextField *host;
-@property(nonatomic, strong) NSTextField *username;
-@property(nonatomic, strong) NSTextField *port;
+// the server, remembered between launches
+@property(nonatomic, copy) NSString *host;
+@property(nonatomic, copy) NSString *username;
+@property(nonatomic, copy) NSString *port;
+@property(nonatomic, strong) SlopNetSettings *settings;
 
 // main
 @property(nonatomic, strong) SlopNetConsole *console;
@@ -41,7 +45,6 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 @property(nonatomic, strong) NSTextField *entry;
 @property(nonatomic, strong) NSButton *sendButton;
 
-@property(nonatomic, assign) BOOL settingsOpen;
 @property(nonatomic, assign) BOOL busy;
 @property(nonatomic, assign) BOOL setupRunning;
 @end
@@ -151,12 +154,12 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     status.alignment = NSLayoutAttributeCenterY;
     status.spacing = 6;
 
-    self.settingsToggle = [self sidebarButton:@"⚙   VPS settings"
-                                       action:@selector(toggleSettings:)];
     NSButton *checkButton = [self sidebarButton:@"⇄   Check connection"
                                          action:@selector(checkConnection:)];
     NSButton *clearButton = [self sidebarButton:@"⌫   Clear screen"
                                          action:@selector(clearConsole:)];
+    NSButton *helpButton = [self sidebarButton:@"?   Getting a server"
+                                        action:@selector(openServerHelp:)];
 
     NSTextField *historyTitle = [self label:@"PROJECTS" size:10 grey:YES];
     self.historyStack = [NSStackView stackViewWithViews:@[]];
@@ -164,12 +167,24 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     self.historyStack.alignment = NSLayoutAttributeLeading;
     self.historyStack.spacing = 1;
 
+    // A spacer that expands, so Settings sits at the BOTTOM of the sidebar
+    // where people expect to find it.
+    NSView *spacer = [[NSView alloc] initWithFrame:NSZeroRect];
+    spacer.translatesAutoresizingMaskIntoConstraints = NO;
+    [spacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationVertical];
+
+    self.settingsToggle = [self sidebarButton:@"⚙   Settings"
+                                       action:@selector(openSettings:)];
+
     NSStackView *sidebar = [NSStackView stackViewWithViews:@[
         title, status,
         [self separator],
-        self.settingsToggle, checkButton, clearButton,
+        checkButton, clearButton, helpButton,
         [self separator],
         historyTitle, self.historyStack,
+        spacer,
+        [self separator],
+        self.settingsToggle,
         [self label:[NSString stringWithFormat:@"v%@", version] size:10 grey:YES]]];
     sidebar.orientation = NSUserInterfaceLayoutOrientationVertical;
     sidebar.alignment = NSLayoutAttributeLeading;
@@ -181,42 +196,6 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 }
 
 - (NSView *)buildMain {
-    self.host = [self field:@"the IP address from your VPS welcome email" value:nil];
-    self.username = [self field:@"root" value:@"root"];
-    self.port = [self field:@"22" value:@"22"];
-
-    NSButton *setupButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    setupButton.title = @"Set up this VPS";
-    setupButton.bezelStyle = NSBezelStyleRounded;
-    setupButton.target = self;
-    setupButton.action = @selector(beginSetup:);
-    NSButton *forgetButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    forgetButton.title = @"Forget";
-    forgetButton.bezelStyle = NSBezelStyleRounded;
-    forgetButton.target = self;
-    forgetButton.action = @selector(forgetConnection:);
-    NSStackView *setupButtons = [NSStackView stackViewWithViews:@[setupButton, forgetButton]];
-    setupButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    setupButtons.spacing = 8;
-
-    NSStackView *settingsStack = [NSStackView stackViewWithViews:@[
-        [self label:@"Your VPS password is never typed or stored here. The first "
-                    @"connection asks for it below, and it goes straight to your VPS."
-               size:11 grey:YES],
-        [self row:@"VPS address" control:self.host width:300],
-        [self row:@"Login name" control:self.username width:180],
-        [self row:@"Port" control:self.port width:80],
-        setupButtons]];
-    settingsStack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    settingsStack.alignment = NSLayoutAttributeLeading;
-    settingsStack.spacing = 7;
-    settingsStack.edgeInsets = NSEdgeInsetsMake(10, 12, 12, 12);
-
-    self.settingsBox = [[NSBox alloc] initWithFrame:NSZeroRect];
-    self.settingsBox.title = @"VPS settings";
-    self.settingsBox.contentView = settingsStack;
-    self.settingsBox.translatesAutoresizingMaskIntoConstraints = NO;
-
     self.console = [[SlopNetConsole alloc] initWithFrame:NSZeroRect];
     self.console.delegate = self;
     self.console.translatesAutoresizingMaskIntoConstraints = NO;
@@ -245,8 +224,7 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     chatBar.spacing = 8;
     chatBar.translatesAutoresizingMaskIntoConstraints = NO;
 
-    NSStackView *main = [NSStackView stackViewWithViews:@[
-        self.settingsBox, self.console, chatBar]];
+    NSStackView *main = [NSStackView stackViewWithViews:@[self.console, chatBar]];
     main.orientation = NSUserInterfaceLayoutOrientationVertical;
     main.alignment = NSLayoutAttributeLeading;
     main.spacing = 10;
@@ -254,10 +232,9 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     [main setHuggingPriority:NSLayoutPriorityDefaultLow
               forOrientation:NSLayoutConstraintOrientationVertical];
     [NSLayoutConstraint activateConstraints:@[
-        [self.settingsBox.widthAnchor constraintEqualToAnchor:main.widthAnchor constant:-32],
         [self.console.widthAnchor constraintEqualToAnchor:main.widthAnchor constant:-32],
         [chatBar.widthAnchor constraintEqualToAnchor:main.widthAnchor constant:-32],
-        [self.console.heightAnchor constraintGreaterThanOrEqualToConstant:240],
+        [self.console.heightAnchor constraintGreaterThanOrEqualToConstant:280],
     ]];
     return main;
 }
@@ -266,26 +243,18 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 
 - (BOOL)isReady {
     return [[NSUserDefaults standardUserDefaults] boolForKey:kReadyKey] &&
-           self.host.stringValue.length > 0;
+           self.host.length > 0;
 }
 
 - (void)refreshState {
     BOOL ready = [self isReady];
-    BOOL showSettings = self.settingsOpen || !ready;
-
-    self.settingsBox.hidden = !showSettings;
-    self.settingsToggle.title = showSettings ? @"⚙   Hide VPS settings"
-                                             : @"⚙   VPS settings";
-
     if (ready) {
         self.statusDot.textColor = [NSColor systemGreenColor];
-        self.statusText.stringValue = [NSString stringWithFormat:@"Ready — %@",
-                                       self.host.stringValue];
+        self.statusText.stringValue = [NSString stringWithFormat:@"Ready — %@", self.host];
     } else {
         self.statusDot.textColor = [NSColor systemGrayColor];
-        self.statusText.stringValue = @"No VPS yet";
+        self.statusText.stringValue = @"No server yet";
     }
-
     self.projectName.hidden = !ready;
     if (self.busy) {
         self.entry.placeholderString =
@@ -295,7 +264,7 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
         self.entry.placeholderString = @"Describe what you want built, then press Return";
         self.sendButton.title = @"Build it";
     } else {
-        self.entry.placeholderString = @"Set up a VPS first — the form is above";
+        self.entry.placeholderString = @"Open Settings to connect a server first";
         self.sendButton.title = @"Build it";
     }
     [self rebuildHistory];
@@ -325,8 +294,7 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 }
 
 - (void)reuseProject:(NSButton *)sender {
-    NSString *name = [sender.title stringByReplacingOccurrencesOfString:@"•  "
-                                                             withString:@""];
+    NSString *name = [sender.title stringByReplacingOccurrencesOfString:@"•  " withString:@""];
     self.projectName.stringValue = name;
     [self.console note:[NSString stringWithFormat:
         @"\nUsing project “%@”. Say what you want done to it and press Return.", name]];
@@ -335,59 +303,56 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 
 #pragma mark - remembering (never a password, never inside the repo)
 
-// Only the three details from a provider's welcome email are kept, in
+// Only the three details from your provider's welcome email are kept, in
 // macOS's own preferences for this app. A password is NEVER stored: it goes
-// from the console straight to your VPS. The SSH key that setup creates
+// from the console straight to your server. The SSH key that setup creates
 // stays in the macOS Keychain. Nothing is written into the SlopNet folder,
 // so none of it can be committed or uploaded by accident.
 - (void)remember {
     NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    [store setObject:self.host.stringValue forKey:kHostKey];
-    [store setObject:self.username.stringValue forKey:kUserKey];
-    [store setObject:self.port.stringValue forKey:kPortKey];
+    [store setObject:self.host ?: @"" forKey:kHostKey];
+    [store setObject:self.username ?: @"root" forKey:kUserKey];
+    [store setObject:self.port ?: @"22" forKey:kPortKey];
 }
 
 - (void)recall {
     NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    NSString *savedHost = [store stringForKey:kHostKey];
-    NSString *savedUser = [store stringForKey:kUserKey];
-    NSString *savedPort = [store stringForKey:kPortKey];
-    if (savedHost.length) self.host.stringValue = savedHost;
-    if (savedUser.length) self.username.stringValue = savedUser;
-    if (savedPort.length) self.port.stringValue = savedPort;
+    self.host = [store stringForKey:kHostKey] ?: @"";
+    self.username = [store stringForKey:kUserKey] ?: @"root";
+    self.port = [store stringForKey:kPortKey] ?: @"22";
 
     if ([self isReady]) {
         [self.console note:[NSString stringWithFormat:
-            @"Your VPS (%@) is set up and ready.\n"
+            @"Your server (%@) is set up and ready.\n"
             @"Name your project in the small box below, say what you want built, "
-            @"and press Return.", savedHost]];
+            @"and press Return.", self.host]];
     } else {
-        [self.console note:@"Welcome. Fill in your VPS details above and press "
-                           @"“Set up this VPS”.\nEverything that happens appears here, "
-                           @"and you can answer any question in the box below."];
+        [self.console note:@"Welcome. Press Settings at the bottom left to connect "
+                           @"your server.\nEverything that happens appears here, and "
+                           @"you can answer any question in the box below."];
     }
-}
-
-- (void)forgetConnection:(id)sender {
-    if (self.busy) return;
-    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey]) {
-        [store removeObjectForKey:key];
-    }
-    self.host.stringValue = @"";
-    self.username.stringValue = @"root";
-    self.port.stringValue = @"22";
-    self.settingsOpen = YES;
-    [self.console note:@"\nForgotten on this Mac. Your VPS itself is untouched, and "
-                       @"no password was ever stored."];
-    [self refreshState];
 }
 
 #pragma mark - actions
 
-- (void)toggleSettings:(id)sender {
-    self.settingsOpen = !self.settingsOpen;
-    [self refreshState];
+- (void)openSettings:(id)sender {
+    self.settings = [[SlopNetSettings alloc] initWithHost:self.host
+                                                     port:self.port
+                                                     user:self.username
+                                                connected:[self isReady]];
+    self.settings.delegate = self;
+    [self.settings presentFrom:self.window];
+}
+
+- (void)openServerHelp:(id)sender {
+    [self.console note:
+        @"\nSlopNet works with ANY computer you can reach over SSH:\n"
+        @"  • a rented server (Hetzner, Contabo, Hostinger and many others)\n"
+        @"  • a dedicated machine you already pay for\n"
+        @"  • a home server, or a Raspberry Pi on your own network\n"
+        @"You need three things from it: its address, a login name, and the "
+        @"port (almost always 22). Put them in Settings, bottom left.\n"
+        @"A small Linux machine is plenty to start with."];
 }
 
 - (void)clearConsole:(id)sender { [self.console clear]; }
@@ -400,13 +365,11 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 }
 
 - (BOOL)connectionValid {
-    if (![self matches:self.host.stringValue pattern:@"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$"] ||
-        ![self matches:self.username.stringValue pattern:@"^[A-Za-z_][A-Za-z0-9_-]{0,31}$"] ||
+    if (![self matches:self.host ?: @"" pattern:@"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$"] ||
+        ![self matches:self.username ?: @"" pattern:@"^[A-Za-z_][A-Za-z0-9_-]{0,31}$"] ||
         self.port.integerValue < 1 || self.port.integerValue > 65535) {
-        [self.console note:@"\nCheck the VPS address and login name against your "
-                           @"provider's welcome email. The port is almost always 22."];
-        self.settingsOpen = YES;
-        [self refreshState];
+        [self.console note:@"\nCheck your server's address and login name in Settings. "
+                           @"The port is almost always 22."];
         return NO;
     }
     return YES;
@@ -416,37 +379,69 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     return [[NSBundle mainBundle] pathForResource:name ofType:@"sh"];
 }
 
-- (void)beginSetup:(id)sender {
+#pragma mark - settings window asks, this window does
+
+- (void)settings:(SlopNetSettings *)settings
+   connectToHost:(NSString *)host port:(NSString *)port user:(NSString *)user {
+    self.host = host;
+    self.port = port.length ? port : @"22";
+    self.username = user.length ? user : @"root";
+    [self remember];
     if (self.busy || ![self connectionValid]) return;
     NSString *script = [self helper:@"slopnet-vps-onboard"];
     if (script == nil) {
-        [self.console note:@"The VPS setup helper is missing from this app. Build it again."];
+        [self.console note:@"The server setup helper is missing from this app. Build it again."];
         return;
     }
-    [self remember];
-    [self.console note:@"\n=== Setting up your VPS ==="];
+    [self.console note:@"\n=== Preparing your server ==="];
     self.setupRunning = YES;
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
-                           arguments:@[script, self.host.stringValue,
-                                       self.port.stringValue, self.username.stringValue]]) {
+                           arguments:@[script, self.host, self.port, self.username]]) {
         self.setupRunning = NO;
         [self setBusy:NO];
     }
+}
+
+- (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
+           title:(NSString *)title {
+    if (self.busy || ![self connectionValid]) return;
+    [self.console note:[NSString stringWithFormat:@"\n=== %@ ===", title]];
+    [self setBusy:YES];
+    NSString *target = [NSString stringWithFormat:@"%@@%@", self.username, self.host];
+    // A real terminal on the far end, so a sudo password prompt works.
+    if (![self.console runExecutable:@"/usr/bin/ssh"
+                           arguments:@[@"-t", @"-p", self.port,
+                                       @"-o", @"StrictHostKeyChecking=accept-new",
+                                       target, command]]) {
+        [self setBusy:NO];
+    }
+}
+
+- (void)settingsDidForget:(SlopNetSettings *)settings {
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey]) {
+        [store removeObjectForKey:key];
+    }
+    self.host = @"";
+    self.username = @"root";
+    self.port = @"22";
+    [self.console note:@"\nForgotten on this Mac. Your server itself is untouched, and "
+                       @"no password was ever stored."];
+    [self refreshState];
 }
 
 - (void)checkConnection:(id)sender {
     if (self.busy || ![self connectionValid]) return;
     [self.console note:@"\n=== Checking the connection ==="];
     [self setBusy:YES];
-    NSString *target = [NSString stringWithFormat:@"%@@%@",
-                        self.username.stringValue, self.host.stringValue];
+    NSString *target = [NSString stringWithFormat:@"%@@%@", self.username, self.host];
     if (![self.console runExecutable:@"/usr/bin/ssh"
-                           arguments:@[@"-p", self.port.stringValue,
+                           arguments:@[@"-p", self.port,
                                        @"-o", @"BatchMode=yes",
                                        @"-o", @"ConnectTimeout=10",
                                        @"-o", @"StrictHostKeyChecking=accept-new",
-                                       target, @"echo SlopNet reached your VPS."]]) {
+                                       target, @"echo SlopNet reached your server."]]) {
         [self setBusy:NO];
     }
 }
@@ -460,9 +455,8 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
         return;
     }
     if (![self isReady]) {
-        [self.console note:@"\nSet up a VPS first — press “VPS settings” on the left."];
-        self.settingsOpen = YES;
-        [self refreshState];
+        [self.console note:@"\nConnect a server first — press Settings, bottom left."];
+        [self openSettings:nil];
         return;
     }
     NSString *name = [self.projectName.stringValue stringByTrimmingCharactersInSet:
@@ -489,8 +483,8 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     self.entry.stringValue = @"";
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
-                           arguments:@[script, self.host.stringValue, self.port.stringValue,
-                                       self.username.stringValue, name, idea]]) {
+                           arguments:@[script, self.host, self.port,
+                                       self.username, name, idea]]) {
         [self setBusy:NO];
     }
 }
@@ -507,16 +501,15 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 #pragma mark - console callbacks
 
 - (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status {
-    // A VPS counts as ready only when SETUP itself finished cleanly — not
-    // because someone typed an address. That is what makes the green dot
-    // in the sidebar worth trusting.
+    // A server counts as ready only when SETUP itself finished cleanly —
+    // not because someone typed an address. That is what makes the green
+    // dot in the sidebar worth trusting.
     if (self.setupRunning) {
         self.setupRunning = NO;
         if (status == 0) {
             [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kReadyKey];
-            self.settingsOpen = NO;
-            [self.console note:@"Your VPS is ready. The setup form is tucked away under "
-                               @"“VPS settings” on the left — you will not be asked again."];
+            [self.console note:@"Your server is ready. Name a project below and say what "
+                               @"you want built — you will not be asked to set it up again."];
         }
     }
     [self setBusy:NO];
