@@ -56,15 +56,84 @@ def repo_root():
             capture_output=True, text=True,
         )
     except FileNotFoundError:
-        die("git is not installed. SlopNet needs git.")
+        fail("git is not installed.",
+             "SlopNet needs git to track your project.",
+             "Install git, then re-run this command. On a Mac: xcode-select --install")
     if out.returncode != 0:
         return None
     return pathlib.Path(out.stdout.strip())
 
 
-def die(msg, code=1):
-    print(msg)
+def fail(rule, why, fix, code=1):
+    """Three short lines: what happened, why it matters, what to type next."""
+    print(f"RULE: {rule}")
+    print(f"WHY:  {why}")
+    print(f"FIX:  {fix}")
     sys.exit(code)
+
+
+def die(msg, code=1):
+    """Print a structured failure. Prefer fail(rule, why, fix) at call sites."""
+    text = str(msg).strip()
+    if text.startswith("RULE:"):
+        print(text)
+        sys.exit(code)
+    # Known short crew messages keep a machine-stable str(exc) for tests,
+    # but users still get RULE/WHY/FIX here.
+    known = {
+        "agent timed out": (
+            "The coding app did not finish in time.",
+            "Retry, or raise the timeout in .slopnet/crew.json, then re-run",
+        ),
+        "not logged in": (
+            "This agent has no usable login or API key.",
+            "Log the AI app in (or export its key), then: slopnet setup",
+        ),
+    }
+    for key, (why_k, fix_k) in known.items():
+        if key in text.lower():
+            print(f"RULE: {text}")
+            print(f"WHY:  {why_k}")
+            print(f"FIX:  {fix_k}")
+            sys.exit(code)
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    rule = lines[0] if lines else "Something went wrong."
+    why = lines[1] if len(lines) > 1 else "SlopNet stopped so nothing unsafe continues."
+    if why.startswith("WHY:"):
+        why = why[4:].strip()
+    fix = None
+    for ln in lines[2:]:
+        if ln.startswith("FIX:"):
+            fix = ln[4:].strip()
+            break
+    if fix is None:
+        fix = "Fix the cause above, then re-run the same command."
+    print(f"RULE: {rule}")
+    print(f"WHY:  {why}")
+    print(f"FIX:  {fix}")
+    sys.exit(code)
+
+
+def require_python():
+    if sys.version_info < (3, 9):
+        fail(
+            f"Python {sys.version_info.major}.{sys.version_info.minor} is too old.",
+            "SlopNet needs Python 3.9 or newer.",
+            "Install a newer Python from python.org or your package manager, "
+            "then run: python3 --version",
+        )
+
+
+def print_welcome():
+    print(
+        "SlopNet — a starter project where AI can write code and walls block junk.\n"
+        "\n"
+        "  slopnet go \"idea\"   Plan and build something in one go.\n"
+        "  slopnet doctor      Check this project is healthy.\n"
+        "  slopnet check       Run the safety walls right now.\n"
+        "\n"
+        "Read README.md for the full first-time walkthrough."
+    )
 
 
 def sh(cmd, cwd=None):
@@ -102,7 +171,9 @@ def day_file(root):
 def git_path(root, name):
     code, path = sh(["git", "rev-parse", "--git-path", name], cwd=root)
     if code != 0:
-        die(f"Could not find this repository's Git files:\n{path}")
+        fail("Could not find this repository's Git files.",
+             path or "git rev-parse failed.",
+             "Run this from inside your project folder, or: slopnet init")
     path = pathlib.Path(path)
     return path if path.is_absolute() else root / path
 
@@ -128,8 +199,9 @@ def arm_from_installation(root):
     source_checks = source / "checks"
     source_hooks = source / "hooks"
     if not source_checks.is_dir() or not source_hooks.is_dir():
-        die("This SlopNet installation is missing its checks and hooks. "
-            "Reinstall it before arming this folder.")
+        fail("This SlopNet installation is missing its checks and hooks.",
+             "Without them this folder cannot be armed safely.",
+             "Clone a fresh copy of the SlopNet repo and run: ./install.sh")
 
     checks = root / "checks"
     checks.mkdir(exist_ok=True)
@@ -151,8 +223,9 @@ def arm_from_installation(root):
         if target.exists():
             text = target.read_text(encoding="utf-8", errors="replace")
             if "# slopnet-armed" not in text:
-                die(f"{target} already exists and is not a SlopNet hook. "
-                    "It was left untouched.")
+                fail(f"{target} already exists and is not a SlopNet hook.",
+                     "It was left untouched so your hook is not overwritten.",
+                     f"Move or rename {target}, then run: slopnet doctor --fix")
         else:
             shutil.copy2(source_hooks / name, target)
             target.chmod(0o755)
@@ -182,7 +255,7 @@ def run_checks(root, all_mode):
     """Run every checks/*.sh; return (ok, report_text)."""
     checks_dir = root / "checks"
     if not checks_dir.is_dir():
-        return False, "This repo has no checks/ folder — is it a SlopNet repo?"
+        return False, ("RULE: This repo has no checks/ folder.\nWHY:  Without checks there are no walls.\nFIX:  Restore them: git checkout -- checks/    or re-clone the SlopNet project")
     lines, ok = [], True
     for script in sorted(checks_dir.glob("*.sh")):
         cmd = ["sh", str(script)] + (["--all"] if all_mode else [])
@@ -275,7 +348,9 @@ def cmd_init(root, args):
     if root is None:
         code, out = sh(["git", "init"])
         if code != 0:
-            die(f"git init failed:\n{out}")
+            fail("git init failed.",
+                 out or "git printed no details.",
+                 "Fix the git error above, then re-run: slopnet init")
         if not quiet:
             print("[OK] Started a fresh git repository.")
         root = repo_root()
@@ -285,7 +360,9 @@ def cmd_init(root, args):
         if not quiet and out:
             print(out)
         if code != 0:
-            die("install.sh failed — read its message above.")
+            fail("install.sh failed.",
+                 "Hooks and optional tools were not fully armed.",
+                 "Read the message above, fix it, then run: ./install.sh")
     else:
         arm_from_installation(root)
     day_file(root)
@@ -320,18 +397,58 @@ def cmd_doctor(root, args):
         installer = root / "install.sh"
         if installer.exists():
             code, out = sh(["bash", str(installer)], cwd=root)
-            print(out)
+            if out:
+                print(out)
+            if code != 0:
+                fail(
+                    "install.sh could not finish during doctor --fix.",
+                    "Hooks or tools may still be unarmed.",
+                    "Read the message above, fix it, then run: slopnet doctor --fix",
+                )
+        else:
+            print("RULE: No install.sh in this folder.")
+            print("WHY:  doctor --fix cannot re-arm hooks without it.")
+            print("FIX:  cd into a full SlopNet checkout, then: slopnet doctor --fix")
         apply_sh = root / "rulesets" / "apply-rulesets.sh"
         if apply_sh.exists() and shutil.which("gh"):
             code, out = sh(["bash", str(apply_sh)], cwd=root)
-            print(out)
+            if out:
+                print(out)
+        elif apply_sh.exists() and not shutil.which("gh"):
+            print("RULE: Branch rules were not applied automatically.")
+            print("WHY:  Applying them needs the GitHub CLI (`gh`) logged in.")
+            print("FIX:  Install gh, run: gh auth login")
+            print("      Then re-run: slopnet doctor --fix")
+            print("      Or click on GitHub, in order:")
+            print("        1. Open your repo on github.com")
+            print("        2. Settings")
+            print("        3. Branches (or Rules → Rulesets)")
+            print("        4. Require checks: law, manifest, register-audit")
     doc = root / "doctor.sh"
     if not doc.exists():
-        die("No doctor.sh here — is this a SlopNet repo?")
+        fail(
+            "No doctor.sh here.",
+            "This folder does not look like a full SlopNet project.",
+            "cd into your SlopNet project (the folder with doctor.sh), then: slopnet doctor",
+        )
     code, out = sh(["bash", str(doc)], cwd=root)
-    print(out)
+    if out:
+        print(out)
+    needs_clicks = out and (
+        "Turn on branch protection" in out
+        or "Can't check from here" in out
+        or "Settings → Branches" in out
+    )
+    if needs_clicks:
+        print("")
+        print("What to click on GitHub (in order):")
+        print("  1. Open your repository page on github.com")
+        print("  2. Click Settings")
+        print("  3. Click Branches — or Rules, then Rulesets")
+        print("  4. Add a rule for your default branch")
+        print("  5. Require status checks: law, manifest, register-audit")
+        print("  6. Save, then re-run: slopnet doctor")
     sys.exit(code)
-
 
 # ----------------------------------------------------------------- verify
 
@@ -416,11 +533,14 @@ This is an experiment orbiting the {trunk} main repo. Rules:
 def cmd_orbit(root, args):
     name = args.name
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
-        die(f"'{name}' breaks the naming law. One clear lowercase-hyphenated "
-            "name, chosen by the operator.")
+        fail(f"'{name}' breaks the naming law.",
+             "Orbit names are one clear lowercase-hyphenated word, chosen by the operator.",
+             "Pick a name the operator chose, then: slopnet orbit new that-name")
     target = root.parent / name
     if target.exists():
-        die(f"{target} already exists — orbits are never built on top of something.")
+        fail(f"{target} already exists.",
+             "Orbits are never built on top of an existing folder.",
+             "Choose a new name the operator has not used, then: slopnet orbit new that-name")
     code, sha = sh(["git", "rev-parse", "--short", "HEAD"], cwd=root)
     sha = sha if code == 0 else "none"
     target.mkdir()
@@ -435,7 +555,9 @@ def cmd_orbit(root, args):
                 ["git", "commit", "-q", "-m", f"{name}: orbit born"]):
         code, out = sh(cmd, cwd=target)
         if code != 0:
-            die(f"git step failed in {target}:\n{out}")
+            fail(f"git step failed in {target}.",
+                 out or "git printed no details.",
+                 f"Fix the git error above, remove {target} if it is half-made, then re-run orbit new")
     row = (f"| {name} | (local: ../{name}) | <what it is — operator fills in> "
            f"| <calls> | cooking | {today()} @ {sha} |")
     slop = root / "SLOPNET.md"
@@ -503,7 +625,9 @@ def load_crew_module(root):
     import importlib.util
     path = pathlib.Path(__file__).resolve().parent / "crew.py"
     if not path.exists():
-        die("crew.py is missing — this checkout is incomplete.")
+        fail("crew.py is missing.",
+             "This checkout is incomplete; the crew cannot run.",
+             "Restore crew.py from git: git checkout -- crew.py")
     spec = importlib.util.spec_from_file_location("slopnet_crew", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -839,8 +963,9 @@ def cmd_go(root, args):
         root = cmd_init(
             None, argparse.Namespace(github=False, quiet=True))
     elif git_has_head(root) and not git_is_clean(root):
-        die("This repository has uncommitted work. Commit or stash it, then "
-            "run the same command again.")
+        fail("This repository has uncommitted work.",
+             "The crew starts from a clean tree so none of your work is lost.",
+             "Run: git status    then commit or: git stash    then re-run your slopnet command")
 
     if not repo_is_armed(root):
         root = cmd_init(
@@ -1057,6 +1182,11 @@ def cmd_mcp(root, args):
 # ------------------------------------------------------------------- main
 
 def main():
+    require_python()
+    if len(sys.argv) == 1:
+        print_welcome()
+        return
+
     parser = argparse.ArgumentParser(
         prog="slopnet", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1110,7 +1240,7 @@ def main():
 
     args = parser.parse_args()
     if not args.command:
-        parser.print_help()
+        print_welcome()
         return
 
     root = repo_root()
@@ -1118,7 +1248,9 @@ def main():
         cmd_init(root, args)
         return
     if root is None and args.command != "go":
-        die("Not inside a git repository. Run `slopnet init` to start one.")
+        fail("Not inside a git repository.",
+             "SlopNet needs a project folder that git knows about.",
+             "cd into your project, or start one with: slopnet init")
 
     if args.command == "doctor":
         cmd_doctor(root, args)
@@ -1132,7 +1264,9 @@ def main():
         cmd_verify(root, args)
     elif args.command == "orbit":
         if args.orbit_command != "new":
-            die("Usage: slopnet orbit new <name>")
+            fail("Missing orbit name.",
+             "Orbit needs a name the operator chose.",
+             "Type: slopnet orbit new the-name")
         cmd_orbit(root, args)
     elif args.command == "adapt":
         cmd_adapt(root, args)

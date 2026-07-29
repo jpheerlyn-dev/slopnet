@@ -4,7 +4,9 @@ set -u
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || true)
 if [[ -z "$root" ]] || ! cd "$root"; then
-  printf '%s\n' '[!!] This is not a Git repository. Run ./doctor.sh from the repository root.'
+  printf '%s\n' 'RULE: This is not a Git repository.'
+  printf '%s\n' 'WHY:  doctor checks the project that git knows about.'
+  printf '%s\n' 'FIX:  cd into your SlopNet project folder, then run: slopnet doctor'
   exit 1
 fi
 
@@ -15,7 +17,10 @@ ok() {
 }
 
 bad() {
-  printf '[!!] %s\n' "$1"
+  # $1 rule  $2 why  $3 fix
+  printf 'RULE: %s\n' "$1"
+  printf 'WHY:  %s\n' "$2"
+  printf 'FIX:  %s\n' "$3"
   failed=1
 }
 
@@ -34,7 +39,10 @@ done
 if [[ "$hooks_ok" -eq 1 ]]; then
   ok 'Hooks are armed.'
 else
-  bad 'Hooks are not armed — Run ./install.sh.'
+  bad \
+    'Hooks are not armed.' \
+    'Commits would not run the walls.' \
+    'Run: ./install.sh    or: slopnet doctor --fix'
 fi
 
 if [[ -e .slopnet/bin/lefthook && ! -e .slopnet/fallback ]]; then
@@ -60,7 +68,10 @@ done
 if [[ "$law_ok" -eq 1 ]]; then
   ok 'All six law checks are present.'
 else
-  bad 'Some law checks are missing or not executable.'
+  bad \
+    'Some law checks are missing or not executable.' \
+    'Without checks/ the walls cannot run.' \
+    'Restore them: git checkout -- checks/    or re-clone the SlopNet project'
 fi
 
 manifest_ok=0
@@ -78,13 +89,19 @@ fi
 if [[ "$manifest_ok" -eq 1 ]]; then
   ok 'The manifest matches the machinery.'
 else
-  bad 'The manifest is missing or does not match the machinery.'
+  bad \
+    'The manifest is missing or does not match the machinery.' \
+    'A wrong manifest means the safety machinery may have been changed or damaged.' \
+    'If you meant to change machinery: ./update-manifest.sh    Otherwise: git checkout -- MANIFEST.sha256'
 fi
 
 if [[ -f .github/workflows/slopnet.yml ]]; then
   ok 'The CI workflow is present.'
 else
-  bad 'The CI workflow is missing.'
+  bad \
+    'The CI workflow is missing.' \
+    'GitHub Actions will not run the walls on pull requests.' \
+    'Restore it: git checkout -- .github/workflows/slopnet.yml'
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
@@ -121,7 +138,10 @@ else
     fi
 
     if [[ "$api_status" -ne 0 ]]; then
-      bad "$instruction"
+      bad \
+        'Branch protection could not be verified.' \
+        'Without required checks, bad work can reach the default branch.' \
+        'On GitHub: Settings → Branches (or Rules → Rulesets) → require law, manifest, register-audit'
     else
       protection_ok=1
       for job in law manifest register-audit; do
@@ -139,7 +159,10 @@ else
       if [[ "$protection_ok" -eq 1 ]]; then
         ok 'The server wall requires all three SlopNet checks.'
       else
-        bad "$instruction"
+        bad \
+          'Branch protection is incomplete.' \
+          'Not all three SlopNet checks are required on the default branch.' \
+          'On GitHub: Settings → Branches (or Rules → Rulesets) → require law, manifest, register-audit'
       fi
     fi
   fi
@@ -157,7 +180,10 @@ fi
 if [[ "$register_ok" -eq 1 ]]; then
   ok 'The register has a tracked day-file.'
 else
-  bad 'The register has no tracked day-file.'
+  bad \
+    'The register has no tracked day-file.' \
+    'Without a day file there is no place for agents to sign work.' \
+    'Create today'\''s file: mkdir -p register && date +register/%Y-%m-%d.md | xargs touch && git add register/'
 fi
 
 exit "$failed"

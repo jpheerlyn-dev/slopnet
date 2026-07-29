@@ -205,7 +205,12 @@ _FAILURE_CAUSES = (
 
 
 class CrewError(Exception):
+    """Prefer crew_fail(rule, why, fix). Single-string args still get a FIX line via die()."""
     pass
+
+
+def crew_fail(rule, why, fix):
+    raise CrewError(f"RULE: {rule}\nWHY:  {why}\nFIX:  {fix}")
 
 
 class CrewInterrupted(CrewError):
@@ -227,10 +232,11 @@ _FAKE_GATE = re.compile(r"^\s*(true|:|exit 0|echo\b[^&|;]*)\s*$|\|\|\s*(true|:|e
 def refuse_fake_gate(command):
     """Raise if a test command cannot actually fail."""
     if command and _FAKE_GATE.search(command.strip()):
-        raise CrewError(
-            "That test command can never fail, so it would mark bad work as "
-            "proven. Remove the '|| true' (or use a real test command, or "
-            "leave it blank to let the walls judge alone).")
+        crew_fail(
+            "That test command can never fail.",
+            "A test that always passes would mark bad work as proven.",
+            "Remove '|| true' (or use a real test command, or leave blank for walls only), then re-run setup",
+        )
 
 
 # --------------------------------------------------------------- the crew
@@ -238,7 +244,11 @@ def refuse_fake_gate(command):
 def load_crew(root):
     path = root / CREW_FILE
     if not path.exists():
-        raise CrewError("No crew yet. Run `slopnet setup` first — it takes a minute.")
+        crew_fail(
+            "No crew yet.",
+            "The planner and writers are chosen during setup.",
+            "Run: slopnet setup",
+        )
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -438,10 +448,11 @@ def setup(root, ask, say, automatic=False):
     say("Let's meet your crew.\n")
     workers = available_workers()
     if not workers:
-        raise CrewError(
-            "No coding agents found. Install one you already pay for "
-            "(claude, codex, gemini, hermes) or set an API key like "
-            "ANTHROPIC_API_KEY, then run `slopnet setup` again.")
+        crew_fail(
+            "No coding agents found.",
+            "SlopNet needs an AI coding app installed and on your PATH.",
+            "Install one (claude, codex, gemini, hermes, …), log in, then: slopnet setup",
+        )
 
     labels = [_worker_label(w) for w in workers]
     say("Found on this machine:")
@@ -475,9 +486,11 @@ def setup(root, ask, say, automatic=False):
                 planner_i = i
                 break
         if planner_i is None:
-            raise CrewError(
-                "None of the available agents passed the edit proof. Log one "
-                "in, then run `slopnet setup` again.")
+            crew_fail(
+                "None of the available agents passed the edit proof.",
+                "Unproven agents are not allowed to write real work.",
+                "Log an AI coding app in, then run: slopnet setup",
+            )
         fleet_is = [planner_i]
         test_cmd = ""
     else:
@@ -539,9 +552,17 @@ def _worker_timeout(worker, override=None):
     try:
         timeout = float(raw)
     except (TypeError, ValueError):
-        raise CrewError(f"{worker['name']} has an invalid timeout in {CREW_FILE}.")
+        crew_fail(
+            f"{worker['name']} has an invalid timeout in {CREW_FILE}.",
+            "Timeouts must be positive numbers (seconds).",
+            f"Edit {CREW_FILE} and set a positive timeout, then re-run",
+        )
     if timeout <= 0:
-        raise CrewError(f"{worker['name']} has an invalid timeout in {CREW_FILE}.")
+        crew_fail(
+            f"{worker['name']} has an invalid timeout in {CREW_FILE}.",
+            "Timeouts must be positive numbers (seconds).",
+            f"Edit {CREW_FILE} and set a positive timeout, then re-run",
+        )
     return int(timeout) if timeout.is_integer() else timeout
 
 
@@ -586,9 +607,11 @@ def _resolve_worker_env(worker):
         if value.startswith("$"):
             resolved = os.environ.get(value[1:], "")
             if not resolved:
-                raise CrewError(
-                    f"{worker['name']} needs {value[1:]} set in your shell. "
-                    f"Add it, then run this again.")
+                crew_fail(
+                    f"{worker['name']} needs {value[1:]} set in your shell.",
+                    "That environment variable holds the key this worker needs.",
+                    f"export {value[1:]}=… in your shell, then re-run this command",
+                )
             env[name] = resolved
         else:
             env[name] = value
@@ -614,7 +637,11 @@ def _run_cli(worker, prompt, cwd, timeout, cancel_event=None):
     stdin = None
     if len(prompt.encode("utf-8")) > LONG_PROMPT_BYTES:
         if not cwd:
-            raise CrewError("a working directory is required for a long agent prompt")
+            crew_fail(
+                "A working directory is required for a long agent prompt.",
+                "Long prompts are written to a temp file inside the project.",
+                "Re-run from inside your project folder",
+            )
         with tempfile.NamedTemporaryFile(
                 mode="w", encoding="utf-8", prefix=".slopnet-prompt-",
                 suffix=".txt", delete=False) as handle:
@@ -634,8 +661,11 @@ def _run_cli(worker, prompt, cwd, timeout, cancel_event=None):
             cmd = cmd.replace("{prompt}", shlex.quote(reference))
         else:
             prompt_path.unlink(missing_ok=True)
-            raise CrewError(
-                f"{worker['name']} has no safe long-prompt transport in {CREW_FILE}.")
+            crew_fail(
+                f"{worker['name']} has no safe long-prompt transport in {CREW_FILE}.",
+                "Long prompts need a file or stdin transport.",
+                "Run: slopnet setup    to rebuild crew config",
+            )
     else:
         cmd = worker["command"].replace("{prompt}", shlex.quote(prompt))
     try:
@@ -672,7 +702,12 @@ def _run_cli(worker, prompt, cwd, timeout, cancel_event=None):
             raise
         output = stdout + stderr
         if proc.returncode != 0:
-            raise CrewError(classify_failure(output, returncode=proc.returncode))
+            reason = classify_failure(output, returncode=proc.returncode)
+            crew_fail(
+                f"Agent failed: {reason}.",
+                "The coding app exited without a successful edit.",
+                "Fix login/quota/errors above, then re-run the same command",
+            )
         # Agent CLIs commonly write progress (including an echoed copy of
         # the final answer) to stderr and the machine-readable answer to
         # stdout. Feeding both to the plan parser duplicates valid tasks.
@@ -688,7 +723,11 @@ def _run_api(worker, prompt, timeout, cancel_event=None):
     timeout = _worker_timeout(worker, timeout)
     key = os.environ.get(worker["key_env"], "")
     if not key:
-        raise CrewError("not logged in")
+        crew_fail(
+            "Not logged in.",
+            "This API worker has no usable credentials.",
+            "Set the required API key in your shell, then re-run",
+        )
     model = worker.get("model") or ""
     if worker["api"] == "anthropic":
         body = {"model": model or "claude-sonnet-5", "max_tokens": 8192,
@@ -713,13 +752,26 @@ def _run_api(worker, prompt, timeout, cancel_event=None):
             body = exc.read().decode(errors="replace")
         except Exception:
             body = ""
-        raise CrewError(classify_failure(body, http_code=exc.code))
+        reason = classify_failure(body, http_code=exc.code)
+        crew_fail(
+            f"Agent failed: {reason}.",
+            "The HTTP API returned an error.",
+            "Fix login/quota/network, then re-run",
+        )
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             raise CrewError(f"agent timed out after {timeout}s")
-        raise CrewError(f"{worker['name']} unreachable: {exc.reason}")
+        crew_fail(
+            f"{worker['name']} unreachable: {exc.reason}.",
+            "The network call to the agent failed.",
+            "Check network and credentials, then re-run",
+        )
     except Exception as exc:
-        raise CrewError(f"{worker['name']} unreachable: {exc}")
+        crew_fail(
+            f"{worker['name']} unreachable: {exc}.",
+            "The network call to the agent failed.",
+            "Check network and credentials, then re-run",
+        )
     if "content" in data:  # anthropic shape
         return "".join(part.get("text", "") for part in data["content"])
     return data["choices"][0]["message"]["content"]
@@ -737,9 +789,11 @@ def require_proven(worker):
     if worker.get("proven") is True:
         return
     reason = worker.get("proof") or "no successful setup probe"
-    raise CrewError(
-        f"{worker['name']} is unproven: {reason}. "
-        "Run `slopnet setup` before giving it real work.")
+    crew_fail(
+        f"{worker['name']} is unproven: {reason}.",
+        "Unproven agents are not allowed to write real work.",
+        "Run: slopnet setup",
+    )
 
 
 # ------------------------------------------------------------------ planning
@@ -796,10 +850,18 @@ def parse_waves(text):
             waves.append(current)
         elif task_m:
             if current is None:
-                raise CrewError(f"task {task_m.group(1)} sits outside any wave")
+                crew_fail(
+                    f"Task {task_m.group(1)} sits outside any wave.",
+                    "Every task must live under a ## Wave heading in WAVES.md.",
+                    "Edit WAVES.md or re-run: slopnet plan \"your idea\"",
+                )
             tid = task_m.group(1)
             if tid in seen:
-                raise CrewError(f"two tasks share the id {tid}")
+                crew_fail(
+                    f"Two tasks share the id {tid}.",
+                    "Task ids must be unique in the plan.",
+                    "Edit WAVES.md or re-run: slopnet plan \"your idea\"",
+                )
             seen.add(tid)
             current.append({"id": tid, "body": []})
         elif current and line.strip():
@@ -810,15 +872,27 @@ def parse_waves(text):
             files = re.search(r"^Files:\s*(.+)$", task["body"], re.MULTILINE)
             task["files"] = [f.strip() for f in files.group(1).split(",")] if files else []
             if not task["files"]:
-                raise CrewError(f"task {task['id']} has no 'Files:' line")
+                crew_fail(
+                    f"Task {task['id']} has no 'Files:' line.",
+                    "Each task must name the files it owns.",
+                    "Edit WAVES.md or re-run: slopnet plan \"your idea\"",
+                )
     waves = [w for w in waves if w]
     if not waves:
-        raise CrewError("the plan contains no waves")
+        crew_fail(
+            "The plan contains no waves.",
+            "There is nothing for the crew to run.",
+            "Re-run: slopnet plan \"your idea\"",
+        )
     for wave in waves:
         owned = [f for t in wave for f in t["files"]]
         clash = {f for f in owned if owned.count(f) > 1}
         if clash:
-            raise CrewError("two tasks in one wave both own: " + ", ".join(sorted(clash)))
+            crew_fail(
+                "Two tasks in one wave both own: " + ", ".join(sorted(clash)) + ".",
+                "Tasks in the same wave must not share files.",
+                "Edit WAVES.md or re-run: slopnet plan \"your idea\"",
+            )
     return waves
 
 
@@ -847,7 +921,11 @@ def plan(root, idea, say):
         say(f"[planner] {WAVES_FILE}: {len(waves)} waves, "
             f"{sum(len(w) for w in waves)} tasks. Read it before you run it.")
         return waves
-    raise CrewError(f"the planner could not produce a valid plan: {errors}")
+    crew_fail(
+        "The planner could not produce a valid plan.",
+        str(errors),
+        "Re-run: slopnet plan \"your idea\"    or edit WAVES.md by hand",
+    )
 
 
 # -------------------------------------------------------------- the wave runner
@@ -1079,19 +1157,30 @@ def run(root, say, only_wave=None, emit=None):
     crew = load_crew(root)
     fleet = crew["fleet"]
     if not fleet:
-        raise CrewError("Your crew has nobody to write code. Run `slopnet setup`.")
+        crew_fail(
+            "Your crew has nobody to write code.",
+            "Setup did not save any writers.",
+            "Run: slopnet setup",
+        )
     for worker in fleet:
         require_proven(worker)
     waves_path = root / WAVES_FILE
     if not waves_path.exists():
-        raise CrewError(f"No {WAVES_FILE} yet. Run `slopnet plan \"your idea\"` first.")
+        crew_fail(
+            f"No {WAVES_FILE} yet.",
+            "The crew needs a plan before it can run.",
+            f"Run: slopnet plan \"your idea\"    or: slopnet go \"your idea\"",
+        )
     waves = parse_waves(waves_path.read_text(encoding="utf-8"))
     refuse_fake_gate(crew.get("test_command", ""))
 
     code, dirty = _git(["status", "--porcelain"], root)
     if dirty.strip():
-        raise CrewError("Commit or stash your changes first — the crew works "
-                        "from a clean tree so nothing of yours can be lost.")
+        crew_fail(
+            "This repository has uncommitted work.",
+            "The crew starts from a clean tree so none of your work is lost.",
+            "Run: git status    then commit or: git stash    then re-run",
+        )
     _, base_branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], root)
 
     # A live view is entirely optional. When `emit` is given, the runner

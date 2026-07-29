@@ -17,7 +17,9 @@ root=$(git rev-parse --show-toplevel 2>/dev/null || true)
 # strings here: on case-insensitive filesystems (macOS default) the user's
 # typed path and git's canonical path can differ by case alone.
 if [ -z "$root" ] || [ -n "$(git rev-parse --show-prefix 2>/dev/null)" ]; then
-  printf '%s\n' 'Please run ./install.sh from the root of a Git repository.'
+  printf '%s\n' 'RULE: install.sh was not run from the repository root.'
+  printf '%s\n' 'WHY:  Hooks and PATH install only make sense at the project root.'
+  printf '%s\n' 'FIX:  cd into your SlopNet project root, then run: ./install.sh'
   exit 1
 fi
 cd "$root" || exit 1
@@ -98,6 +100,75 @@ if [ -n "$lefthook_asset" ]; then
     fallback
   fi
 fi
+
+# --- PATH: type `slopnet` from any folder (default macOS zsh) ---
+# Symlink this checkout's slopnet into ~/.local/bin and ensure that
+# directory is on PATH via the user's own ~/.zshrc. Idempotent. Never
+# edits files outside the user's home profile.
+install_user_path() {
+  bin_dir="${HOME}/.local/bin"
+  link="${bin_dir}/slopnet"
+  target="${root}/slopnet"
+  profile="${HOME}/.zshrc"
+  path_line='export PATH="$HOME/.local/bin:$PATH"  # slopnet'
+
+  # Never rewrite the user's global `slopnet` from a throwaway tree
+  # (red-team, mktemp clones). Those checkouts vanish and would leave
+  # a broken command on PATH.
+  case "$root" in
+    /tmp/*|*/tmp/*|"${TMPDIR%/}"/*|*slopnet-redteam*|*j06-break*)
+      printf '%s\n' "[OK] Skipping user PATH install for temporary checkout"
+      return 0
+      ;;
+  esac
+  if [ -n "${SLOPNET_SKIP_USER_PATH:-}" ]; then
+    printf '%s\n' "[OK] Skipping user PATH install (SLOPNET_SKIP_USER_PATH is set)"
+    return 0
+  fi
+
+  if [ ! -f "$target" ]; then
+    printf '%s\n' 'RULE: Could not put slopnet on PATH.'
+    printf '%s\n' 'WHY:  No slopnet program in this repository root.'
+    printf '%s\n' 'FIX:  Run ./install.sh from the root of a full SlopNet checkout.'
+    return 1
+  fi
+  if [ ! -x "$target" ]; then
+    chmod +x "$target" || true
+  fi
+
+  mkdir -p "$bin_dir" || return 1
+
+  if [ -L "$link" ] || [ -e "$link" ]; then
+    current=$(readlink "$link" 2>/dev/null || true)
+    if [ "$current" = "$target" ]; then
+      printf '%s\n' "[OK] PATH link already points at this checkout: ${link}"
+    else
+      ln -sfn "$target" "$link"
+      printf '%s\n' "[OK] Updated symlink ${link} -> ${target}"
+    fi
+  else
+    ln -sfn "$target" "$link"
+    printf '%s\n' "[OK] Linked ${link} -> ${target}"
+  fi
+
+  # Only edit the user's own zsh profile (macOS default shell).
+  if [ -f "$profile" ] && grep -Fq '.local/bin' "$profile" 2>/dev/null; then
+    printf '%s\n' "[OK] ${profile} already puts ~/.local/bin on PATH"
+  else
+    {
+      printf '\n'
+      printf '%s\n' '# Added by SlopNet install.sh so you can type `slopnet` from any folder.'
+      printf '%s\n' "$path_line"
+    } >> "$profile"
+    printf '%s\n' "[OK] Appended PATH line to ${profile}"
+    printf '%s\n' "     Open a new Terminal window, or run: source ${profile}"
+  fi
+
+  printf '%s\n' "You can now type: slopnet doctor"
+  printf '%s\n' "(If that says command not found, run: source ${profile})"
+}
+
+install_user_path
 
 if [ -x ./doctor.sh ]; then
   ./doctor.sh
