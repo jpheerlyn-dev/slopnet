@@ -74,6 +74,9 @@
     start.bezelStyle = NSBezelStyleRounded;
     start.keyEquivalent = @"\r";
     [content addSubview:start];
+    NSButton *test = [self button:@"Test Terminal access" frame:NSMakeRect(342, 158, 175, 34) action:@selector(testTerminal:)];
+    test.bezelStyle = NSBezelStyleRounded;
+    [content addSubview:test];
 
     NSTextField *provider = [self label:@"Need a VPS first? Choose a Linux VPS from one of these providers:" frame:NSMakeRect(42, 112, 480, 20) size:13];
     provider.textColor = NSColor.secondaryLabelColor;
@@ -126,6 +129,19 @@
         return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"'\\\"'\\\"'"]];
     };
     NSString *command = [NSString stringWithFormat:@"%@ %@ %@ %@", quote(script), quote(host), quote(port), quote(username)];
+    if ([self openTerminalForCommand:command]) {
+        [self show:@"Terminal is handling the VPS connection. Follow its prompts; this app never receives or saves your password."];
+    }
+}
+
+- (void)testTerminal:(id)sender {
+    NSString *command = @"clear; echo 'SlopNet can open Terminal safely.'; echo 'No VPS connection, password, or SSH key was used for this check.'; read -r -p 'Press Return to close this test: '";
+    if ([self openTerminalForCommand:command]) {
+        [self show:@"Terminal opened successfully. You can now enter your VPS details and start guided setup."];
+    }
+}
+
+- (BOOL)openTerminalForCommand:(NSString *)command {
     NSString *escaped = [[command stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
     NSString *source = [NSString stringWithFormat:@"tell application \"Terminal\"\nactivate\ndo script \"%@\"\nend tell", escaped];
     NSDictionary *error = nil;
@@ -138,9 +154,9 @@
         } else {
             [self show:[NSString stringWithFormat:@"Could not open Terminal for VPS setup: %@. Open SlopNet again and try once more.", reason]];
         }
-        return;
+        return NO;
     }
-    [self show:@"Terminal is handling the VPS connection. Follow its prompts; this app never receives or saves your password."];
+    return YES;
 }
 
 - (void)open:(NSString *)address {

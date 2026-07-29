@@ -60,6 +60,10 @@ used to open a Terminal window for the setup you explicitly started. If you
 previously chose not to allow it, open **System Settings → Privacy & Security →
 Automation**, find SlopNet, and turn on Terminal.
 
+Use **Test Terminal access** first if you want to check that permission before
+you enter any VPS details. It opens only a harmless message in Terminal: no
+connection, password prompt, or SSH key is involved.
+
 ### Container gate (available now)
 
 SlopNet now has a locked-down Docker gate for the VPS. It runs the walls in
