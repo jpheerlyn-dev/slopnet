@@ -59,6 +59,10 @@ confirm the VPS, and prepare the VPS. You do not need to type an SSH command or
 interpret Git output. If it stops, copy the final plain-English message rather
 than the whole Terminal transcript.
 
+When SlopNet asks whether to continue, type `y` only after its sentence says
+exactly what it will change. That confirmation comes from the VPS itself and
+protects you from accidental setup changes.
+
 The first time you press **Connect and begin guided VPS setup**, macOS asks
 whether SlopNet may control Terminal. Choose **Allow**: that permission is only
 used to open a Terminal window for the setup you explicitly started. If you

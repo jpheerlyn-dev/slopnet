@@ -680,7 +680,12 @@ def ask_operator(question, options, multi=False):
 def ask_yes_no(question):
     """Ask for an explicit affirmative answer before changing a VPS."""
     while True:
-        raw = input(f"\n{question} [y/N] ").strip().lower()
+        try:
+            raw = input(f"\n{question} [y/N] ").strip().lower()
+        except EOFError:
+            fail("Setup needs your answer before it changes the VPS.",
+                 "The connection did not leave an interactive Terminal input for this confirmation.",
+                 "Reopen SlopNet and try the guided VPS setup again")
         if raw in ("", "n", "no"):
             return False
         if raw in ("y", "yes"):

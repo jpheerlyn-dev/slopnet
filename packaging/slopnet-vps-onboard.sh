@@ -71,9 +71,9 @@ cd /opt/slopnet
 
 encoded_setup=$(printf '%s' "$remote_setup" | base64)
 if [ "$username" = "root" ]; then
-  ssh -tt -p "$port" "$username@$host" "printf %s '$encoded_setup' | base64 -d | sh"
+  ssh -tt -p "$port" "$username@$host" "umask 077; printf %s '$encoded_setup' | base64 -d > /tmp/slopnet-vps-bootstrap.sh && sh /tmp/slopnet-vps-bootstrap.sh </dev/tty; status=\$?; rm -f -- /tmp/slopnet-vps-bootstrap.sh; exit \$status"
 else
-  ssh -tt -p "$port" "$username@$host" "printf %s '$encoded_setup' | base64 -d | sudo sh"
+  ssh -tt -p "$port" "$username@$host" "umask 077; printf %s '$encoded_setup' | base64 -d > /tmp/slopnet-vps-bootstrap.sh && sudo sh /tmp/slopnet-vps-bootstrap.sh </dev/tty; status=\$?; rm -f -- /tmp/slopnet-vps-bootstrap.sh; exit \$status"
 fi
 
 say "SlopNet VPS setup finished. Read the result above before starting any project work."
