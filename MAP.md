@@ -27,7 +27,7 @@
 `Dockerfile` and `compose.yml` provide one deliberately strict VPS gate for
 the repository walls: non-root, read-only filesystem, no network, no Docker
 socket, and bounded resources. It is a containment proof, not the future
-credentialed coding-agent runtime. The tested VPS checkout is **REDACTED** at
+credentialed coding-agent runtime. The tested VPS checkout is at
 `/opt/slopnet`; the full live proof is in `register/2026-07-29.md`.
 
 ## Historical material — preserve, do not dispatch by accident

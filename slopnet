@@ -1022,6 +1022,9 @@ def cmd_vps_setup(root, args):
     executable = crew.find_exe("codex")
     if not executable:
         executable = install_codex_for_current_user(home)
+        print("[OK] Codex CLI installed for this private VPS account.")
+    else:
+        print("[OK] Codex CLI is already installed for this private VPS account.")
 
     if not codex_login_ok(executable):
         print("Codex is installed but not logged in.")
@@ -1035,6 +1038,9 @@ def cmd_vps_setup(root, args):
             fail("Codex sign-in did not complete.",
                  "The provider did not confirm a usable session on this VPS.",
                  "Complete the device sign-in, then re-run: slopnet setup --vps")
+        print("[OK] Codex device sign-in confirmed for this private VPS account.")
+    else:
+        print("[OK] Codex is already signed in for this private VPS account.")
 
     credential_dir = home / ".codex"
     ensure_private_directory(credential_dir, os.geteuid(), "The Codex credential directory")
@@ -1046,7 +1052,9 @@ def cmd_vps_setup(root, args):
     except crew.CrewError as exc:
         die(str(exc))
     print("\n[OK] VPS setup passed: Codex edited the disposable workspace and the proof was removed.")
-    print("Next: slopnet plan \"what you want built\"")
+    print("Codex is now the one approved coding app for this VPS.")
+    print("SlopNet did not install or sign into any other coding app without your choice.")
+    print("Next: create a project from the SlopNet app, then review its plan before any code runs.")
 
 
 def cmd_setup(root, args):

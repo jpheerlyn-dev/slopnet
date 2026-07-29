@@ -13,9 +13,9 @@ harmless edit on the VPS, and then keep all agent work, tests, and credentials
 off their laptop.
 
 **This checkout is not there yet.** One real VPS vertical slice is now proved:
-on **REDACTED**, guided Linux setup kept credentials in the private non-root
-runtime account and Codex completed a disposable workspace-only edit in 16
-seconds. On Ubuntu 24.04, if AppArmor blocks that sandbox, setup asks before it
+on a tested Ubuntu VPS, guided Linux setup kept credentials in the private
+non-root runtime account and Codex completed a disposable workspace-only edit
+in 16 seconds. On Ubuntu 24.04, if AppArmor blocks that sandbox, setup asks before it
 installs and loads Ubuntu's Bubblewrap-only profile; it does not turn off the
 VPS-wide restriction. That profile gives `/usr/bin/bwrap` the setup permissions
 it needs while its sandbox child loses capabilities. The strict Docker safety
@@ -80,6 +80,19 @@ Use **Test Terminal access** first if you want to check that permission before
 you enter any VPS details. It opens only a harmless message in Terminal: no
 connection, password prompt, or SSH key is involved.
 
+When Terminal says VPS setup passed, leave the app open and use **After VPS
+setup succeeds**. You choose the project folder name and write one sentence
+about what you want made. SlopNet creates only that folder on the VPS, reuses
+the already-proved Codex app there, produces a plan, and waits for you to
+approve the plan before any coding agents run. The VPS address, login name,
+and project request stay in the current app window and are not written into
+this repository or sent to GitHub.
+
+The first coding-app path is deliberately one-at-a-time. Guided VPS setup
+installs Codex only if it is missing and opens its normal device sign-in only
+if it is not signed in. It does not install, log in to, or spend from another
+provider until you choose that provider in a later setup step.
+
 ### Container gate (available now)
 
 SlopNet now has a locked-down Docker gate for the VPS. It runs the walls in
@@ -93,8 +106,8 @@ docker compose run --rm slopnet check --all
 ```
 
 After guided setup, the Docker gate should use the same locked runtime account
-as SlopNet itself. The following is the tested **REDACTED** pattern; it does not
-create an SSH user or change root access:
+as SlopNet itself. The following tested pattern does not create an SSH user or
+change root access:
 
 ```bash
 cd /opt/slopnet

@@ -2,12 +2,12 @@
 
 ## Active work
 
-**Guided VPS setup completed the live **REDACTED** Codex proof.**
+**Guided VPS setup completed the live Codex proof on a tested Ubuntu VPS.**
 
 The implementation remains deliberately narrow: Linux VPS plus one Codex CLI.
 It creates a private non-root runtime account without changing SSH policy,
 asks before installation and device login, checks private credential storage,
-and runs the disposable edit proof. On **REDACTED**'s Ubuntu 24.04 it offered the
+and runs the disposable edit proof. On Ubuntu 24.04 it offered the
 documented Bubblewrap-only AppArmor profile instead of disabling the global
 user-namespace restriction. That upstream profile gives the setup executable
 the permissions it needs, then drops the sandbox child into a
@@ -20,9 +20,9 @@ and SlopNet removed the proof workspace.
 |---|---|---|
 | Original local SlopNet engine (J01–J06) | Done; historical | The briefs and research live in `archive/jobs/`. They are not the VPS product. |
 | Whole-fleet real-world exam (J07) | Done; historical failure | Every available worker failed its real proof. Raw chronology: `archive/jobs/J07_FINDINGS.md`; a new full-fleet run needs an explicit operator brief after the first real project flow. |
-| Docker VPS containment gate | Done on **REDACTED** | Non-root, offline, read-only gate passed. Full output: `register/2026-07-29.md`. |
-| Guided VPS setup and one Codex proof | Done on **REDACTED** | Private non-root credential store confirmed; Ubuntu's Bubblewrap-only profile retained the global restriction and denies child capabilities; Codex wrote the disposable file in 16s and the proof was removed. |
-| Mac control app | Working early shell, not beginner-ready | Dock app connects the VPS and reaches the proved setup, but the detailed conversation still occurs in Terminal. Move the next confirmations and status into the app. |
+| Docker VPS containment gate | Done on tested VPS | Non-root, offline, read-only gate passed. Full output: `register/2026-07-29.md`. |
+| Guided VPS setup and one Codex proof | Done on tested VPS | Private non-root credential store confirmed; Ubuntu's Bubblewrap-only profile retained the global restriction and denies child capabilities; Codex wrote the disposable file in 16s and the proof was removed. |
+| Mac control app | Project-plan step build-ready; live proof pending | Dock app now asks for a user-named project and plain request, then opens a VPS-only plan flow that stops before coding agents run. It still uses Terminal for the remote interaction. A live test needs the operator to choose a project name. |
 | J08 hosted brains / more providers / Hermes / OpenClaw / Buzz | Deferred | Do not start before the preceding proof succeeds. |
 | GitHub branch protection | Incomplete | Configure `law`, `manifest`, `register-audit`, and `container` as required checks after GitHub authentication is restored. |
 
@@ -32,6 +32,14 @@ SlopNet is for a person who wants software made, not a person who wants to
 learn deployment, agent flags, credential files, Docker, or Git. A change is
 in scope only if it makes the path from one VPS plus one coding subscription
 to a proved result shorter, safer, or easier to understand.
+
+## Immediate next proof
+
+Use the Mac app after VPS setup succeeds. Choose the first project folder name
+and give it one plain-language request. SlopNet must create only that project,
+make a plan with the already-proved Codex app, and wait for approval before any
+coding agents run. Record the actual outcome before scheduling any additional
+coding provider or a J07 rerun.
 
 ## Archive
 

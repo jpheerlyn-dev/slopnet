@@ -30,7 +30,7 @@ The product is not ready to call beginner-ready until this path is real:
    safe way to inspect it.
 
 This is a product requirement, not a release claim. The strict Docker gate is
-proved, and one guided **REDACTED** run stored the Codex login in its private
+proved, and one guided Ubuntu VPS run stored the Codex login in its private
 non-root VPS account then completed a disposable workspace-only edit in 16
 seconds. On this Ubuntu 24.04 host, setup used Ubuntu's Bubblewrap-only
 AppArmor profile while keeping `kernel.apparmor_restrict_unprivileged_userns=1`.
@@ -41,6 +41,13 @@ That proves one vertical slice, not a general agent runtime or a
 beginner-ready release. Do not paper over the remaining gap with more
 integrations, a longer README, or a local-only workaround. Every change must
 make the above path shorter, safer, or easier to understand.
+
+The next proved step is a user-named project. The Mac control app asks for the
+name and a plain-language request, creates only that named folder on the VPS,
+and asks the already-proved coding app for a plan. It stops for plan approval
+before it lets coding agents run. The provider selector remains deliberately
+narrow: a person must explicitly choose another provider before SlopNet can
+install it or begin its login flow.
 
 ## MVP crew roles
 
@@ -80,7 +87,7 @@ Run it on the VPS with `docker compose run --rm slopnet check --all` after
 Docker Engine and its Compose plugin have been installed there.
 
 The bind-mounted project must belong to the non-root container identity. The
-tested **REDACTED** deployment maps the container to the existing locked
+tested deployment maps the container to the existing locked
 `slopnet` account through `SLOPNET_UID` and `SLOPNET_GID`; this changes no SSH
 user or root-access policy. Do not solve an ownership mismatch by running the
 gate as root. Another project needs its own matching non-root IDs.

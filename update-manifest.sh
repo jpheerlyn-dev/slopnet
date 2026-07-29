@@ -28,6 +28,7 @@ paths=$(
       packaging/build_app.sh \
       packaging/make_icon.py \
       packaging/slopnet-vps-onboard.sh \
+      packaging/slopnet-vps-project.sh \
       tests/redteam.sh \
       update-manifest.sh \
       .github/workflows/slopnet.yml \
