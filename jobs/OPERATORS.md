@@ -1,6 +1,25 @@
-# Jobs — the run order to "type one command and it works"
+# Jobs — history and next dispatch
 
-**The goal these jobs deliver:** **REDACTED** opens Apple Terminal, types
+## Current state — 2026-07-29
+
+This is a status index, not a new job. Preserve the job briefs as evidence;
+do not delete, rename, or silently rerun them.
+
+| Job | Current state | What the next agent should know |
+|---|---|---|
+| J01–J06 | Implemented and independently verified when merged | They describe the original local-first command path. Their evidence is in the register. |
+| J07 | Run completed; it produced findings, not an app | Read `J07_FINDINGS.md` and `register/PENDING_OPERATOR.md`. Do not rerun until the operator schedules the v0.3 repair and proof work. |
+| J08 | Explicitly deferred by the operator | Do not start it while the VPS remote runner and one real credentialed-agent proof are still missing. |
+
+The immediate MVP work is not another broad integration: establish one
+reviewed VPS agent-runtime path, prove one subscribed coding CLI can edit and
+test there, then repeat J07. Docker's strict no-network container gate is
+already proven separately; it must not be weakened or repurposed as the
+credentialed agent runtime.
+
+## Original J01–J07 sequence
+
+**The goal these jobs were written to deliver:** **REDACTED** opens Apple Terminal, types
 
 ```bash
 slopnet go "build me a thing"
@@ -9,6 +28,9 @@ slopnet go "build me a thing"
 …and SlopNet picks the crew, plans the work, runs several coding agents
 in parallel, and merges only what passes. No manual prompting, no flags
 to remember, no editing config by hand.
+
+That local-first sequence is historical evidence, not the finished product
+direction. The current MVP policy is VPS-first; see `SLOPNET.md`.
 
 Hand each job below to a coding agent as its whole prompt, one job per
 session, in wave order. Every job is self-contained.
