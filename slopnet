@@ -741,6 +741,29 @@ def ensure_vps_sandbox_prerequisite():
              "Read the package-manager error, install bubblewrap, then re-run: slopnet setup --vps")
 
 
+def ensure_vps_sandbox_capable():
+    """Prove the non-root account can start Codex's private Linux sandbox."""
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        fail("Codex's workspace sandbox needs the bubblewrap package.",
+             "This non-root setup cannot install a VPS system package on its own.",
+             "Sign in as the VPS root and run: slopnet setup --vps, then approve the bubblewrap install")
+    try:
+        probe = subprocess.run(
+            [bwrap, "--unshare-user", "--", "true"], capture_output=True,
+            text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        fail("Could not start Codex's private Linux sandbox.",
+             "SlopNet stopped before the agent proof because the VPS sandbox capability is unknown.",
+             "Use a VPS that permits rootless user namespaces, then re-run: slopnet setup --vps")
+    if probe.returncode != 0:
+        detail = (probe.stderr or probe.stdout).strip().splitlines()
+        detail = detail[0] if detail else "bubblewrap user-namespace test failed"
+        fail("This VPS blocks Codex's private Linux sandbox: " + detail,
+             "The non-root runtime account cannot create the user namespace Codex needs for workspace-only writes.",
+             "Use a VPS that permits rootless user namespaces, or make the isolated Docker gate available; SlopNet did not change host security policy")
+
+
 def bootstrap_vps_account(root):
     """One-time root step: create a locked runtime user, then drop privilege."""
     if os.name != "posix" or not sys.platform.startswith("linux"):
@@ -869,10 +892,7 @@ def cmd_vps_setup(root, args):
              "This guided path uses Linux account and permission checks.",
              "Use a supported Linux VPS, then re-run: slopnet setup --vps")
 
-    if not shutil.which("bwrap"):
-        fail("Codex's workspace sandbox needs the bubblewrap package.",
-             "This non-root setup cannot install a VPS system package on its own.",
-             "Sign in as the VPS root and run: slopnet setup --vps, then approve the bubblewrap install")
+    ensure_vps_sandbox_capable()
 
     home = vps_current_home()
     ensure_private_directory(home, os.geteuid(), "The runtime user home")

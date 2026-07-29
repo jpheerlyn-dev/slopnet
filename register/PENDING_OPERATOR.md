@@ -1,5 +1,7 @@
 ## Open
 
+- [2026-07-29, Codex] **REDACTED** cannot complete the safe Codex edit proof: after approved installation of `bubblewrap`, the non-root `slopnet` account returned `unshare: write failed /proc/self/uid_map: Operation not permitted` and `bwrap: setting up uid map: Permission denied`. The host reports `kernel.unprivileged_userns_clone = 1` and `kernel.apparmor_restrict_unprivileged_userns = 1`. No AppArmor, sysctl, SSH, firewall, or Docker setting was changed. Please choose: use a VPS/provider image that permits rootless user namespaces; explicitly authorise a host-security policy change after evaluating its impact; or defer this Codex proof until a separately working isolated Docker agent gate can provide the sandbox.
+
 - [2026-07-29, Codex] Core MVP gap: the local-first walkthrough is now historical. Before SlopNet is called beginner-ready, the operator needs to schedule one named brief for guided VPS setup: approved tool detection and installation, provider login handoff, VPS-only credential storage, one selected CLI edit-and-test proof, scoped egress and resource limits, and a plain recovery message. Do not substitute more providers or integrations for this proof.
 
 - [2026-07-29, Codex] Docker installation on **REDACTED** VPS reported a newer kernel available (running 6.8.0-124-generic; expected 6.8.0-136-generic). Docker is active and the SlopNet gate passed; no reboot was performed. Please choose a maintenance window if you want the kernel upgrade activated.

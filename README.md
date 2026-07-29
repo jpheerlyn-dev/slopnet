@@ -15,11 +15,12 @@ off their laptop.
 **This checkout is not there yet.** The VPS Docker safety gate is real and
 proved. The first guided Linux VPS path for one Codex CLI now checks for the
 Linux bubblewrap sandbox, asks before installing it on supported VPS hosts,
-and is awaiting its live **REDACTED** proof. It is not yet a broad multi-provider
-runtime or a beginner-ready release. The long walkthrough later in this file
-is preserved as the historical local-development route for contributors. It is
-not the product flow we should ask a new user to follow or market as
-beginner-ready.
+and stops early when a VPS blocks its non-root user namespace. **REDACTED** does
+currently block that capability, so the safe edit proof is not complete. It is
+not yet a broad multi-provider runtime or a beginner-ready release. The long
+walkthrough later in this file is preserved as the historical local-development
+route for contributors. It is not the product flow we should ask a new user to
+follow or market as beginner-ready.
 
 The current build priority is proving that narrow path. Only after it works
 should SlopNet broaden to more providers or Hermes, OpenClaw, and Buzz
