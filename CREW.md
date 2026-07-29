@@ -1,5 +1,11 @@
 # CREW.md — putting a fleet of agents to work
 
+> **Current status: local-engine reference, not the VPS-first beginner
+> product.** It documents the existing planner and fleet behaviour. The
+> guided VPS setup and credentialed agent runtime described in `SLOPNET.md`
+> have not been built yet, so do not give this file to a newcomer as setup
+> instructions.
+
 SlopNet's walls stop bad work landing. The crew is how good work gets
 made: one agent **plans**, several agents **write code at the same time**,
 and the walls plus your own tests decide what is allowed to stay.

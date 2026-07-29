@@ -1,5 +1,9 @@
 # J05 — the README a child can follow
 
+> **State: completed historical brief.** Its Mac-local walkthrough is kept
+> for evidence, but it is no longer the product onboarding route. The
+> VPS-first beginner promise in `SLOPNET.md` governs future documentation.
+
 **Where:** the `slopnet` repo, `README.md`. **Size:** medium.
 **Best done after:** J03 (so the one-command path is real before it's
 documented). **Rule that governs this whole job: never document

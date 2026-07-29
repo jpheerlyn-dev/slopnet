@@ -1,5 +1,8 @@
 # J04 — a live view while the fleet works
 
+> **State: completed historical brief.** Preserve it as implementation
+> evidence; do not dispatch it before the one-agent VPS runtime exists.
+
 **Where:** the `slopnet` repo. **Size:** medium. **Touches:** `slopnet`,
 `crew.py` (emit only — the engine must stay UI-free).
 

@@ -1,5 +1,9 @@
 # J07 — build something real, with the whole fleet
 
+> **State: executed on 2026-07-29; findings, not an app, resulted.** Read
+> `J07_FINDINGS.md` and `register/PENDING_OPERATOR.md`. Do not rerun this
+> exam until the operator schedules the VPS agent-proof repair work.
+
 **Where:** a fresh folder OUTSIDE the slopnet repo (an orbit, per
 `SLOPNET.md`). **Size:** large. **Do this last** — it is the exam, and
 its findings are the v0.3 backlog.

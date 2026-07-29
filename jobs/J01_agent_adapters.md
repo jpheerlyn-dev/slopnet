@@ -1,5 +1,9 @@
 # J01 — drive every subscribed CLI correctly (and prove it)
 
+> **State: completed historical brief.** Its local-path implementation and
+> evidence are preserved in the repository and register. Do not dispatch it
+> again as VPS proof; a selected CLI must be re-proven in the VPS runtime.
+
 **Where:** the `slopnet` repo. **Size:** large. **Touches:** `crew.py`,
 `tests/`, `CREW.md`.
 

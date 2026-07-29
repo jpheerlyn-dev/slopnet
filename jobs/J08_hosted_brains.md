@@ -1,5 +1,8 @@
 # J08 — hosted brains: one protocol, many models
 
+> **State: explicitly deferred by the operator.** Do not dispatch while the
+> guided VPS setup and one real credentialed-agent proof are incomplete.
+
 **Where:** the `slopnet` repo. **Size:** medium. **Touches:** `crew.py`,
 `CREW.md`, `jobs/RESEARCH_subscriptions.md` (tick off what it answers).
 

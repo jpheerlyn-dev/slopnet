@@ -1,5 +1,9 @@
 # WATCHMAN.md — the rounds between commits
 
+> **State: future operational reference.** Watchmen are not part of the
+> current beginner MVP. They report only and must never be used as a reason to
+> bypass the VPS setup and one-agent proof still required by `SLOPNET.md`.
+
 The walls check every commit. The watchman checks the *silences* — the
 things that go wrong between commits, or that nobody commits at all.
 

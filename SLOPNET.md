@@ -12,6 +12,29 @@ the operator deliberately exposes a reviewed public endpoint.
 This is the MVP direction. The current code is being brought into line with
 it; do not describe a local run as the finished SlopNet workflow.
 
+## The beginner promise — the release test
+
+SlopNet is for a person who wants software made, not a person who wants to
+learn deployment, agent flags, credential files, Docker, or Git on the way.
+The product is not ready to call beginner-ready until this path is real:
+
+1. The person provides a private VPS and one coding subscription.
+2. One guided setup checks the VPS, explains which optional tools it found,
+   asks before installing anything, and opens each approved provider's normal
+   login flow.
+3. It stores credentials only on the VPS, confirms the selected CLI can make
+   a harmless edit there, and plainly says what passed or what still needs the
+   person's attention.
+4. From then on, the person asks for work; agents, tests, worktrees, and
+   services run on the VPS while the person receives a clear result and a
+   safe way to inspect it.
+
+This is a product requirement, not a claim about the present checkout. The
+strict Docker gate is proved, but the guided remote agent-runtime and
+one-command beginner setup are still missing. Do not paper over that gap with
+more integrations, a longer README, or a local-only workaround. Every change
+must make the above path shorter, safer, or easier to understand.
+
 ## MVP crew roles
 
 SlopNet is the coding executor: it isolates work, runs tests and walls, and

@@ -1,5 +1,9 @@
 # J02 — reach the subscriptions that have no CLI of their own
 
+> **State: completed historical brief.** It records the local subscription
+> routing work. Do not treat research-era provider details as current VPS
+> authentication proof; re-verify them before a remote runtime uses them.
+
 **Where:** the `slopnet` repo. **Size:** medium.
 **Blocked until:** `jobs/RESEARCH_subscriptions_REPORT.md` exists (the
 operator produces it from `RESEARCH_subscriptions.md`). If it is not

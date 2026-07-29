@@ -1,5 +1,8 @@
 # J06 — first-run polish: the tool teaches itself
 
+> **State: completed historical brief.** It polished the local command path.
+> The remaining first-run work is a separately scheduled VPS setup proof.
+
 **Where:** the `slopnet` repo. **Size:** small–medium.
 **Touches:** `slopnet`, `install.sh`, `doctor.sh`.
 

@@ -1,6 +1,26 @@
 # SlopNet
 
-SlopNet is a starter folder for your computer. You describe a small thing you want built. An AI writes the files. Safety checks (we call them **walls**) block messy or broken work from being kept.
+SlopNet is intended to make VPS-based AI software building easy. You describe
+a small thing you want built; agents write the files on the VPS, and safety
+checks (we call them **walls**) block messy or broken work from being kept.
+
+## The simple promise — and the honest current status
+
+The finished product should let a newcomer bring only a private VPS and one
+AI coding subscription. One guided setup should ask permission before it
+installs tools, take them through each provider's normal login, prove one
+harmless edit on the VPS, and then keep all agent work, tests, and credentials
+off their laptop.
+
+**This checkout is not there yet.** The VPS Docker safety gate is real and
+proved; the guided remote agent runtime and one-command onboarding are not.
+The long walkthrough later in this file is preserved as the historical
+local-development route for contributors. It is not the product flow we
+should ask a new user to follow or market as beginner-ready.
+
+The current build priority is one narrow, proven VPS path for one approved
+coding CLI. Only after that works should SlopNet broaden to more providers or
+Hermes, OpenClaw, and Buzz integrations.
 
 ## VPS-first policy
 
@@ -62,8 +82,8 @@ This page assumes you can:
 
 That’s enough. Every new word is explained the first time it appears.
 
-**Main walkthrough below is written for a Mac controlling a VPS.**
-On Linux or Windows the *ideas* are the same; a short “Other computers” note is near the end.
+**The historical walkthrough below is a Mac-local development path.** It does
+not control the VPS or meet the product promise above.
 
 ---
 
@@ -95,10 +115,12 @@ Stay inside your project folder when you type these commands.
 
 ---
 
-## The first-time path (do this in order)
+## Historical local-development path (not the beginner product)
 
-This is the only path you need on day one.  
-Do **not** skip ahead to “everyday use” until this finishes once.
+This is evidence for the earlier local implementation. It can help a
+contributor reproduce that route, but it keeps agents and credentials on the
+Mac and therefore does not meet the VPS-first product policy above. Do **not**
+present it to a newcomer as the finished SlopNet experience.
 
 ### Step 0 — Get an AI coding app ready
 
@@ -336,7 +358,7 @@ Use **short, concrete** asks: name the file and say what it should contain.
 
 ---
 
-## Everyday use (after the first success)
+## Historical local everyday use
 
 You already have the `my-app` folder and a saved crew. Next time:
 
@@ -365,7 +387,7 @@ On a **fresh** clone, `./slopnet go "…"` will run setup for you if no crew exi
 
 ---
 
-## What just happened
+## What the historical local path did
 
 **The crew.**  
 One AI writes a plan (`WAVES.md`). One or more AIs write files for those steps. They work in private copies of the project first, so a bad try does not immediately wreck your main files.
@@ -402,7 +424,7 @@ Do the FIX, then try your command again.
 
 ---
 
-## The commands
+## Local implementation commands
 
 Every SlopNet command today.  
 Run them from inside your project folder as `./slopnet …`.
@@ -425,7 +447,7 @@ Run them from inside your project folder as `./slopnet …`.
 
 ---
 
-## Using your own AI subscriptions
+## Historical local subscription setup
 
 SlopNet only drives tools it can start from Terminal.  
 These are the unattended forms this project was checked with (the long flags let the AI edit files without clicking “allow” every time):
@@ -445,7 +467,7 @@ You only need **one** proven app. Run `./slopnet setup` after you log in.
 
 ---
 
-## Other computers
+## Historical local use on other computers
 
 | You use | Notes |
 |---|---|

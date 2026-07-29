@@ -126,13 +126,17 @@ def require_python():
 
 def print_welcome():
     print(
-        "SlopNet — a starter project where AI can write code and walls block junk.\n"
+        "SlopNet — VPS-first software building with walls that block junk.\n"
         "\n"
-        "  slopnet go \"idea\"   Plan and build something in one go.\n"
+        "Current status: the strict VPS safety gate is proved; guided VPS agent\n"
+        "setup is still being built. A local `go` run is a developer check, not\n"
+        "the beginner product flow.\n"
+        "\n"
         "  slopnet doctor      Check this project is healthy.\n"
         "  slopnet check       Run the safety walls right now.\n"
+        "  slopnet go \"idea\"   Historical local development path.\n"
         "\n"
-        "Read README.md for the full first-time walkthrough."
+        "Read the opening of README.md for the honest current path."
     )
 
 

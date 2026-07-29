@@ -1,5 +1,8 @@
 # J03 — `slopnet go "idea"`: the one command
 
+> **State: completed historical brief.** This is the earlier local-first
+> command path. It is not evidence that the VPS-first beginner flow exists.
+
 **Where:** the `slopnet` repo. **Size:** large. **Touches:** `slopnet`,
 `crew.py`, `CREW.md`, `README.md` (a line, not the rewrite — that's J05).
 **Best done after:** J01.

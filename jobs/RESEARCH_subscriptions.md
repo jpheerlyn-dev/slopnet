@@ -1,5 +1,9 @@
 # Research prompt — wiring paid coding subscriptions into a terminal
 
+> **State: completed historical research prompt.** Its report is preserved
+> below as time-stamped research; neither document proves a provider login or
+> billing boundary on the VPS.
+
 **How to use this:** paste everything in the block into a deep-research
 agent in your browser. Save its answer as
 `jobs/RESEARCH_subscriptions_REPORT.md` in the slopnet repo. Job

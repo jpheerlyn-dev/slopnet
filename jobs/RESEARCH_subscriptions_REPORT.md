@@ -1,5 +1,9 @@
 # **Architectural Analysis of Paid AI Coding Subscriptions for Headless Terminal Orchestration**
 
+> **State: time-stamped research reference, not runtime proof.** It informed
+> the original local implementation on 2026-07-28. Re-verify every provider,
+> credential-storage, billing, and flag claim before it is used on the VPS.
+
 The deployment of autonomous coding agents within a parallelized, headless orchestration framework such as SlopNet requires an exacting understanding of vendor-specific authentication states, rate-limiting architectures, and subscription billing mechanics. As the industry transitions from web-based conversational interfaces to terminal-native agentic workflows, large language model providers have introduced specialized command-line interfaces (CLIs) optimized for codebase analysis, iterative file editing, and shell command execution. Orchestrating a fleet of these agents—specifically the Gemini CLI, Codex CLI, Claude Code, Grok Build, Kimi Code CLI, and zAI configurations—demands precise environment variable management and a deep comprehension of the safety perimeters established by each tool. This report provides an exhaustive, primary-sourced architectural breakdown of how these six paid coding subscriptions operate within a macOS terminal environment, focusing specifically on their viability for unattended, parallel execution.
 
 ## **1\. Moonshot Kimi Coding Plan**

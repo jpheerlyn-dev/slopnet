@@ -17,6 +17,18 @@ test there, then repeat J07. Docker's strict no-network container gate is
 already proven separately; it must not be weakened or repurposed as the
 credentialed agent runtime.
 
+## The only active product rule
+
+SlopNet must become easier for a newcomer at every step. A change belongs in
+the current MVP only if it helps a person with a VPS and one coding plan get
+from “I want a thing built” to a proved result with fewer hidden choices,
+fewer machine-specific steps, and clearer recovery when something fails.
+
+The next implementation brief must therefore cover one guided VPS setup and
+one real agent proof before it covers more providers, a multi-agent fleet, or
+any Hermes, OpenClaw, or Buzz integration. Until an operator names and
+schedules that brief, no job in this folder is active work.
+
 ## Original J01–J07 sequence
 
 **The goal these jobs were written to deliver:** **REDACTED** opens Apple Terminal, types
@@ -32,10 +44,11 @@ to remember, no editing config by hand.
 That local-first sequence is historical evidence, not the finished product
 direction. The current MVP policy is VPS-first; see `SLOPNET.md`.
 
-Hand each job below to a coding agent as its whole prompt, one job per
-session, in wave order. Every job is self-contained.
+If an operator explicitly reschedules one of these historical briefs, hand it
+to a coding agent as its whole prompt, one job per session, in wave order.
+Every brief is self-contained.
 
-## How to dispatch
+## How to dispatch a rescheduled historical brief
 
 Open a coding agent in the **slopnet** repo and paste:
 
@@ -47,7 +60,7 @@ Open a coding agent in the **slopnet** repo and paste:
 
 …then the full text of the job file.
 
-## Waves
+## Historical waves
 
 | Wave | Job | What it delivers | Size |
 |---|---|---|---|

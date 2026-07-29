@@ -1,5 +1,9 @@
 # J07 Findings — real-world fleet run
 
+> **Result: the exam ran on 2026-07-29 and did not build an application.**
+> This is failure evidence for the VPS-first repair phase, not an active job
+> brief. Do not hide, rewrite, or rerun it without an operator decision.
+
 ## Scope
 
 Project requested:

@@ -1,5 +1,9 @@
 # STACK.md — companions that level SlopNet up
 
+> **State: optional companion reference, not the current MVP queue.** Do not
+> install or integrate anything here until the guided VPS setup and one real
+> subscribed-agent proof required by `SLOPNET.md` have succeeded.
+
 SlopNet is the law. The tools below are optional companions that plug
 into it — none are required, the walls work bare, and each can be added
 one at a time. Licenses were checked against the projects' own pages on

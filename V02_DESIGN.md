@@ -1,5 +1,9 @@
 # v0.2 design — the `slopnet` CLI and the universal adapter
 
+> **State: historical design record.** The current MVP is the VPS-first,
+> guided beginner path in `SLOPNET.md`; this document does not authorise new
+> integrations or describe the active dispatch queue.
+
 **Status:** Proposed — operator to approve before briefs are cut.
 **Question this answers:** how does SlopNet wedge into every coding tool
 (Claude Code, Codex, Cursor, Gemini CLI / Antigravity, Hermes, any IDE

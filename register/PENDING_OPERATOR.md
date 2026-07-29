@@ -1,5 +1,7 @@
 ## Open
 
+- [2026-07-29, Codex] Core MVP gap: the local-first walkthrough is now historical. Before SlopNet is called beginner-ready, the operator needs to schedule one named brief for guided VPS setup: approved tool detection and installation, provider login handoff, VPS-only credential storage, one selected CLI edit-and-test proof, scoped egress and resource limits, and a plain recovery message. Do not substitute more providers or integrations for this proof.
+
 - [2026-07-29, Codex] Docker installation on **REDACTED** VPS reported a newer kernel available (running 6.8.0-124-generic; expected 6.8.0-136-generic). Docker is active and the SlopNet gate passed; no reboot was performed. Please choose a maintenance window if you want the kernel upgrade activated.
 
 - [2026-07-29, jpheerlyn-dev] J07 real-world fleet run: all six detected coding CLIs failed their required proof (Claude and Gemini were reported logged in but said not logged in; Codex and Hermes hit local permission errors; Grok printed only }; Kimi pointed outside the project). J07 forbids repairs. Should these be scheduled as the v0.3 backlog and should the operator authorise a new full-fleet rerun only after the environment is repaired?
@@ -34,4 +36,3 @@
 
 - [2026-07-28, operator] Approved sending the disposable J03 acceptance prompt and scratch-repository contents to OpenAI Codex. The real run then merged `T1-print-current-date`, passed its pytest and all walls, reused the crew and unchanged plan on the second run, and left a clean tree with no worktree or branch leftovers after Ctrl-C.
 - [2026-07-29, Grok J05 redo] Prior Codex J05 confusions (overlapping walkthroughs, no template vs checkout, setup vs existing-crew sample, subscription-without-CLI-login) addressed in README rewrite; new peer confusions re-filed under Open.
-dressed in README rewrite; new peer confusions re-filed under Open.
