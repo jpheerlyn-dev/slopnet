@@ -25,7 +25,16 @@ fi
 d=$(date +%F)
 f="register/$d.md"
 if [ ! -f "$f" ]; then
-  printf '# Register — %s\n' "$d" > "$f" || exit 1
+  # A brand-new project (or a fresh worktree) may have no register folder
+  # yet. Create it rather than dying with a raw shell redirect error.
+  mkdir -p register 2>/dev/null || fail \
+    "the register folder could not be created here." \
+    "Without a register there is no record of what changed." \
+    "Check you can write to this folder, then run the same command again."
+  printf '# Register — %s\n' "$d" > "$f" 2>/dev/null || fail \
+    "register/$d.md could not be written." \
+    "Without a register there is no record of what changed." \
+    "Check you can write to this folder, then run the same command again."
 fi
 if ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
   git add "$f" >/dev/null 2>&1 || exit 1
