@@ -423,7 +423,7 @@ def cmd_doctor(root, args):
             print("        1. Open your repo on github.com")
             print("        2. Settings")
             print("        3. Branches (or Rules → Rulesets)")
-            print("        4. Require checks: law, manifest, register-audit")
+            print("        4. Require checks: law, manifest, register-audit, container")
     doc = root / "doctor.sh"
     if not doc.exists():
         fail(
@@ -446,7 +446,7 @@ def cmd_doctor(root, args):
         print("  2. Click Settings")
         print("  3. Click Branches — or Rules, then Rulesets")
         print("  4. Add a rule for your default branch")
-        print("  5. Require status checks: law, manifest, register-audit")
+        print("  5. Require status checks: law, manifest, register-audit, container")
         print("  6. Save, then re-run: slopnet doctor")
     sys.exit(code)
 

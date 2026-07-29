@@ -29,9 +29,11 @@ Three commands, in order:
 ```bash
 slopnet setup
 ```
-Meets your crew. It looks for coding agents you are already logged into
+Meets your crew. It looks for installed coding-agent CLIs
 (claude, codex, gemini, grok, kimi, hermes, cursor-agent), any API keys in
-your shell, and non-CLI coding plans that the research report verified
+your shell, and non-CLI coding plans that the research report verified.
+Finding a CLI is not a login claim: the required edit proof decides whether
+it can safely receive real work.
 (today: **zAI GLM** via Claude Code when `ZAI_API_KEY` is set). Billing
 caveats from that report are printed in plain English before you pick.
 Each selected agent then has to create one exact file in a throwaway git

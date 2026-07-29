@@ -28,7 +28,7 @@ unknown() {
   printf "[??] Can't check from here — %s\n" "$1"
 }
 
-instruction='Turn on branch protection: Settings → Branches → require the slopnet checks. This is the wall nobody can climb.'
+instruction='Turn on branch protection: Settings → Branches → require law, manifest, register-audit, and container. This is the wall nobody can climb.'
 
 hooks_ok=1
 for hook in .git/hooks/pre-commit .git/hooks/post-commit; do
@@ -72,6 +72,18 @@ else
     'Some law checks are missing or not executable.' \
     'Without checks/ the walls cannot run.' \
     'Restore them: git checkout -- checks/    or re-clone the SlopNet project'
+fi
+
+if [[ -f Dockerfile && -f compose.yml ]]; then
+  if ! command -v docker >/dev/null 2>&1; then
+    unknown 'Container gate is present, but Docker is not installed on this machine. Install it on the VPS before using docker compose.'
+  elif ! docker info >/dev/null 2>&1; then
+    unknown 'Docker is installed but its engine is not reachable. Start or repair Docker on the VPS before using the container gate.'
+  elif ! docker compose version >/dev/null 2>&1; then
+    unknown 'Docker is reachable, but its Compose plugin is unavailable. Install Docker Compose on the VPS before using the container gate.'
+  else
+    ok 'Container gate is available (Docker Engine + Compose).'
+  fi
 fi
 
 manifest_ok=0
@@ -141,10 +153,10 @@ else
       bad \
         'Branch protection could not be verified.' \
         'Without required checks, bad work can reach the default branch.' \
-        'On GitHub: Settings → Branches (or Rules → Rulesets) → require law, manifest, register-audit'
+        'On GitHub: Settings → Branches (or Rules → Rulesets) → require law, manifest, register-audit, container'
     else
       protection_ok=1
-      for job in law manifest register-audit; do
+      for job in law manifest register-audit container; do
         found=1
         while IFS= read -r required; do
           if [[ "$required" == "$job" || "$required" == "SlopNet / $job" ]]; then
@@ -157,12 +169,12 @@ else
         fi
       done
       if [[ "$protection_ok" -eq 1 ]]; then
-        ok 'The server wall requires all three SlopNet checks.'
+        ok 'The server wall requires all four SlopNet checks.'
       else
         bad \
           'Branch protection is incomplete.' \
-          'Not all three SlopNet checks are required on the default branch.' \
-          'On GitHub: Settings → Branches (or Rules → Rulesets) → require law, manifest, register-audit'
+          'Not all four SlopNet checks are required on the default branch.' \
+          'On GitHub: Settings → Branches (or Rules → Rulesets) → require law, manifest, register-audit, container'
       fi
     fi
   fi

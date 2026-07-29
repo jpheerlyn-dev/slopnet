@@ -1,0 +1,31 @@
+# The strict, offline gate. It runs walls and tests; it is deliberately not
+# the networked coding-agent runtime. Do not add privileged mode, host network,
+# Docker's socket, or provider credentials to this service.
+services:
+  slopnet:
+    build:
+      context: .
+    image: slopnet:local
+    init: true
+    user: "${SLOPNET_UID:-10001}:${SLOPNET_GID:-10001}"
+    working_dir: /workspace
+    environment:
+      HOME: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    command: ["check", "--all"]

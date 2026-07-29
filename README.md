@@ -2,6 +2,35 @@
 
 SlopNet is a starter folder for your computer. You describe a small thing you want built. An AI writes the files. Safety checks (we call them **walls**) block messy or broken work from being kept.
 
+## VPS-first policy
+
+SlopNet's execution home is a private VPS: coding agents, tests, builds,
+worktrees, long-running services, and their credentials belong there. Your
+Mac is the control screen, connected over SSH; it must not absorb an
+agent's tool load or hold the project's running services.
+
+This checkout is moving from its earlier local-first implementation to that
+model. Until remote execution is enforced by the program, a local
+`slopnet go` run is a development check, not the intended user workflow.
+
+### Container gate (available now)
+
+SlopNet now has a locked-down Docker gate for the VPS. It runs the walls in
+an offline, non-root container with a read-only operating system, no extra
+Linux powers, no Docker socket and strict resource limits. Once Docker Engine
+and its Compose plugin are installed on the VPS, stand in this folder there
+and run:
+
+```bash
+docker compose run --rm slopnet check --all
+```
+
+This is intentionally a **gate**, not the AI coding room: the container has
+no network and no provider logins, so it cannot run `slopnet go`. That keeps
+the first container useful even before the separate, credentialed agent
+runtime has been designed and proven. Every image is also built and scanned
+for fixable high/critical vulnerabilities in GitHub Actions.
+
 ### Why the name?
 
 In AI chat, “slop” often means low-quality generated junk. **SlopNet’s job is the opposite:** only work that passes the walls is allowed to stay. The name is a reminder of the problem; the walls are the fix.
@@ -17,7 +46,7 @@ This page assumes you can:
 
 That’s enough. Every new word is explained the first time it appears.
 
-**Main walkthrough below is written for a Mac.**  
+**Main walkthrough below is written for a Mac controlling a VPS.**
 On Linux or Windows the *ideas* are the same; a short “Other computers” note is near the end.
 
 ---
@@ -182,8 +211,8 @@ Real excerpt from a working session (2026-07-29):
 ```text
 Let's meet your crew.
 Found on this machine:
-  - claude (logged-in CLI)
-  - codex (logged-in CLI)
+  - claude (CLI detected — proof required)
+  - codex (CLI detected — proof required)
   …
 
 Who should PLAN the work? (best thinker) [1]
@@ -200,6 +229,8 @@ Crew saved to .slopnet/crew.json.
 ```
 
 - `[OK]` means that app is **proven** for this project.  
+- “CLI detected” only means SlopNet found the program. The proof still has
+  to confirm its login and edit permission.
 - If you see `[!!] … not logged in`, go back to Step 0, finish login, run `./slopnet setup` again.  
 - The “throwaway” proof uses a temporary folder; it does not mess up `my-app`.
 

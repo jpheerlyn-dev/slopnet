@@ -19,6 +19,9 @@ paths=$(
       .gitleaks.toml \
       install.sh \
       doctor.sh \
+      Dockerfile \
+      compose.yml \
+      .dockerignore \
       slopnet \
       crew.py \
       tests/redteam.sh \

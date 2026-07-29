@@ -1,5 +1,5 @@
 name: Selftest
-# The template proves itself: the full red-team (26 attacks, 0 may land)
+# The template proves itself: the full red-team (31 attacks, 0 may land)
 # runs weekly and on demand. Kept off the per-push path so the wall stays
 # fast; the watchman and this together mean drift can't hide for long.
 
@@ -15,6 +15,6 @@ jobs:
   redteam:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - name: Run the red-team (26 attacks)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the red-team (31 attacks)
         run: bash tests/redteam.sh

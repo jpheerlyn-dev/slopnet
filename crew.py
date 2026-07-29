@@ -337,7 +337,7 @@ def providers_catalog():
 def _worker_label(worker):
     kind = worker.get("kind")
     if kind == "cli":
-        return f"{worker['name']} (logged-in CLI)"
+        return f"{worker['name']} (CLI detected — proof required)"
     if kind == "env-cli":
         host = worker.get("hosted_by") or "host CLI"
         return f"{worker['name']} (via {host}, env overrides)"
@@ -938,6 +938,9 @@ House rules (breaking one fails your work):
 - Never rename anything. Never delete anything.
 - No junk files, no .DS_Store, no secrets in code.
 - Ship the code AND its tests together so the test suite passes.
+- If the named files include a Dockerfile or Compose file: do not use root,
+  privileged mode, host networking, a Docker socket mount, or hard-coded
+  credentials. Only claim the container works after a real build and run.
 - When you are done, stop. Do not explain at length.
 
 # Your task

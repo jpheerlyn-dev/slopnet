@@ -9,7 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v5
+        # Commit-SHA pin: version labels can be moved by a compromised publisher.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run every law check
         shell: sh
         run: |
@@ -22,7 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v5
+        # Commit-SHA pin: version labels can be moved by a compromised publisher.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify the machinery manifest
         shell: sh
         run: |
@@ -47,7 +49,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v5
+        # Commit-SHA pin: version labels can be moved by a compromised publisher.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check the register day-file
         shell: sh
         run: sh checks/register.sh --all
+
+  container:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        # Commit-SHA pin: version labels can be moved by a compromised publisher.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the locked-down SlopNet image
+        run: docker build --pull=false --tag slopnet:${{ github.sha }} .
+      - name: Validate the Compose gate
+        run: docker compose -f compose.yml config --quiet
+      - name: Reject fixable high or critical image vulnerabilities
+        # SHA pin is deliberate: Trivy's action tags were compromised in 2026.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: slopnet:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

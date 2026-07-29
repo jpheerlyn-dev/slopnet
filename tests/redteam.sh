@@ -425,6 +425,7 @@ worker = {
     },
     "timeout": 10,
 }
+
 crew.ask_worker(worker, "ping", cwd=str(root))
 # Persist providers catalog the same way setup does — only $VAR form.
 crew.save_crew(root, {
@@ -487,6 +488,38 @@ if "ran base=https://api.z.ai/api/anthropic" not in (
 PY
 }
 
+attack_31() {
+  # A container gate must remain a constrained, offline non-root checker.
+  # This static attack protects the posture even on machines without Docker;
+  # GitHub Actions separately builds, parses and scans the actual image.
+  python3 - <<'PY'
+import pathlib
+import sys
+
+dockerfile = pathlib.Path("Dockerfile").read_text(encoding="utf-8")
+compose = pathlib.Path("compose.yml").read_text(encoding="utf-8")
+required_dockerfile = (
+    "FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b",
+    "USER 10001:10001",
+    "ENTRYPOINT [\"python3\", \"/opt/slopnet/slopnet\"]",
+)
+required_compose = (
+    "read_only: true",
+    "network_mode: none",
+    "- ALL",
+    "no-new-privileges:true",
+    "pids_limit: 128",
+    "mem_limit: 512m",
+)
+for item in required_dockerfile + required_compose:
+    if item not in dockerfile and item not in compose:
+        sys.exit(1)
+for forbidden in ("privileged:", "docker.sock", "network_mode: host"):
+    if forbidden in dockerfile or forbidden in compose:
+        sys.exit(1)
+PY
+}
+
 record_landed() {
   local number=$1
   local label=$2
@@ -495,7 +528,7 @@ record_landed() {
     printf '\n## Redteam — attack %s landed\n\n' "$number"
     printf -- '- %s landed in the temporary workspace; inspect the failing check before changing this script.\n' "$label"
   } >> register/PENDING_OPERATOR.md
-  printf 'SCORE: %s/30\n' "$score"
+  printf 'SCORE: %s/31\n' "$score"
   exit 1
 }
 
@@ -542,6 +575,7 @@ run_attack 27 'unproven agent refused (crew)' attack_27
 run_attack 28 'long prompt preserved (crew)' attack_28
 run_attack 29 'agent timeout explicit (crew)' attack_29
 run_attack 30 'env-cli token never written (crew)' attack_30
+run_attack 31 'container gate constraints' attack_31
 
-printf 'SCORE: %s/30\n' "$score"
-[[ "$score" -eq 30 ]]
+printf 'SCORE: %s/31\n' "$score"
+[[ "$score" -eq 31 ]]

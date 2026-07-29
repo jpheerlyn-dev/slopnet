@@ -1,5 +1,67 @@
 # SlopNet — Safe Language Orientated Programming Network
 
+## VPS-first execution policy
+
+SlopNet runs coding agents, tests, builds, worktrees, and persistent
+services on the operator's private VPS. A person's Mac is a control surface
+that reaches the VPS over SSH; it is not the place for autonomous agent
+workloads or project secrets. Services remain private by default: an orbit
+or user interface reaches a VPS-local service through an SSH tunnel unless
+the operator deliberately exposes a reviewed public endpoint.
+
+This is the MVP direction. The current code is being brought into line with
+it; do not describe a local run as the finished SlopNet workflow.
+
+## MVP crew roles
+
+SlopNet is the coding executor: it isolates work, runs tests and walls, and
+decides what may merge. It does not become a general chat gateway or a second
+memory store.
+
+Hermes is the durable memory and human-conversation agent. Its project
+memory should help a person and the crew retain context across sessions.
+
+OpenClaw is the action and connector agent. It joins only through reviewed,
+scoped integrations that add a capability Hermes does not already provide.
+
+Buzz is the shared room: the signed human-and-agent coordination record for
+tasks, approvals, patches, workflow results, and release evidence. Buzz is a
+collaboration relay, not another coding executor or a replacement for
+Hermes's private memory.
+
+These are target roles, not a claim that the current checkout has connected
+the four systems. Each integration must be proven on the VPS before it can
+receive real work.
+
+## Container boundary
+
+Docker is a containment layer, not a magic quality stamp. It protects a VPS
+from a process that misbehaves; it cannot prove that a feature is correct,
+that a dependency is trustworthy, or that an agent understood a request.
+SlopNet therefore keeps the walls, real tests, review and the register even
+inside a container.
+
+This checkout now ships one strict container gate: `Dockerfile` and
+`compose.yml`. It runs SlopNet's walls in a non-root process with a read-only
+root filesystem, no Linux capabilities, no new privileges, a small temporary
+filesystem, CPU/memory/process limits, and no network. It never receives a
+Docker socket, host networking, provider credentials, or privileged mode.
+Run it on the VPS with `docker compose run --rm slopnet check --all` after
+Docker Engine and its Compose plugin have been installed there.
+
+The strict gate deliberately cannot be used for `slopnet go`: a coding agent
+needs selected provider access and credentials, while the gate has neither.
+The later agent-runtime design must earn that access through a separate,
+reviewed proof: per-project workspace, non-root identity, only the required
+credential passed at runtime, explicit egress, resource limits, and a real
+build/test result. No generic skill, MCP server, or RAG database gets to
+silently relax those boundaries.
+
+GitHub Actions builds this image and scans the actual result for fixable high
+and critical vulnerabilities. The base image and Actions are digest/SHA-pinned
+so an upstream tag cannot silently replace the thing we test. Scanner findings
+are evidence to fix or consciously triage, not permission to ship slop.
+
 The operator's law for new ideas:
 
 > **The Orbit — new ideas are born in their own small repos that call the app; the trunk stays stable forever.**
@@ -10,10 +72,10 @@ Why: the main repo stays ready to use. A half-built idea can wait without blocki
 
 ## The five rules of SlopNet
 
-1. **Call, don't reach.** An idea repo talks to the main app through its HTTP API (web door) only, using the local development server by default: `http://127.0.0.1:8000`. It never imports main-repo internals or reads and writes the main repo's data folders.
+1. **Call, don't reach.** An idea repo talks to the main app through its HTTP API (web door) only, using the VPS-local development server by default: `http://127.0.0.1:8000`. A Mac reaches that loopback address through SSH forwarding; an orbit never imports main-repo internals or reads and writes the main repo's data folders.
 2. **Every idea repo is registered below.** Agents in the main repo cannot see other repos. This registry is their window. No row, no repo.
 3. **The operator names it.** This is the same naming rule as `AGENTS.md`.
-4. **No production anything.** Idea repos use the local development server and their own throwaway keys in a gitignored `.env`. Never use the live app, real user data, or shared secrets.
+4. **No production anything.** Idea repos use the VPS-local development server and their own throwaway keys in a gitignored `.env`. Never use the live app, real user data, or shared secrets.
 5. **Graduation is deliberate, never copy-paste.** Use the checklist below.
 
 ## Registry
@@ -62,7 +124,7 @@ Last known good: <date> against main-repo commit <short-sha>
 
 This is an experiment orbiting the main repo. Rules:
 
-1. Talk to the main app over HTTP only (local development server, default `http://127.0.0.1:8000`). Never import its internals or touch its files or data folders.
+1. Talk to the main app over HTTP only (VPS-local development server, default `http://127.0.0.1:8000`, reached from a Mac through SSH forwarding). Never import its internals or touch its files or data folders.
 2. Never use live URLs, keys, or user data.
 3. The operator names things. Do not rename anything.
 4. Log every session in `LOG.md`: date — model — what changed — what is broken.
