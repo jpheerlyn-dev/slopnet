@@ -7,8 +7,8 @@
 // receive an answer. A PTY makes the child believe it is talking to a
 // person, which is the only way these flows work unattended by Terminal.
 //
-// This view owns: the scrolling output, one input line, a status line,
-// and a stop button. It never interprets what it runs.
+// This view owns: the scrolling output, a status line, and a stop button.
+// The app's single large composer sends any answer to this terminal.
 
 #import <Cocoa/Cocoa.h>
 

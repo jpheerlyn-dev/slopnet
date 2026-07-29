@@ -8,7 +8,6 @@
 @interface SlopNetConsole ()
 @property(nonatomic, strong) NSTextView *output;
 @property(nonatomic, strong) NSScrollView *scroller;
-@property(nonatomic, strong) NSTextField *input;
 @property(nonatomic, strong) NSTextField *status;
 @property(nonatomic, strong) NSButton *stopButton;
 @property(nonatomic, assign) int master;          // our end of the PTY
@@ -65,15 +64,6 @@ static const NSUInteger kMaxLines = 4000;
     _status.translatesAutoresizingMaskIntoConstraints = NO;
     [self addSubview:_status];
 
-    _input = [[NSTextField alloc] initWithFrame:NSZeroRect];
-    _input.placeholderString = @"Type an answer here and press Return (for example: y)";
-    _input.font = [NSFont monospacedSystemFontOfSize:11.5 weight:NSFontWeightRegular];
-    _input.target = self;
-    _input.action = @selector(inputEntered:);
-    _input.enabled = NO;
-    _input.translatesAutoresizingMaskIntoConstraints = NO;
-    [self addSubview:_input];
-
     _stopButton = [[NSButton alloc] initWithFrame:NSZeroRect];
     _stopButton.title = @"Stop";
     _stopButton.bezelStyle = NSBezelStyleRounded;
@@ -89,14 +79,12 @@ static const NSUInteger kMaxLines = 4000;
         [_scroller.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
         [_status.topAnchor constraintEqualToAnchor:_scroller.bottomAnchor constant:6],
         [_status.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:2],
-        [_input.topAnchor constraintEqualToAnchor:_status.bottomAnchor constant:6],
-        [_input.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
-        [_input.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
-        [_stopButton.leadingAnchor constraintEqualToAnchor:_input.trailingAnchor constant:8],
+        [_status.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+        [_status.trailingAnchor constraintLessThanOrEqualToAnchor:_stopButton.leadingAnchor constant:-8],
+        [_stopButton.leadingAnchor constraintGreaterThanOrEqualToAnchor:_status.trailingAnchor constant:8],
         [_stopButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
-        [_stopButton.centerYAnchor constraintEqualToAnchor:_input.centerYAnchor],
+        [_stopButton.centerYAnchor constraintEqualToAnchor:_status.centerYAnchor],
         [_stopButton.widthAnchor constraintEqualToConstant:80],
-        [_input.heightAnchor constraintEqualToConstant:24],
     ]];
     return self;
 }
@@ -310,7 +298,6 @@ static const NSUInteger kMaxLines = 4000;
 
     self.master = master;
     self.child = pid;
-    self.input.enabled = YES;
     self.stopButton.enabled = YES;
     self.status.stringValue = [NSString stringWithFormat:@"Running %@ …",
                                path.lastPathComponent];
@@ -359,7 +346,6 @@ static const NSUInteger kMaxLines = 4000;
     int status = WIFEXITED(raw) ? WEXITSTATUS(raw) : -1;
     if (self.master >= 0) { close(self.master); self.master = -1; }
     self.child = -1;
-    self.input.enabled = NO;
     self.stopButton.enabled = NO;
 
     if (status == 0) {
@@ -389,12 +375,6 @@ static const NSUInteger kMaxLines = 4000;
         bytes += wrote;
         remaining -= (size_t)wrote;
     }
-}
-
-- (void)inputEntered:(id)sender {
-    if (!self.running) return;
-    [self sendLine:self.input.stringValue];
-    self.input.stringValue = @"";
 }
 
 - (void)stopPressed:(id)sender { [self stop]; }
