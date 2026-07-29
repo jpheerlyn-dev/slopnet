@@ -16,9 +16,18 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/slopnet-app.XXXXXX")"
 icon_file="$work/AppIcon.icns"
 trap 'rm -rf "$work"' EXIT
 
+# Updating must be the easy path: an app you cannot reinstall is an app
+# stuck on its first version. The old copy is moved aside, never deleted,
+# so you can always go back to it.
+previous=""
 if [ -e "$app" ]; then
-  printf 'Refusing to overwrite %s. Archive or move the existing app, then build again.\n' "$app" >&2
-  exit 1
+  previous="$destination/SlopNet-previous-$(date +%Y%m%d-%H%M%S).app"
+  mv "$app" "$previous" || {
+    printf 'Could not move the existing app aside: %s\n' "$app" >&2
+    printf 'Close SlopNet if it is running, then build again.\n' >&2
+    exit 1
+  }
+  printf 'Existing app kept as %s\n' "$previous"
 fi
 
 command -v clang >/dev/null 2>&1 || { printf '%s\n' 'SlopNet.app needs the macOS clang compiler.' >&2; exit 1; }
@@ -34,7 +43,8 @@ cp "$pkg/slopnet-vps-project.sh" "$contents/Resources/slopnet-vps-project.sh"
 chmod 755 "$contents/Resources/slopnet-vps-onboard.sh"
 chmod 755 "$contents/Resources/slopnet-vps-project.sh"
 
-cat > "$contents/Info.plist" <<'PLIST'
+built_at="$(date '+%Y-%m-%d %H:%M')"
+cat > "$contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -42,8 +52,9 @@ cat > "$contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>SlopNet</string>
   <key>CFBundleDisplayName</key><string>SlopNet</string>
   <key>CFBundleIdentifier</key><string>com.slopnet.app</string>
-  <key>CFBundleVersion</key><string>0.1.5</string>
-  <key>CFBundleShortVersionString</key><string>0.1.5</string>
+  <key>CFBundleVersion</key><string>0.2.0</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>SlopNetBuiltAt</key><string>${built_at}</string>
   <key>CFBundleExecutable</key><string>SlopNet</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>

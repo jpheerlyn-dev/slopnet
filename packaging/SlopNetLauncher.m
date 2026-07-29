@@ -80,9 +80,19 @@
 
     NSTextField *title = [self label:@"SlopNet" size:28 grey:NO];
     title.font = [NSFont boldSystemFontOfSize:28];
-    NSTextField *subtitle = [self label:
+    // Show which build this is. Without it there is no way to tell an
+    // updated app from the one you installed last week — which is exactly
+    // how someone ends up watching an old version misbehave.
+    NSString *version = [[NSBundle mainBundle]
+        objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
+    NSString *built = [[NSBundle mainBundle]
+        objectForInfoDictionaryKey:@"SlopNetBuiltAt"] ?: @"";
+    NSTextField *subtitle = [self label:[NSString stringWithFormat:
         @"Describe what you want built. Everything runs on your own VPS, and "
-        @"you can watch every step below." size:13 grey:YES];
+        @"you can watch every step below.\nVersion %@%@ — runs inside this "
+        @"window, never Terminal.", version,
+        built.length ? [@", built " stringByAppendingString:built] : @""]
+                                   size:13 grey:YES];
 
     self.hasVPS = [[NSButton alloc] initWithFrame:NSZeroRect];
     self.hasVPS.title = @"I already have a VPS";
