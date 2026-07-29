@@ -746,6 +746,114 @@ def ensure_vps_sandbox_prerequisite():
              "Read the package-manager error, install bubblewrap, then re-run: slopnet setup --vps")
 
 
+def sandbox_probe_for_account(account):
+    """Return the precise non-root bubblewrap result without changing the host."""
+    runuser = shutil.which("runuser")
+    bwrap = shutil.which("bwrap")
+    if not runuser or not bwrap:
+        return None
+    try:
+        return subprocess.run(
+            [runuser, "-u", account, "--", bwrap, "--unshare-user", "--", "true"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def is_ubuntu_2404():
+    """The official bwrap profile guidance is specific to Ubuntu 24.04."""
+    release = pathlib.Path("/etc/os-release")
+    if not release.is_file():
+        return False
+    try:
+        values = {}
+        for line in release.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.startswith("#"):
+                key, value = line.split("=", 1)
+                values[key] = value.strip().strip('"')
+        return values.get("ID") == "ubuntu" and values.get("VERSION_ID") == "24.04"
+    except OSError:
+        return False
+
+
+def enable_ubuntu_bwrap_profile(account):
+    """Offer Ubuntu's narrow bwrap AppArmor profile; never weaken the global policy."""
+    probe = sandbox_probe_for_account(account)
+    if probe is None or probe.returncode == 0 or not is_ubuntu_2404():
+        return
+
+    source = pathlib.Path("/usr/share/apparmor/extra-profiles/bwrap-userns-restrict")
+    target = pathlib.Path("/etc/apparmor.d/bwrap-userns-restrict")
+    if target.is_file():
+        try:
+            profile_matches = source.is_file() and source.read_bytes() == target.read_bytes()
+        except OSError:
+            profile_matches = False
+        if not profile_matches:
+            fail("An unknown Bubblewrap AppArmor profile already exists on this VPS.",
+                 "SlopNet will not load or replace a security policy it did not verify.",
+                 "Inspect /etc/apparmor.d/bwrap-userns-restrict, then re-run setup")
+        parser = shutil.which("apparmor_parser")
+        if not parser:
+            fail("Ubuntu's bwrap AppArmor profile is present but cannot be loaded.",
+                 "The AppArmor parser is missing, so SlopNet will not guess how to change the policy.",
+                 "Install apparmor-utils, then re-run: slopnet setup --vps")
+        print("Ubuntu's verified narrow Bubblewrap AppArmor profile is present but inactive.")
+        print("Loading it keeps the global user-namespace restriction enabled and changes no SSH, firewall, or Docker setting.")
+        if not ask_yes_no("Load that existing narrow Bubblewrap profile now?"):
+            fail("The Bubblewrap AppArmor profile was not enabled.",
+                 "This VPS keeps blocking Codex's workspace-only sandbox.",
+                 "When ready, re-run: slopnet setup --vps and approve the narrow profile")
+        loaded = subprocess.run([parser, "-r", str(target)])
+        if loaded.returncode != 0:
+            fail("Ubuntu's existing bwrap AppArmor profile did not load.",
+                 "Codex still cannot start its restricted workspace sandbox.",
+                 "Read the AppArmor error above, then re-run: slopnet setup --vps")
+        return
+
+    installer = shutil.which("apt-get")
+    if not installer:
+        return
+    print("This Ubuntu VPS blocks Bubblewrap's private sandbox with AppArmor.")
+    print("Codex's documented Ubuntu 24.04 repair is one narrow Bubblewrap profile.")
+    print("SlopNet can install apparmor-profiles and apparmor-utils, then load only")
+    print("the bwrap-userns-restrict profile. It does not disable the global restriction,")
+    print("change SSH access, change firewall rules, or change Docker.")
+    if not ask_yes_no("Install and load that narrow Bubblewrap profile now?"):
+        fail("The Bubblewrap AppArmor profile was not enabled.",
+             "This VPS keeps blocking Codex's workspace-only sandbox.",
+             "When ready, re-run: slopnet setup --vps and approve the narrow profile")
+    installed = subprocess.run([installer, "install", "-y", "apparmor-profiles", "apparmor-utils"])
+    if installed.returncode != 0 or not source.is_file():
+        fail("Ubuntu's Bubblewrap AppArmor profile package was not installed.",
+             "SlopNet did not alter the global AppArmor user-namespace restriction.",
+             "Read the package-manager error, then re-run: slopnet setup --vps")
+    parser = shutil.which("apparmor_parser")
+    if not parser:
+        fail("Ubuntu installed the profile but the AppArmor parser is unavailable.",
+             "SlopNet stopped before loading a partial security policy.",
+             "Install apparmor-utils, then re-run: slopnet setup --vps")
+    try:
+        shutil.copyfile(source, target)
+        target.chmod(0o644)
+    except OSError:
+        fail("Could not place Ubuntu's Bubblewrap AppArmor profile.",
+             "SlopNet stopped before changing the active AppArmor policy.",
+             "Check the VPS filesystem permissions, then re-run: slopnet setup --vps")
+    loaded = subprocess.run([parser, "-r", str(target)])
+    if loaded.returncode != 0:
+        fail("Ubuntu's Bubblewrap AppArmor profile did not load.",
+             "SlopNet did not disable the global AppArmor user-namespace restriction.",
+             "Read the AppArmor error above, then re-run: slopnet setup --vps")
+    retest = sandbox_probe_for_account(account)
+    if retest is None or retest.returncode != 0:
+        fail("The narrow Bubblewrap profile did not make the Codex sandbox available.",
+             "SlopNet left the global AppArmor restriction enabled and stopped before any agent work.",
+             "Use the output above to choose a compatible VPS or inspect this profile")
+    print("[OK] Ubuntu's narrow Bubblewrap profile is active; the global restriction remains enabled.")
+
+
 def ensure_vps_sandbox_capable():
     """Prove the non-root account can start Codex's private Linux sandbox."""
     bwrap = shutil.which("bwrap")
@@ -835,6 +943,7 @@ def bootstrap_vps_account(root):
              "Fix the account or workspace ownership shown above, then retry")
 
     ensure_vps_sandbox_prerequisite()
+    enable_ubuntu_bwrap_profile(VPS_AGENT_ACCOUNT)
 
     runuser = shutil.which("runuser")
     if not runuser:
