@@ -754,7 +754,8 @@ def sandbox_probe_for_account(account):
         return None
     try:
         return subprocess.run(
-            [runuser, "-u", account, "--", bwrap, "--unshare-user", "--", "true"],
+            [runuser, "-u", account, "--", bwrap, "--unshare-user",
+             "--ro-bind", "/", "/", "--", "/bin/true"],
             capture_output=True, text=True, timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -863,7 +864,8 @@ def ensure_vps_sandbox_capable():
              "Sign in as the VPS root and run: slopnet setup --vps, then approve the bubblewrap install")
     try:
         probe = subprocess.run(
-            [bwrap, "--unshare-user", "--", "true"], capture_output=True,
+            [bwrap, "--unshare-user", "--ro-bind", "/", "/", "--", "/bin/true"],
+            capture_output=True,
             text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
         fail("Could not start Codex's private Linux sandbox.",
