@@ -49,9 +49,10 @@ small VPS connection screen:
 Open `SlopNet.app` from your Applications folder. It asks whether you already
 have a VPS, offers Hetzner, Contabo, and Hostinger links if you do not, then
 collects only the host, SSH username, and port. It opens Terminal for the
-normal SSH password prompt, creates a dedicated SSH key, and begins the guided
-VPS setup. It never receives or stores a VPS password. This is an early control
-shell, not a promise that every VPS or coding CLI has passed the required proof.
+normal SSH password prompt, creates a dedicated passphrase-protected SSH key,
+adds it to the macOS Keychain when available, and begins the guided VPS setup.
+It never receives or stores a VPS password. This is an early control shell, not
+a promise that every VPS or coding CLI has passed the required proof.
 
 ### Container gate (available now)
 

@@ -20,10 +20,16 @@ say "Your password is requested by OpenSSH only if this VPS has not accepted you
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 if [ ! -f "$key_path" ]; then
-  say "Creating one dedicated SSH key on this Mac for SlopNet VPS access."
-  ssh-keygen -t ed25519 -f "$key_path" -N "" -C "slopnet-vps" >/dev/null
+  say "Creating one dedicated SSH key on this Mac for SlopNet VPS access. Choose a passphrase when SSH asks; SlopNet never sees or saves it."
+  ssh-keygen -t ed25519 -f "$key_path" -C "slopnet-vps"
 elif [ ! -f "$key_path.pub" ]; then
   ssh-keygen -y -f "$key_path" > "$key_path.pub"
+fi
+
+if command -v ssh-add >/dev/null 2>&1; then
+  say "Adding the dedicated key to the macOS SSH agent and Keychain if available."
+  ssh-add --apple-use-keychain "$key_path" || \
+    say "The key was not added to the SSH agent; SSH may ask for its passphrase during this setup."
 fi
 
 say "First connection: check the VPS host fingerprint shown by SSH, then enter the password supplied by your provider if asked."
