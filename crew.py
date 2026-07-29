@@ -916,6 +916,18 @@ def parse_waves(text):
             task["body"] = "\n".join(task["body"]).strip()
             files = re.search(r"^Files:\s*(.+)$", task["body"], re.MULTILINE)
             task["files"] = [f.strip() for f in files.group(1).split(",")] if files else []
+            # "Files: none" is a task that cannot succeed: every attempt is
+            # judged by what it changed, so a task that changes nothing is
+            # always marked failed. Reject it while the plan is cheap to fix.
+            placeholders = {"none", "n/a", "na", "-", "nothing", "tbd", "any"}
+            if [f for f in task["files"] if f.lower() in placeholders]:
+                crew_fail(
+                    f"Task {task['id']} lists no real files (\"Files: "
+                    f"{', '.join(task['files'])}\").",
+                    "Work is judged by the files it changes, so a task that "
+                    "changes nothing can never pass.",
+                    "Give the task real file names, or ask for something that "
+                    "creates or edits a file.")
             if not task["files"]:
                 crew_fail(
                     f"Task {task['id']} has no 'Files:' line.",

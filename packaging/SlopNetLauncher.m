@@ -111,9 +111,10 @@
     self.setupButton.keyEquivalent = @"\r";
     self.projectButton = [self button:@"Make my project plan" action:@selector(beginProject:)];
     NSButton *clearButton = [self button:@"Clear output" action:@selector(clearConsole:)];
+    NSButton *forgetButton = [self button:@"Forget my VPS" action:@selector(forgetConnection:)];
 
     NSStackView *buttons = [NSStackView stackViewWithViews:@[
-        self.setupButton, self.projectButton, clearButton]];
+        self.setupButton, self.projectButton, clearButton, forgetButton]];
     buttons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     buttons.spacing = 10;
 
@@ -164,6 +165,7 @@
                        @"Everything that happens will appear here. When a question "
                        @"appears, type your answer in the box below and press Return."];
 
+    [self recallConnection];
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
 }
@@ -212,6 +214,8 @@
         return;
     }
     [self.console note:@"\n=== Setting up your VPS ==="];
+    [self rememberConnection];
+    [self setBusy:YES];
     [self.console runExecutable:@"/bin/bash"
                       arguments:@[script, self.host.stringValue,
                                   self.port.stringValue, self.username.stringValue]];
@@ -237,6 +241,7 @@
         return;
     }
     [self.console note:@"\n=== Making your project plan ==="];
+    [self setBusy:YES];
     [self.console runExecutable:@"/bin/bash"
                       arguments:@[script, self.host.stringValue, self.port.stringValue,
                                   self.username.stringValue, self.projectName.stringValue, idea]];
@@ -244,7 +249,63 @@
 
 - (void)clearConsole:(id)sender { [self.console clear]; }
 
+#pragma mark - remembering your VPS
+
+// Only the three details you would read off a provider email are stored,
+// and only in macOS's own preferences for this app (~/Library/Preferences).
+// A password is NEVER stored here: it goes straight from the console to
+// your VPS. The SSH key that setup creates lives in your Keychain, which
+// is macOS's encrypted store — SlopNet never copies it into this repo,
+// and nothing here is ever committed or uploaded.
+static NSString *const kHostKey = @"SlopNetVPSHost";
+static NSString *const kUserKey = @"SlopNetVPSUser";
+static NSString *const kPortKey = @"SlopNetVPSPort";
+
+- (void)rememberConnection {
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    [store setObject:self.host.stringValue forKey:kHostKey];
+    [store setObject:self.username.stringValue forKey:kUserKey];
+    [store setObject:self.port.stringValue forKey:kPortKey];
+}
+
+- (void)recallConnection {
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    NSString *savedHost = [store stringForKey:kHostKey];
+    NSString *savedUser = [store stringForKey:kUserKey];
+    NSString *savedPort = [store stringForKey:kPortKey];
+    if (savedHost.length) self.host.stringValue = savedHost;
+    if (savedUser.length) self.username.stringValue = savedUser;
+    if (savedPort.length) self.port.stringValue = savedPort;
+    if (savedHost.length) {
+        [self.console note:[NSString stringWithFormat:
+            @"Using the VPS you set up last time (%@). Change it above if "
+            @"you want a different one.", savedHost]];
+    }
+}
+
+- (void)forgetConnection:(id)sender {
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    for (NSString *key in @[kHostKey, kUserKey, kPortKey]) {
+        [store removeObjectForKey:key];
+    }
+    self.host.stringValue = @"";
+    self.username.stringValue = @"root";
+    self.port.stringValue = @"22";
+    [self.console note:@"\nForgotten. Your VPS itself is untouched, and no "
+                       @"password was ever stored."];
+}
+
+/// While something is running, the buttons that would start a second
+/// thing are switched off. Pressing one used to produce the unhelpful
+/// "Something is already running here" line.
+- (void)setBusy:(BOOL)busy {
+    BOOL have = self.hasVPS.state == NSControlStateValueOn;
+    self.setupButton.enabled = have && !busy;
+    self.projectButton.enabled = have && !busy;
+}
+
 - (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status {
+    [self setBusy:NO];
     if (status == 0) {
         [self.console note:@"You can start the next step above."];
     } else {

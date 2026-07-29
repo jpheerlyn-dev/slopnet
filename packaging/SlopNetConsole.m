@@ -14,8 +14,14 @@
 @property(nonatomic, assign) int master;          // our end of the PTY
 @property(nonatomic, assign) pid_t child;
 @property(nonatomic, strong) dispatch_source_t reader;
-@property(nonatomic, strong) NSMutableString *pending;
+@property(nonatomic, strong) NSMutableArray<NSMutableString *> *lines;
+@property(nonatomic, assign) NSUInteger row;      // cursor line
+@property(nonatomic, assign) NSUInteger column;   // cursor column
+@property(nonatomic, assign) BOOL needsRedraw;
 @end
+
+/// Keep the console light even during a long build.
+static const NSUInteger kMaxLines = 4000;
 
 @implementation SlopNetConsole
 
@@ -24,7 +30,9 @@
     if (!self) return nil;
     _master = -1;
     _child = -1;
-    _pending = [NSMutableString string];
+    _lines = [NSMutableArray arrayWithObject:[NSMutableString string]];
+    _row = 0;
+    _column = 0;
 
     _output = [[NSTextView alloc] initWithFrame:NSZeroRect];
     _output.editable = NO;
@@ -97,67 +105,169 @@
 
 #pragma mark - showing text
 
-- (void)appendRaw:(NSString *)text {
-    if (text.length == 0) return;
-    NSTextStorage *storage = self.output.textStorage;
-    [storage beginEditing];
+/// Push the line buffer into the view. Called after each chunk, not per
+/// character, so a chatty program cannot make the window crawl.
+- (void)redraw {
+    if (!self.needsRedraw) return;
+    self.needsRedraw = NO;
+    NSString *joined = [self.lines componentsJoinedByString:@"\n"];
     NSDictionary *attributes = @{
         NSFontAttributeName: self.output.font,
         NSForegroundColorAttributeName: [NSColor textColor],
     };
-    [storage appendAttributedString:
-        [[NSAttributedString alloc] initWithString:text attributes:attributes]];
-    [storage endEditing];
-    [self.output scrollRangeToVisible:NSMakeRange(storage.length, 0)];
+    NSRange visible = [self.output visibleRect].size.height > 0
+        ? [self.output selectedRange] : NSMakeRange(0, 0);
+    (void)visible;
+    [self.output.textStorage setAttributedString:
+        [[NSAttributedString alloc] initWithString:joined attributes:attributes]];
+    [self.output scrollRangeToVisible:
+        NSMakeRange(self.output.textStorage.length, 0)];
 }
 
-- (void)note:(NSString *)text {
-    [self appendRaw:[NSString stringWithFormat:@"%@\n", text]];
+- (NSMutableString *)currentLine {
+    while (self.lines.count <= self.row) {
+        [self.lines addObject:[NSMutableString string]];
+    }
+    return self.lines[self.row];
 }
 
-- (void)clear {
-    [self.output.textStorage
-        setAttributedString:[[NSAttributedString alloc] initWithString:@""]];
+/// Write text at the cursor, overwriting what is already there — this is
+/// what makes a progress line update in place instead of repeating.
+- (void)putText:(NSString *)text {
+    NSMutableString *line = [self currentLine];
+    while (line.length < self.column) [line appendString:@" "];
+    NSUInteger end = self.column + text.length;
+    if (end <= line.length) {
+        [line replaceCharactersInRange:NSMakeRange(self.column, text.length)
+                            withString:text];
+    } else {
+        [line deleteCharactersInRange:
+            NSMakeRange(self.column, line.length - self.column)];
+        [line appendString:text];
+    }
+    self.column = end;
 }
 
-/// Programs decorate output with escape sequences for colour and cursor
-/// movement. A plain text view would show them as gibberish, so remove
-/// them and keep the words. Carriage returns become newlines so progress
-/// lines stay readable instead of overwriting each other invisibly.
-- (NSString *)readable:(NSString *)raw {
-    NSMutableString *clean = [NSMutableString stringWithCapacity:raw.length];
+- (void)newline {
+    self.row++;
+    self.column = 0;
+    [self currentLine];
+    if (self.lines.count > kMaxLines) {
+        NSUInteger drop = self.lines.count - kMaxLines;
+        [self.lines removeObjectsInRange:NSMakeRange(0, drop)];
+        self.row = self.row > drop ? self.row - drop : 0;
+    }
+}
+
+/// A deliberately small terminal: enough to render progress lines, menus
+/// and prompts correctly. It is not a full terminal emulator — a
+/// full-screen program (a file manager, an editor) needs more than this.
+- (void)consume:(NSString *)raw {
     NSUInteger i = 0, n = raw.length;
     while (i < n) {
         unichar c = [raw characterAtIndex:i];
-        if (c == 0x1B) {                       // ESC
+
+        if (c == 0x1B) {                                  // escape
             i++;
             if (i < n && [raw characterAtIndex:i] == '[') {
                 i++;
-                while (i < n) {                // CSI ... final byte @..~
+                NSMutableString *digits = [NSMutableString string];
+                unichar final = 0;
+                while (i < n) {
                     unichar f = [raw characterAtIndex:i];
                     i++;
-                    if (f >= 0x40 && f <= 0x7E) break;
+                    if ((f >= '0' && f <= '9') || f == ';') {
+                        [digits appendFormat:@"%C", f];
+                        continue;
+                    }
+                    final = f;
+                    break;
                 }
-            } else if (i < n && ([raw characterAtIndex:i] == ']')) {
-                while (i < n && [raw characterAtIndex:i] != 0x07) i++;
+                NSInteger value = digits.length ? [digits intValue] : 1;
+                switch (final) {
+                    case 'A':                              // cursor up
+                        self.row = (self.row >= (NSUInteger)value) ? self.row - value : 0;
+                        break;
+                    case 'B':                              // cursor down
+                        self.row += value;
+                        [self currentLine];
+                        break;
+                    case 'C': self.column += value; break; // right
+                    case 'D':                              // left
+                        self.column = (self.column >= (NSUInteger)value)
+                            ? self.column - value : 0;
+                        break;
+                    case 'G':                              // column
+                        self.column = value > 0 ? (NSUInteger)(value - 1) : 0;
+                        break;
+                    case 'H': case 'f':                    // home
+                        self.row = 0; self.column = 0;
+                        break;
+                    case 'K': {                            // erase in line
+                        NSMutableString *line = [self currentLine];
+                        if (self.column < line.length) {
+                            [line deleteCharactersInRange:
+                                NSMakeRange(self.column, line.length - self.column)];
+                        }
+                        break;
+                    }
+                    case 'J':                              // erase screen
+                        if (value == 2 || digits.length == 0) {
+                            [self.lines removeAllObjects];
+                            [self.lines addObject:[NSMutableString string]];
+                            self.row = 0; self.column = 0;
+                        }
+                        break;
+                    default: break;                        // colours etc: ignore
+                }
+            } else if (i < n && [raw characterAtIndex:i] == ']') {
+                while (i < n && [raw characterAtIndex:i] != 0x07) i++;   // title
                 if (i < n) i++;
             } else if (i < n) {
                 i++;
             }
             continue;
         }
-        if (c == '\r') {
-            if (i + 1 < n && [raw characterAtIndex:i + 1] == '\n') { i++; continue; }
-            [clean appendString:@"\n"];
+
+        if (c == '\n') { [self newline]; i++; continue; }
+        if (c == '\r') { self.column = 0; i++; continue; }
+        if (c == 0x08) {                                   // backspace
+            if (self.column > 0) self.column--;
             i++;
             continue;
         }
-        if (c == 0x08) { i++; continue; }      // backspace
-        [clean appendFormat:@"%C", c];
-        i++;
+        if (c == '\t') {
+            [self putText:@"    "];
+            i++;
+            continue;
+        }
+        if (c < 0x20) { i++; continue; }                   // other control bytes
+
+        NSUInteger start = i;
+        while (i < n) {
+            unichar t = [raw characterAtIndex:i];
+            if (t < 0x20 || t == 0x1B) break;
+            i++;
+        }
+        [self putText:[raw substringWithRange:NSMakeRange(start, i - start)]];
     }
-    return clean;
+    self.needsRedraw = YES;
+    [self redraw];
 }
+
+- (void)note:(NSString *)text {
+    [self consume:[NSString stringWithFormat:@"%@\n", text]];
+}
+
+- (void)clear {
+    [self.lines removeAllObjects];
+    [self.lines addObject:[NSMutableString string]];
+    self.row = 0;
+    self.column = 0;
+    self.needsRedraw = YES;
+    [self redraw];
+}
+
 
 #pragma mark - running
 
@@ -227,7 +337,7 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             typeof(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;
-            [strongSelf appendRaw:[strongSelf readable:chunk]];
+            [strongSelf consume:chunk];
         });
     });
     dispatch_resume(self.reader);
