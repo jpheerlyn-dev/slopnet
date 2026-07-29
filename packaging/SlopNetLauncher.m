@@ -131,7 +131,13 @@
     NSDictionary *error = nil;
     [[[NSAppleScript alloc] initWithSource:source] executeAndReturnError:&error];
     if (error != nil) {
-        [self show:@"Could not open Terminal for VPS setup. Open SlopNet again and try once more."];
+        NSNumber *number = error[NSAppleScriptErrorNumber];
+        NSString *reason = error[NSAppleScriptErrorMessage] ?: @"unknown macOS automation error";
+        if (number.integerValue == -1743) {
+            [self show:@"macOS needs your permission for SlopNet to open Terminal. Open System Settings, go to Privacy & Security, then Automation, and turn on Terminal for SlopNet. Return here and press the button again."];
+        } else {
+            [self show:[NSString stringWithFormat:@"Could not open Terminal for VPS setup: %@. Open SlopNet again and try once more.", reason]];
+        }
         return;
     }
     [self show:@"Terminal is handling the VPS connection. Follow its prompts; this app never receives or saves your password."];

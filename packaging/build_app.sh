@@ -38,16 +38,19 @@ cat > "$contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>SlopNet</string>
   <key>CFBundleDisplayName</key><string>SlopNet</string>
   <key>CFBundleIdentifier</key><string>com.slopnet.app</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>0.1.1</string>
+  <key>CFBundleShortVersionString</key><string>0.1.1</string>
   <key>CFBundleExecutable</key><string>SlopNet</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>NSAppleEventsUsageDescription</key><string>SlopNet opens Terminal only to run the VPS setup the person has explicitly started. Terminal receives the normal SSH password prompt; SlopNet does not collect or store that password.</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>
 PLIST
+
+codesign --force --deep --sign - "$app" >/dev/null 2>&1 || true
 
 lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 "$lsregister" -f "$app" >/dev/null 2>&1 || true

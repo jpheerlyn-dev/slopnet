@@ -54,6 +54,12 @@ adds it to the macOS Keychain when available, and begins the guided VPS setup.
 It never receives or stores a VPS password. This is an early control shell, not
 a promise that every VPS or coding CLI has passed the required proof.
 
+The first time you press **Connect and begin guided VPS setup**, macOS asks
+whether SlopNet may control Terminal. Choose **Allow**: that permission is only
+used to open a Terminal window for the setup you explicitly started. If you
+previously chose not to allow it, open **System Settings → Privacy & Security →
+Automation**, find SlopNet, and turn on Terminal.
+
 ### Container gate (available now)
 
 SlopNet now has a locked-down Docker gate for the VPS. It runs the walls in
