@@ -1,6 +1,14 @@
-#import <Cocoa/Cocoa.h>
+// SlopNet — the Mac control window.
+//
+// Everything runs INSIDE this window now (see SlopNetConsole): no
+// Terminal, no AppleScript, no macOS Automation permission. You see the
+// same output an expert would see in a terminal, and you can answer its
+// questions in the box underneath.
 
-@interface SlopNetAppDelegate : NSObject <NSApplicationDelegate>
+#import <Cocoa/Cocoa.h>
+#import "SlopNetConsole.h"
+
+@interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate>
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) NSButton *hasVPS;
 @property(nonatomic, strong) NSTextField *host;
@@ -8,238 +16,242 @@
 @property(nonatomic, strong) NSTextField *port;
 @property(nonatomic, strong) NSTextField *projectName;
 @property(nonatomic, strong) NSTextField *projectIdea;
-@property(nonatomic, strong) NSArray<NSView *> *connectionViews;
-@property(nonatomic, strong) NSArray<NSView *> *projectViews;
+@property(nonatomic, strong) SlopNetConsole *console;
+@property(nonatomic, strong) NSButton *setupButton;
+@property(nonatomic, strong) NSButton *projectButton;
 @end
 
 @implementation SlopNetAppDelegate
 
-- (NSTextField *)label:(NSString *)text frame:(NSRect)frame size:(CGFloat)size {
+#pragma mark - small builders
+
+- (NSTextField *)label:(NSString *)text size:(CGFloat)size grey:(BOOL)grey {
     NSTextField *label = [NSTextField labelWithString:text];
-    label.frame = frame;
     label.font = [NSFont systemFontOfSize:size];
     label.lineBreakMode = NSLineBreakByWordWrapping;
+    label.maximumNumberOfLines = 4;
+    if (grey) label.textColor = [NSColor secondaryLabelColor];
     return label;
 }
 
-- (NSButton *)button:(NSString *)title frame:(NSRect)frame action:(SEL)action {
-    NSButton *button = [[NSButton alloc] initWithFrame:frame];
+- (NSButton *)button:(NSString *)title action:(SEL)action {
+    NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
     button.title = title;
     button.target = self;
     button.action = action;
+    button.bezelStyle = NSBezelStyleRounded;
     return button;
 }
 
+- (NSTextField *)field:(NSString *)placeholder value:(NSString *)value width:(CGFloat)width {
+    NSTextField *field = [[NSTextField alloc] initWithFrame:NSZeroRect];
+    field.placeholderString = placeholder;
+    if (value) field.stringValue = value;
+    field.translatesAutoresizingMaskIntoConstraints = NO;
+    [field.widthAnchor constraintEqualToConstant:width].active = YES;
+    [field.heightAnchor constraintEqualToConstant:24].active = YES;
+    return field;
+}
+
+/// One labelled row, so the layout never needs pixel arithmetic.
+- (NSStackView *)row:(NSString *)labelText control:(NSView *)control {
+    NSTextField *label = [self label:labelText size:13 grey:NO];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [label.widthAnchor constraintEqualToConstant:150].active = YES;
+    NSStackView *row = [NSStackView stackViewWithViews:@[label, control]];
+    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    row.alignment = NSLayoutAttributeCenterY;
+    row.spacing = 8;
+    return row;
+}
+
+#pragma mark - window
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
-    NSRect frame = NSMakeRect(0, 0, 680, 690);
-    self.window = [[NSWindow alloc] initWithContentRect:frame
-                                               styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable)
-                                                 backing:NSBackingStoreBuffered
-                                                   defer:NO];
+    self.window = [[NSWindow alloc]
+        initWithContentRect:NSMakeRect(0, 0, 860, 720)
+                  styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                             NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+                    backing:NSBackingStoreBuffered
+                      defer:NO];
     self.window.title = @"SlopNet";
+    self.window.minSize = NSMakeSize(760, 560);
     [self.window center];
-    NSView *content = self.window.contentView;
 
-    NSTextField *title = [self label:@"SlopNet" frame:NSMakeRect(30, 631, 230, 39) size:30];
-    title.font = [NSFont boldSystemFontOfSize:30];
-    [content addSubview:title];
-    NSTextField *subtitle = [self label:@"Set up your private build computer, safely." frame:NSMakeRect(32, 606, 430, 20) size:14];
-    subtitle.textColor = NSColor.secondaryLabelColor;
-    [content addSubview:subtitle];
+    NSTextField *title = [self label:@"SlopNet" size:28 grey:NO];
+    title.font = [NSFont boldSystemFontOfSize:28];
+    NSTextField *subtitle = [self label:
+        @"Describe what you want built. Everything runs on your own VPS, and "
+        @"you can watch every step below." size:13 grey:YES];
 
-    self.hasVPS = [self button:@"I already have a VPS" frame:NSMakeRect(30, 565, 220, 24) action:@selector(changeVPSChoice:)];
+    self.hasVPS = [[NSButton alloc] initWithFrame:NSZeroRect];
+    self.hasVPS.title = @"I already have a VPS";
     self.hasVPS.buttonType = NSButtonTypeSwitch;
     self.hasVPS.state = NSControlStateValueOn;
-    [content addSubview:self.hasVPS];
+    self.hasVPS.target = self;
+    self.hasVPS.action = @selector(changeVPSChoice:);
 
-    NSTextField *hostLabel = [self label:@"VPS address" frame:NSMakeRect(42, 520, 145, 22) size:13];
-    self.host = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 516, 410, 25)];
-    self.host.placeholderString = @"the IP address from your VPS welcome email";
-    NSTextField *userLabel = [self label:@"VPS login name" frame:NSMakeRect(42, 477, 145, 22) size:13];
-    self.username = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 473, 250, 25)];
-    self.username.stringValue = @"root";
-    NSTextField *portLabel = [self label:@"Connection port" frame:NSMakeRect(42, 434, 145, 22) size:13];
-    self.port = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 430, 90, 25)];
-    self.port.stringValue = @"22";
-    [content addSubview:hostLabel];
-    [content addSubview:self.host];
-    [content addSubview:userLabel];
-    [content addSubview:self.username];
-    [content addSubview:portLabel];
-    [content addSubview:self.port];
-    self.connectionViews = @[hostLabel, self.host, userLabel, self.username, portLabel, self.port];
+    self.host = [self field:@"the IP address from your VPS welcome email" value:nil width:330];
+    self.username = [self field:@"root" value:@"root" width:200];
+    self.port = [self field:@"22" value:@"22" width:80];
+    self.projectName = [self field:@"a name you choose, like photo-sheet" value:nil width:240];
+    self.projectIdea = [self field:@"a sentence in your own words" value:nil width:400];
 
-    NSTextField *security = [self label:@"Look in your VPS provider's welcome email for these three details. The port is almost always 22. Your VPS password is never entered here or saved by SlopNet." frame:NSMakeRect(42, 365, 570, 49) size:12];
-    security.textColor = NSColor.secondaryLabelColor;
-    [content addSubview:security];
+    self.setupButton = [self button:@"Set up my VPS" action:@selector(beginSetup:)];
+    self.setupButton.keyEquivalent = @"\r";
+    self.projectButton = [self button:@"Make my project plan" action:@selector(beginProject:)];
+    NSButton *clearButton = [self button:@"Clear output" action:@selector(clearConsole:)];
 
-    NSButton *start = [self button:@"Set up my VPS" frame:NSMakeRect(42, 315, 286, 34) action:@selector(beginSetup:)];
-    start.bezelStyle = NSBezelStyleRounded;
-    start.keyEquivalent = @"\r";
-    [content addSubview:start];
-    NSButton *test = [self button:@"Test Terminal access" frame:NSMakeRect(342, 315, 175, 34) action:@selector(testTerminal:)];
-    test.bezelStyle = NSBezelStyleRounded;
-    [content addSubview:test];
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[
+        self.setupButton, self.projectButton, clearButton]];
+    buttons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    buttons.spacing = 10;
 
-    NSTextField *projectTitle = [self label:@"After VPS setup succeeds" frame:NSMakeRect(42, 260, 250, 22) size:16];
-    projectTitle.font = [NSFont boldSystemFontOfSize:16];
-    NSTextField *projectHelp = [self label:@"Codex is now your approved coding app. Name a project and describe what you want. SlopNet will make a plan on the VPS and wait for your approval before any code runs." frame:NSMakeRect(42, 224, 570, 34) size:12];
-    projectHelp.textColor = NSColor.secondaryLabelColor;
-    NSTextField *projectNameLabel = [self label:@"Project folder name" frame:NSMakeRect(42, 182, 145, 22) size:13];
-    self.projectName = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 178, 250, 25)];
-    self.projectName.placeholderString = @"a name you choose, like photo-sheet";
-    NSTextField *projectIdeaLabel = [self label:@"What do you want made?" frame:NSMakeRect(42, 139, 145, 22) size:13];
-    self.projectIdea = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 135, 410, 25)];
-    self.projectIdea.placeholderString = @"a sentence in your own words";
-    NSButton *projectStart = [self button:@"Make my project plan" frame:NSMakeRect(42, 88, 286, 34) action:@selector(beginProject:)];
-    projectStart.bezelStyle = NSBezelStyleRounded;
-    [content addSubview:projectTitle];
-    [content addSubview:projectHelp];
-    [content addSubview:projectNameLabel];
-    [content addSubview:self.projectName];
-    [content addSubview:projectIdeaLabel];
-    [content addSubview:self.projectIdea];
-    [content addSubview:projectStart];
-    self.projectViews = @[projectTitle, projectHelp, projectNameLabel, self.projectName, projectIdeaLabel, self.projectIdea, projectStart];
+    NSStackView *providers = [NSStackView stackViewWithViews:@[
+        [self label:@"No VPS yet?" size:12 grey:YES],
+        [self button:@"Hetzner" action:@selector(openHetzner:)],
+        [self button:@"Contabo" action:@selector(openContabo:)],
+        [self button:@"Hostinger" action:@selector(openHostinger:)]]];
+    providers.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    providers.spacing = 8;
 
-    NSTextField *provider = [self label:@"Need a VPS first? Choose a Linux VPS from one of these providers:" frame:NSMakeRect(42, 57, 480, 20) size:13];
-    provider.textColor = NSColor.secondaryLabelColor;
-    [content addSubview:provider];
-    [content addSubview:[self button:@"Hetzner" frame:NSMakeRect(42, 22, 100, 28) action:@selector(openHetzner:)]];
-    [content addSubview:[self button:@"Contabo" frame:NSMakeRect(150, 22, 100, 28) action:@selector(openContabo:)]];
-    [content addSubview:[self button:@"Hostinger" frame:NSMakeRect(258, 22, 100, 28) action:@selector(openHostinger:)]];
-    NSTextField *footnote = [self label:@"Choose an Ubuntu LTS VPS that permits rootless user namespaces. SlopNet checks this before it lets an agent edit files." frame:NSMakeRect(370, 16, 260, 38) size:10];
-    footnote.textColor = NSColor.secondaryLabelColor;
-    [content addSubview:footnote];
+    self.console = [[SlopNetConsole alloc] initWithFrame:NSZeroRect];
+    self.console.delegate = self;
+    self.console.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.console.heightAnchor constraintGreaterThanOrEqualToConstant:260].active = YES;
+
+    NSStackView *form = [NSStackView stackViewWithViews:@[
+        title, subtitle, self.hasVPS,
+        [self row:@"VPS address" control:self.host],
+        [self row:@"VPS login name" control:self.username],
+        [self row:@"Connection port" control:self.port],
+        [self label:@"Your VPS password is never typed here or saved by SlopNet. "
+                    @"The first connection asks for it in the window below, and it "
+                    @"goes straight to your VPS." size:12 grey:YES],
+        [self row:@"Project folder name" control:self.projectName],
+        [self row:@"What do you want made?" control:self.projectIdea],
+        buttons, providers, self.console]];
+    form.orientation = NSUserInterfaceLayoutOrientationVertical;
+    form.alignment = NSLayoutAttributeLeading;
+    form.spacing = 10;
+    form.edgeInsets = NSEdgeInsetsMake(20, 24, 20, 24);
+    form.translatesAutoresizingMaskIntoConstraints = NO;
+    [form setHuggingPriority:NSLayoutPriorityDefaultLow
+              forOrientation:NSLayoutConstraintOrientationVertical];
+
+    NSView *content = self.window.contentView;
+    [content addSubview:form];
+    [NSLayoutConstraint activateConstraints:@[
+        [form.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [form.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [form.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [form.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+        [self.console.widthAnchor constraintEqualToAnchor:form.widthAnchor constant:-48],
+    ]];
+
+    [self.console note:@"Ready. Fill in your VPS details above and press "
+                       @"“Set up my VPS”.\n"
+                       @"Everything that happens will appear here. When a question "
+                       @"appears, type your answer in the box below and press Return."];
 
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
 }
 
+#pragma mark - actions
+
 - (void)changeVPSChoice:(id)sender {
-    BOOL visible = self.hasVPS.state == NSControlStateValueOn;
-    for (NSView *view in self.connectionViews) {
-        view.hidden = !visible;
-    }
-    for (NSView *view in self.projectViews) {
-        view.hidden = !visible;
+    BOOL have = self.hasVPS.state == NSControlStateValueOn;
+    self.setupButton.enabled = have;
+    self.projectButton.enabled = have;
+    if (!have) {
+        [self.console note:@"\nPick a VPS provider below, then come back with the "
+                           @"address, login name and password from their email."];
     }
 }
 
 - (BOOL)matches:(NSString *)value pattern:(NSString *)pattern {
     NSRange range = NSMakeRange(0, value.length);
-    NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+    NSRegularExpression *expression =
+        [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
     return [expression firstMatchInString:value options:0 range:range] != nil;
 }
 
-- (void)beginSetup:(id)sender {
-    if (self.hasVPS.state != NSControlStateValueOn) {
-        [self show:@"Choose a VPS provider above, then come back with its IP address, SSH username, and password."];
-        return;
-    }
-    NSString *host = self.host.stringValue;
-    NSString *username = self.username.stringValue;
-    NSString *port = self.port.stringValue;
-    if (![self matches:host pattern:@"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$"] ||
-        ![self matches:username pattern:@"^[A-Za-z_][A-Za-z0-9_-]{0,31}$"] ||
-        port.integerValue < 1 || port.integerValue > 65535 ||
-        ![self matches:port pattern:@"^[0-9]{1,5}$"]) {
-        [self show:@"Copy the VPS address and login name from your provider's welcome email. Leave the connection port as 22 unless your provider gave you a different one."];
-        return;
-    }
-    NSString *script = [[NSBundle mainBundle] pathForResource:@"slopnet-vps-onboard" ofType:@"sh"];
-    if (script == nil) {
-        [self show:@"The VPS setup helper is missing from this SlopNet app bundle. Rebuild the application."];
-        return;
-    }
-    NSString *(^quote)(NSString *) = ^NSString *(NSString *value) {
-        return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"'\\\"'\\\"'"]];
-    };
-    NSString *command = [NSString stringWithFormat:@"%@ %@ %@ %@", quote(script), quote(host), quote(port), quote(username)];
-    if ([self openTerminalForCommand:command]) {
-        [self show:@"Terminal is handling the VPS connection. Follow its prompts; this app never receives or saves your password."];
-    }
-}
-
-- (void)beginProject:(id)sender {
-    if (self.hasVPS.state != NSControlStateValueOn) {
-        [self show:@"Choose a VPS provider above, then come back with its IP address, SSH username, and password."];
-        return;
-    }
-    NSString *host = self.host.stringValue;
-    NSString *username = self.username.stringValue;
-    NSString *port = self.port.stringValue;
-    NSString *projectName = self.projectName.stringValue;
-    NSString *idea = self.projectIdea.stringValue;
-    if (![self matches:host pattern:@"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$"] ||
-        ![self matches:username pattern:@"^[A-Za-z_][A-Za-z0-9_-]{0,31}$"] ||
-        port.integerValue < 1 || port.integerValue > 65535 ||
-        ![self matches:port pattern:@"^[0-9]{1,5}$"]) {
-        [self show:@"Enter the VPS address, login name, and port from your provider's welcome email before starting a project."];
-        return;
-    }
-    if (![self matches:projectName pattern:@"^[a-z0-9][a-z0-9-]{0,62}$"]) {
-        [self show:@"Choose a project folder name using lowercase letters, numbers, and hyphens only. SlopNet will not guess a name for you."];
-        return;
-    }
-    if ([[idea stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] length] == 0) {
-        [self show:@"Describe what you want made in one sentence before asking SlopNet for a plan."];
-        return;
-    }
-    NSString *script = [[NSBundle mainBundle] pathForResource:@"slopnet-vps-project" ofType:@"sh"];
-    if (script == nil) {
-        [self show:@"The project-plan helper is missing from this SlopNet app bundle. Rebuild the application."];
-        return;
-    }
-    NSString *(^quote)(NSString *) = ^NSString *(NSString *value) {
-        return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"'\\\"'\\\"'"]];
-    };
-    NSString *command = [NSString stringWithFormat:@"%@ %@ %@ %@ %@ %@", quote(script), quote(host), quote(port), quote(username), quote(projectName), quote(idea)];
-    if ([self openTerminalForCommand:command]) {
-        [self show:@"Terminal will create only the project folder you named, make a plan using the already-proven Codex app on your VPS, and wait for your approval before any code runs."];
-    }
-}
-
-- (void)testTerminal:(id)sender {
-    NSString *command = @"clear; echo 'SlopNet can open Terminal safely.'; echo 'No VPS connection, password, or SSH key was used for this check.'; read -r -p 'Press Return to close this test: '";
-    if ([self openTerminalForCommand:command]) {
-        [self show:@"Terminal opened successfully. You can now enter your VPS details and start guided setup."];
-    }
-}
-
-- (BOOL)openTerminalForCommand:(NSString *)command {
-    NSString *escaped = [[command stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
-    NSString *source = [NSString stringWithFormat:@"tell application \"Terminal\"\nactivate\ndo script \"%@\"\nend tell", escaped];
-    NSDictionary *error = nil;
-    [[[NSAppleScript alloc] initWithSource:source] executeAndReturnError:&error];
-    if (error != nil) {
-        NSNumber *number = error[NSAppleScriptErrorNumber];
-        NSString *reason = error[NSAppleScriptErrorMessage] ?: @"unknown macOS automation error";
-        if (number.integerValue == -1743) {
-            [self show:@"macOS needs your permission for SlopNet to open Terminal. Open System Settings, go to Privacy & Security, then Automation, and turn on Terminal for SlopNet. Return here and press the button again."];
-        } else {
-            [self show:[NSString stringWithFormat:@"Could not open Terminal for VPS setup: %@. Open SlopNet again and try once more.", reason]];
-        }
+- (BOOL)connectionDetailsValid {
+    if (![self matches:self.host.stringValue pattern:@"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$"] ||
+        ![self matches:self.username.stringValue pattern:@"^[A-Za-z_][A-Za-z0-9_-]{0,31}$"] ||
+        self.port.integerValue < 1 || self.port.integerValue > 65535 ||
+        ![self matches:self.port.stringValue pattern:@"^[0-9]{1,5}$"]) {
+        [self.console note:@"\nCheck the VPS address and login name against your "
+                           @"provider's welcome email. The port is almost always 22."];
         return NO;
     }
     return YES;
 }
 
+- (NSString *)helper:(NSString *)name {
+    return [[NSBundle mainBundle] pathForResource:name ofType:@"sh"];
+}
+
+- (void)beginSetup:(id)sender {
+    if (self.hasVPS.state != NSControlStateValueOn) { [self changeVPSChoice:nil]; return; }
+    if (![self connectionDetailsValid]) return;
+    NSString *script = [self helper:@"slopnet-vps-onboard"];
+    if (script == nil) {
+        [self.console note:@"The VPS setup helper is missing from this app. Build it again."];
+        return;
+    }
+    [self.console note:@"\n=== Setting up your VPS ==="];
+    [self.console runExecutable:@"/bin/bash"
+                      arguments:@[script, self.host.stringValue,
+                                  self.port.stringValue, self.username.stringValue]];
+}
+
+- (void)beginProject:(id)sender {
+    if (self.hasVPS.state != NSControlStateValueOn) { [self changeVPSChoice:nil]; return; }
+    if (![self connectionDetailsValid]) return;
+    if (![self matches:self.projectName.stringValue pattern:@"^[a-z0-9][a-z0-9-]{0,62}$"]) {
+        [self.console note:@"\nChoose a project folder name using lowercase letters, "
+                           @"numbers and hyphens only. SlopNet will not pick a name for you."];
+        return;
+    }
+    NSString *idea = [self.projectIdea.stringValue stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (idea.length == 0) {
+        [self.console note:@"\nWrite one sentence about what you want made."];
+        return;
+    }
+    NSString *script = [self helper:@"slopnet-vps-project"];
+    if (script == nil) {
+        [self.console note:@"The project helper is missing from this app. Build it again."];
+        return;
+    }
+    [self.console note:@"\n=== Making your project plan ==="];
+    [self.console runExecutable:@"/bin/bash"
+                      arguments:@[script, self.host.stringValue, self.port.stringValue,
+                                  self.username.stringValue, self.projectName.stringValue, idea]];
+}
+
+- (void)clearConsole:(id)sender { [self.console clear]; }
+
+- (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status {
+    if (status == 0) {
+        [self.console note:@"You can start the next step above."];
+    } else {
+        [self.console note:@"Nothing was left half-done. Read the last few lines "
+                           @"above, fix what they mention, and press the button again."];
+    }
+}
+
 - (void)open:(NSString *)address {
     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:address]];
 }
-
 - (void)openHetzner:(id)sender { [self open:@"https://www.hetzner.com/cloud/"]; }
 - (void)openContabo:(id)sender { [self open:@"https://contabo.com/en/vps/"]; }
 - (void)openHostinger:(id)sender { [self open:@"https://www.hostinger.com/vps-hosting"]; }
 
-- (void)show:(NSString *)message {
-    NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"SlopNet";
-    alert.informativeText = message;
-    [alert addButtonWithTitle:@"OK"];
-    [alert runModal];
-}
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app { return YES; }
+
 @end
 
 int main(int argc, const char * argv[]) {

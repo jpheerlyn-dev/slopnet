@@ -25,7 +25,9 @@ command -v clang >/dev/null 2>&1 || { printf '%s\n' 'SlopNet.app needs the macOS
 python3 "$pkg/make_icon.py" "$icon_file"
 
 mkdir -p "$contents/MacOS" "$contents/Resources"
-clang -fobjc-arc -mmacosx-version-min=13.0 -framework AppKit "$pkg/SlopNetLauncher.m" -o "$contents/MacOS/SlopNet"
+clang -fobjc-arc -mmacosx-version-min=13.0 -framework AppKit \
+  -I "$pkg" "$pkg/SlopNetLauncher.m" "$pkg/SlopNetConsole.m" \
+  -o "$contents/MacOS/SlopNet"
 cp "$icon_file" "$contents/Resources/AppIcon.icns"
 cp "$pkg/slopnet-vps-onboard.sh" "$contents/Resources/slopnet-vps-onboard.sh"
 cp "$pkg/slopnet-vps-project.sh" "$contents/Resources/slopnet-vps-project.sh"
@@ -45,7 +47,10 @@ cat > "$contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>SlopNet</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>NSAppleEventsUsageDescription</key><string>SlopNet opens Terminal only to run the VPS setup the person has explicitly started. Terminal receives the normal SSH password prompt; SlopNet does not collect or store that password.</string>
+  <!-- No NSAppleEventsUsageDescription: SlopNet no longer drives Terminal.
+       Everything runs inside the app window, so macOS never has to ask for
+       Automation permission. -->
+  <key>NSHumanReadableCopyright</key><string>MIT licensed.</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
