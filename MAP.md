@@ -37,9 +37,11 @@ credentialed coding-agent runtime. The tested VPS checkout is **REDACTED** at
 | `archive/jobs/` | completed local-path briefs, J07 failure evidence, deferred J08, and subscription research |
 | `archive/reference/` | retired v0.2 design, companion, and watchman references |
 
-The active product path is deliberately small: prove one guided VPS setup and
-one real subscribed CLI, then rerun J07. `jobs/OPERATORS.md` is the complete
-current dashboard; it should be the only file needed to understand the queue.
+The active product path is deliberately small: one guided VPS setup and one
+real subscribed CLI are now proved. Make that path pleasant in the Mac control
+app, then schedule one real project flow before any J07 rerun.
+`jobs/OPERATORS.md` is the complete current dashboard; it should be the only
+file needed to understand the queue.
 
 ## Ideas in orbit
 

@@ -12,18 +12,25 @@ installs tools, take them through each provider's normal login, prove one
 harmless edit on the VPS, and then keep all agent work, tests, and credentials
 off their laptop.
 
-**This checkout is not there yet.** The VPS Docker safety gate is real and
-proved. The first guided Linux VPS path for one Codex CLI now checks for the
-Linux bubblewrap sandbox, asks before installing it on supported VPS hosts,
-and stops early when a VPS blocks its non-root user namespace. **REDACTED** does
-currently block that capability, so the safe edit proof is not complete. It is
-not yet a broad multi-provider runtime or a beginner-ready release. The long
+**This checkout is not there yet.** One real VPS vertical slice is now proved:
+on **REDACTED**, guided Linux setup kept credentials in the private non-root
+runtime account and Codex completed a disposable workspace-only edit in 16
+seconds. On Ubuntu 24.04, if AppArmor blocks that sandbox, setup asks before it
+installs and loads Ubuntu's Bubblewrap-only profile; it does not turn off the
+VPS-wide restriction. That profile gives `/usr/bin/bwrap` the setup permissions
+it needs while its sandbox child loses capabilities. The strict Docker safety
+gate is also proved.
+
+That is evidence for one Codex path, not a release claim. It is not yet a
+broad multi-provider runtime or a beginner-ready release, and the current Mac
+control app still hands the detailed setup conversation to Terminal. The long
 walkthrough later in this file is preserved as the historical local-development
 route for contributors. It is not the product flow we should ask a new user to
 follow or market as beginner-ready.
 
-The current build priority is proving that narrow path. Only after it works
-should SlopNet broaden to more providers or Hermes, OpenClaw, and Buzz
+The current build priority is making that proved path pleasant inside the Mac
+control app, then adding exactly one real project flow with tests. Only after
+that should SlopNet broaden to more providers or Hermes, OpenClaw, and Buzz
 integrations.
 
 ## VPS-first policy
@@ -85,21 +92,19 @@ and run:
 docker compose run --rm slopnet check --all
 ```
 
-On a fresh VPS, use a dedicated SlopNet workspace with the same numeric owner
-as the container process. The following is the tested **REDACTED** pattern; it
-does not create an SSH user or change root access:
+After guided setup, the Docker gate should use the same locked runtime account
+as SlopNet itself. The following is the tested **REDACTED** pattern; it does not
+create an SSH user or change root access:
 
 ```bash
-git clone --depth 1 https://github.com/jpheerlyn-dev/slopnet.git /opt/slopnet
-chown -R 10001:10001 /opt/slopnet
 cd /opt/slopnet
-docker compose run --rm slopnet check --all
+SLOPNET_UID=$(id -u slopnet) SLOPNET_GID=$(id -g slopnet) \
+  docker compose run --rm slopnet check --all
 ```
 
-Only use this ownership change after confirming `/opt/slopnet` is the new
-SlopNet checkout. It lets the container stay non-root while Git treats its
-mounted project as safe. Do not override `SLOPNET_UID` or `SLOPNET_GID` to
-`0`; a different workspace needs its own non-root matching IDs instead.
+This lets the container stay non-root while Git treats its mounted project as
+safe. Do not set `SLOPNET_UID` or `SLOPNET_GID` to `0`; a different workspace
+needs its own non-root matching IDs instead.
 
 This is intentionally a **gate**, not the AI coding room: the container has
 no network and no provider logins, so it cannot run `slopnet go`. That keeps

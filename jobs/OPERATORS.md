@@ -2,24 +2,27 @@
 
 ## Active work
 
-**Guided VPS setup reached the live **REDACTED** Codex proof, which is blocked by
-the VPS user-namespace policy.**
+**Guided VPS setup completed the live **REDACTED** Codex proof.**
 
-The implementation is deliberately narrow: Linux VPS plus one Codex CLI. It
-creates a private non-root runtime account without changing SSH policy, asks
-before installation and device login, checks private credential storage, and
-runs the disposable edit proof. The live VPS result decides whether it earns
-the next step.
+The implementation remains deliberately narrow: Linux VPS plus one Codex CLI.
+It creates a private non-root runtime account without changing SSH policy,
+asks before installation and device login, checks private credential storage,
+and runs the disposable edit proof. On **REDACTED**'s Ubuntu 24.04 it offered the
+documented Bubblewrap-only AppArmor profile instead of disabling the global
+user-namespace restriction. That upstream profile gives the setup executable
+the permissions it needs, then drops the sandbox child into a
+capability-denying profile. Codex then wrote the disposable file in 16 seconds
+and SlopNet removed the proof workspace.
 
 ## Current position — no file-opening required
 
 | Area | State | Evidence or next action |
 |---|---|---|
 | Original local SlopNet engine (J01–J06) | Done; historical | The briefs and research live in `archive/jobs/`. They are not the VPS product. |
-| Whole-fleet real-world exam (J07) | Done; no app was built | Every available worker failed its real proof. Raw chronology: `archive/jobs/J07_FINDINGS.md`; rerun only after the VPS proof. |
+| Whole-fleet real-world exam (J07) | Done; historical failure | Every available worker failed its real proof. Raw chronology: `archive/jobs/J07_FINDINGS.md`; a new full-fleet run needs an explicit operator brief after the first real project flow. |
 | Docker VPS containment gate | Done on **REDACTED** | Non-root, offline, read-only gate passed. Full output: `register/2026-07-29.md`. |
-| Guided VPS setup and one Codex proof | Blocked by **REDACTED** sandbox policy | Login and private credentials work; bubblewrap installed, but the non-root account cannot create its required user namespace. No host security setting was changed. |
-| Mac control app | Build-ready early shell | Native application source builds a Dock app with provider links and an SSH handoff; it does not claim that the agent proof has passed. |
+| Guided VPS setup and one Codex proof | Done on **REDACTED** | Private non-root credential store confirmed; Ubuntu's Bubblewrap-only profile retained the global restriction and denies child capabilities; Codex wrote the disposable file in 16s and the proof was removed. |
+| Mac control app | Working early shell, not beginner-ready | Dock app connects the VPS and reaches the proved setup, but the detailed conversation still occurs in Terminal. Move the next confirmations and status into the app. |
 | J08 hosted brains / more providers / Hermes / OpenClaw / Buzz | Deferred | Do not start before the preceding proof succeeds. |
 | GitHub branch protection | Incomplete | Configure `law`, `manifest`, `register-audit`, and `container` as required checks after GitHub authentication is restored. |
 

@@ -1,8 +1,6 @@
 ## Open
 
-- [2026-07-29, Codex] **REDACTED** cannot complete the safe Codex edit proof: after approved installation of `bubblewrap`, the non-root `slopnet` account returned `unshare: write failed /proc/self/uid_map: Operation not permitted` and `bwrap: setting up uid map: Permission denied`. The host reports `kernel.unprivileged_userns_clone = 1` and `kernel.apparmor_restrict_unprivileged_userns = 1`. No AppArmor, sysctl, SSH, firewall, or Docker setting was changed. Please choose: use a VPS/provider image that permits rootless user namespaces; explicitly authorise a host-security policy change after evaluating its impact; or defer this Codex proof until a separately working isolated Docker agent gate can provide the sandbox.
-
-- [2026-07-29, Codex] Core MVP gap: the local-first walkthrough is now historical. Before SlopNet is called beginner-ready, the operator needs to schedule one named brief for guided VPS setup: approved tool detection and installation, provider login handoff, VPS-only credential storage, one selected CLI edit-and-test proof, scoped egress and resource limits, and a plain recovery message. Do not substitute more providers or integrations for this proof.
+- [2026-07-29, Codex] Core MVP gap: the first guided VPS setup and private Codex edit proof now pass on **REDACTED** SlopNet is still not beginner-ready: the Mac app hands the detail to Terminal, the proof covers one provider only, no first user project flow has passed, and the credentialed agent runtime has not earned a scoped-egress design. Do not substitute more providers or integrations for those product steps.
 
 - [2026-07-29, Codex] Docker installation on **REDACTED** VPS reported a newer kernel available (running 6.8.0-124-generic; expected 6.8.0-136-generic). Docker is active and the SlopNet gate passed; no reboot was performed. Please choose a maintenance window if you want the kernel upgrade activated.
 
@@ -33,6 +31,8 @@
 - [2026-07-28, Grok J02] Does the Kimi *coding plan* cover raw `MOONSHOT_API_KEY` HTTP use, or only the Kimi Code CLI / login-linked key? Report confirms CLI membership cover; API-credit boundary for naked HTTP was not verified, so no billing caveat was hard-coded on that `api` worker.
 
 ## Ruled
+
+- [2026-07-29, Codex] Resolved: **REDACTED** initially blocked the non-root Bubblewrap sandbox with AppArmor. With the operator-approved Ubuntu `apparmor-profiles` and `apparmor-utils` packages, SlopNet loaded Ubuntu's executable-specific `bwrap-userns-restrict` profile and kept `kernel.apparmor_restrict_unprivileged_userns=1`. The upstream profile grants `/usr/bin/bwrap` the setup permissions it needs, then stacks its child into a capability-denying profile. The real non-writing probe was `bwrap --unshare-user --ro-bind / / -- /bin/true`, which returned 0. Guided setup then confirmed private Codex credentials and completed the disposable edit proof in 16 seconds. SSH, password access, firewall, Docker configuration, and the global restriction were not changed.
 
 - [2026-07-29, operator] Authorized Docker Engine plus the Compose plugin on **REDACTED** VPS. Preserve the existing root/password SSH policy; install from Docker's official Ubuntu repository, then prove SlopNet's container gate and record the actual output.
 

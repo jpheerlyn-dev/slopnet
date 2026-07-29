@@ -779,7 +779,7 @@ def is_ubuntu_2404():
 
 
 def enable_ubuntu_bwrap_profile(account):
-    """Offer Ubuntu's narrow bwrap AppArmor profile; never weaken the global policy."""
+    """Offer Ubuntu's executable-specific bwrap profile; keep the global policy."""
     probe = sandbox_probe_for_account(account)
     if probe is None or probe.returncode == 0 or not is_ubuntu_2404():
         return
@@ -800,9 +800,11 @@ def enable_ubuntu_bwrap_profile(account):
             fail("Ubuntu's bwrap AppArmor profile is present but cannot be loaded.",
                  "The AppArmor parser is missing, so SlopNet will not guess how to change the policy.",
                  "Install apparmor-utils, then re-run: slopnet setup --vps")
-        print("Ubuntu's verified narrow Bubblewrap AppArmor profile is present but inactive.")
-        print("Loading it keeps the global user-namespace restriction enabled and changes no SSH, firewall, or Docker setting.")
-        if not ask_yes_no("Load that existing narrow Bubblewrap profile now?"):
+        print("Ubuntu's verified Bubblewrap AppArmor profile is present but inactive.")
+        print("It applies to /usr/bin/bwrap only. Ubuntu grants that setup process the")
+        print("permissions needed to build the sandbox; its child profile denies capabilities.")
+        print("It keeps the global restriction enabled and changes no SSH, firewall, or Docker setting.")
+        if not ask_yes_no("Load that Bubblewrap-only profile now?"):
             fail("The Bubblewrap AppArmor profile was not enabled.",
                  "This VPS keeps blocking Codex's workspace-only sandbox.",
                  "When ready, re-run: slopnet setup --vps and approve the narrow profile")
@@ -817,11 +819,12 @@ def enable_ubuntu_bwrap_profile(account):
     if not installer:
         return
     print("This Ubuntu VPS blocks Bubblewrap's private sandbox with AppArmor.")
-    print("Codex's documented Ubuntu 24.04 repair is one narrow Bubblewrap profile.")
+    print("Codex's documented Ubuntu 24.04 repair is one Bubblewrap-only profile.")
     print("SlopNet can install apparmor-profiles and apparmor-utils, then load only")
-    print("the bwrap-userns-restrict profile. It does not disable the global restriction,")
-    print("change SSH access, change firewall rules, or change Docker.")
-    if not ask_yes_no("Install and load that narrow Bubblewrap profile now?"):
+    print("the bwrap-userns-restrict profile. Ubuntu grants /usr/bin/bwrap the setup")
+    print("permissions it needs, while the sandbox child loses capabilities. It does not")
+    print("disable the global restriction, change SSH access, firewall rules, or Docker.")
+    if not ask_yes_no("Install and load that Bubblewrap-only profile now?"):
         fail("The Bubblewrap AppArmor profile was not enabled.",
              "This VPS keeps blocking Codex's workspace-only sandbox.",
              "When ready, re-run: slopnet setup --vps and approve the narrow profile")
@@ -852,7 +855,7 @@ def enable_ubuntu_bwrap_profile(account):
         fail("The narrow Bubblewrap profile did not make the Codex sandbox available.",
              "SlopNet left the global AppArmor restriction enabled and stopped before any agent work.",
              "Use the output above to choose a compatible VPS or inspect this profile")
-    print("[OK] Ubuntu's narrow Bubblewrap profile is active; the global restriction remains enabled.")
+    print("[OK] Ubuntu's Bubblewrap-only profile is active; the global restriction remains enabled.")
 
 
 def ensure_vps_sandbox_capable():

@@ -29,13 +29,18 @@ The product is not ready to call beginner-ready until this path is real:
    services run on the VPS while the person receives a clear result and a
    safe way to inspect it.
 
-This is a product requirement, not a claim about the present checkout. The
-strict Docker gate is proved. The first guided Linux VPS setup reaches Codex
-login but **REDACTED** blocks the non-root Linux sandbox required for safe writes;
-it is not yet a general agent runtime or a beginner-ready release. Do not paper
-over that gap with more integrations, a longer README, or a local-only
-workaround. Every change must make the above path shorter, safer, or easier to
-understand.
+This is a product requirement, not a release claim. The strict Docker gate is
+proved, and one guided **REDACTED** run stored the Codex login in its private
+non-root VPS account then completed a disposable workspace-only edit in 16
+seconds. On this Ubuntu 24.04 host, setup used Ubuntu's Bubblewrap-only
+AppArmor profile while keeping `kernel.apparmor_restrict_unprivileged_userns=1`.
+The upstream profile grants `/usr/bin/bwrap` the setup permissions it needs,
+then stacks its child into a capability-denying profile.
+
+That proves one vertical slice, not a general agent runtime or a
+beginner-ready release. Do not paper over the remaining gap with more
+integrations, a longer README, or a local-only workaround. Every change must
+make the above path shorter, safer, or easier to understand.
 
 ## MVP crew roles
 
@@ -75,11 +80,10 @@ Run it on the VPS with `docker compose run --rm slopnet check --all` after
 Docker Engine and its Compose plugin have been installed there.
 
 The bind-mounted project must belong to the non-root container identity. The
-tested first deployment owns the new `/opt/slopnet` checkout as numeric
-UID/GID `10001:10001`; this changes only that workspace and does not create an
-SSH user or alter root access. Do not solve an ownership mismatch by running
-the gate as root. For another project, choose matching non-root IDs through
-`SLOPNET_UID` and `SLOPNET_GID` instead.
+tested **REDACTED** deployment maps the container to the existing locked
+`slopnet` account through `SLOPNET_UID` and `SLOPNET_GID`; this changes no SSH
+user or root-access policy. Do not solve an ownership mismatch by running the
+gate as root. Another project needs its own matching non-root IDs.
 
 The strict gate deliberately cannot be used for `slopnet go`: a coding agent
 needs selected provider access and credentials, while the gate has neither.
