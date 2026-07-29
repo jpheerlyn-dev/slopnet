@@ -59,8 +59,17 @@ VPS_AGENT_LIMITS = {
 
 def repo_root():
     try:
+        command = ["git"]
+        # The one-time VPS bootstrap begins as root so it can create the
+        # non-root runtime account. Docker's prior numeric owner can make Git
+        # reject that same checkout as dubious. Trust only the current working
+        # directory for this one discovery command; never write a global Git
+        # exception and never trust an arbitrary path.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            command.extend(["-c", f"safe.directory={pathlib.Path.cwd().resolve()}"])
+        command.extend(["rev-parse", "--show-toplevel"])
         out = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
+            command,
             capture_output=True, text=True,
         )
     except FileNotFoundError:
