@@ -24,6 +24,10 @@ paths=$(
       .dockerignore \
       slopnet \
       crew.py \
+      packaging/SlopNetLauncher.m \
+      packaging/build_app.sh \
+      packaging/make_icon.py \
+      packaging/slopnet-vps-onboard.sh \
       tests/redteam.sh \
       update-manifest.sh \
       .github/workflows/slopnet.yml \

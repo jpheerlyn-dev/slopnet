@@ -37,6 +37,22 @@ This checkout is moving from its earlier local-first implementation to that
 model. Until remote execution is enforced by the program, a local
 `slopnet go` run is a development check, not the intended user workflow.
 
+### Mac control app (early shell)
+
+The source checkout can build a real Mac application with a Dock icon and a
+small VPS connection screen:
+
+```bash
+./packaging/build_app.sh "$HOME/Applications"
+```
+
+Open `SlopNet.app` from your Applications folder. It asks whether you already
+have a VPS, offers Hetzner, Contabo, and Hostinger links if you do not, then
+collects only the host, SSH username, and port. It opens Terminal for the
+normal SSH password prompt, creates a dedicated SSH key, and begins the guided
+VPS setup. It never receives or stores a VPS password. This is an early control
+shell, not a promise that every VPS or coding CLI has passed the required proof.
+
 ### Container gate (available now)
 
 SlopNet now has a locked-down Docker gate for the VPS. It runs the walls in

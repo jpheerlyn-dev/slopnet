@@ -19,6 +19,7 @@ the next step.
 | Whole-fleet real-world exam (J07) | Done; no app was built | Every available worker failed its real proof. Raw chronology: `archive/jobs/J07_FINDINGS.md`; rerun only after the VPS proof. |
 | Docker VPS containment gate | Done on **REDACTED** | Non-root, offline, read-only gate passed. Full output: `register/2026-07-29.md`. |
 | Guided VPS setup and one Codex proof | Blocked by **REDACTED** sandbox policy | Login and private credentials work; bubblewrap installed, but the non-root account cannot create its required user namespace. No host security setting was changed. |
+| Mac control app | Build-ready early shell | Native application source builds a Dock app with provider links and an SSH handoff; it does not claim that the agent proof has passed. |
 | J08 hosted brains / more providers / Hermes / OpenClaw / Buzz | Deferred | Do not start before the preceding proof succeeds. |
 | GitHub branch protection | Incomplete | Configure `law`, `manifest`, `register-audit`, and `container` as required checks after GitHub authentication is restored. |
 
