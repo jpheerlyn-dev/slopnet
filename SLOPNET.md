@@ -49,6 +49,15 @@ before it lets coding agents run. The provider selector remains deliberately
 narrow: a person must explicitly choose another provider before SlopNet can
 install it or begin its login flow.
 
+An optional local Llama.cpp helper is part of that control screen, not a
+second autonomous agent. It runs one selected public GGUF as the non-root
+runtime account, with no API key and no listening port. Its only current role
+is to offer an offline rewrite of a person's request before planning; the
+person must accept the exact wording before the coding planner sees it. The
+default is IBM Granite 4.1 8B Q4_K_M, while a person may choose another public
+Hugging Face identifier. Capacity and an actual one-word model proof happen
+before SlopNet marks it ready.
+
 ## MVP crew roles
 
 SlopNet is the coding executor: it isolates work, runs tests and walls, and

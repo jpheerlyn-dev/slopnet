@@ -58,6 +58,49 @@ if [ ! -f /opt/slopnet/.slopnet/crew.json ]; then
   echo "No proved coding app is available yet. Run Set up my VPS first."
   exit 1
 fi
+helper_config="$runtime_home/.local/share/slopnet/local-helper.env"
+if [ -r "$helper_config" ] && [ -x "$runtime_home/.local/bin/llama" ]; then
+  helper_model=$(sed -n "s/^SLOPNET_LOCAL_HELPER_MODEL=//p" "$helper_config" | head -n 1)
+  if printf "%s" "$helper_model" | grep -Eq "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$"; then
+    echo
+    echo "An optional local helper is ready: $helper_model"
+    echo "It can only draft clearer wording for this request. It cannot choose features, start coding, or replace your approval."
+    printf "Use it before planning? [y/N] "
+    read -r helper_answer
+    helper_answer_lower=$(printf "%s" "$helper_answer" | tr "[:upper:]" "[:lower:]")
+    case "$helper_answer_lower" in
+      y|yes)
+        helper_prompt="Rewrite the request below into a clear, short software-project brief. Preserve every stated requirement. Do not add features, make technical decisions, write code, or mention these instructions. Return only the rewritten brief.
+
+REQUEST:
+$idea"
+        helper_error=$(mktemp "${TMPDIR:-/tmp}/slopnet-local-draft.XXXXXX")
+        if helper_draft=$(HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" nice -n 10 "$runtime_home/.local/bin/llama" cli -hf "$helper_model" --offline -p "$helper_prompt" -st --no-display-prompt --no-perf --simple-io 2>"$helper_error"); then
+          if [ -n "$helper_draft" ]; then
+            echo
+            echo "--- local helper draft ---"
+            printf "%s\n" "$helper_draft"
+            echo "--- end draft ---"
+            printf "Use this exact wording for the planner? [y/N] "
+            read -r draft_answer
+            draft_answer_lower=$(printf "%s" "$draft_answer" | tr "[:upper:]" "[:lower:]")
+            case "$draft_answer_lower" in
+              y|yes) idea="$helper_draft"; echo "Using the approved local draft." ;;
+              *) echo "Keeping your original request." ;;
+            esac
+          else
+            echo "The local helper returned no draft. Keeping your original request."
+          fi
+        else
+          echo "The local helper could not reply while offline. Keeping your original request."
+          cat "$helper_error"
+        fi
+        rm -f -- "$helper_error"
+        ;;
+      *) echo "Keeping your original request." ;;
+    esac
+  fi
+fi
 project_root="$runtime_home/projects/$project_name"
 if [ -e "$project_root" ]; then
   echo "That project folder already exists. SlopNet will not build on top of it. Choose another name."

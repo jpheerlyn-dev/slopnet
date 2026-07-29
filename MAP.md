@@ -21,6 +21,7 @@
 | `tests/` | behavioural tests and the red-team suite |
 | `.githooks/` and `.github/workflows/` | local and GitHub enforcement |
 | `register/` | chronological evidence and operator decisions |
+| `packaging/` | Mac control app, guided VPS helpers, and the optional local-model setup; all are bundled into `SlopNet.app` |
 
 ## VPS container gate
 

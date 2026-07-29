@@ -19,6 +19,7 @@
 - (void)settingsCheckConnection:(SlopNetSettings *)s {}
 - (void)settingsClearConsole:(SlopNetSettings *)s {}
 - (void)settingsShowServerHelp:(SlopNetSettings *)s {}
+- (void)settings:(SlopNetSettings *)s setupLocalHelperModel:(NSString *)m {}
 @end
 int main(void) {
     @autoreleasepool {

@@ -1,5 +1,7 @@
 ## Open
 
+- [2026-07-29, Codex] Actual push observation: GitHub allowed direct pushes to main while reporting ‘4 of 4 required status checks are expected.’ Required checks did not gate the pushes. Restore a non-bypassable pull-request/status-check path before release; current branch rules are not evidence of enforcement.
+
 - [2026-07-29, Codex] Local helper onboarding is not implemented yet: official IBM Granite 4.1 8B GGUF Q4_K_M is a 5.35 GB Apache-2.0 download and official llama.cpp can serve it locally. Before adding an automatic installer, decide whether the app must show an explicit capacity and download-confirmation screen, then prove install/detection under the protected slopnet runtime account rather than a server login account.
 
 - [2026-07-29, Codex] Core MVP gap: the first guided VPS setup and private Codex edit proof now pass on a tested VPS. SlopNet is still not beginner-ready: the Mac app hands the detail to Terminal, the proof covers one provider only, no first user project flow has passed, and the credentialed agent runtime has not earned a scoped-egress design. Do not substitute more providers or integrations for those product steps.
@@ -34,7 +36,11 @@
 - [2026-07-28, Grok J02] Report documents OpenAI-compatible URL `https://api.z.ai/api/coding/paas/v4` for non-Claude hosts, but also says naked/custom clients that fail the supported-tool check can lose Coding Plan benefits. Stored in `providers.zai-glm.openai_compat_url` for reference only — no raw `api` worker was added. Confirm if you want a supported-host path (e.g. documented Cursor/Cline) wired later.
 - [2026-07-28, Grok J02] Does the Kimi *coding plan* cover raw `MOONSHOT_API_KEY` HTTP use, or only the Kimi Code CLI / login-linked key? Report confirms CLI membership cover; API-credit boundary for naked HTTP was not verified, so no billing caveat was hard-coded on that `api` worker.
 
+- [2026-07-29, Codex] Live local-helper proof is pending: v0.6 builds an opt-in Llama.cpp/IBM Granite path, detects existing runtime state, asks twice before a model download, and requires a harmless `READY` reply before configuration. It has not yet been installed against a VPS from the released app. Do not claim its download or model inference is proved until that visible run is recorded.
+
 ## Ruled
+
+- [2026-07-29, Codex] Resolved in source, not yet a live-host claim: the local-helper onboarding decision is an explicit capacity-and-download-confirmation screen. It validates a public `owner/model:quant` Hugging Face identifier, runs Llama.cpp and the GGUF only as the private `slopnet` account, stores only the chosen identifier in that account, opens no model port, and makes a person approve an offline request draft before it reaches the paid planner. v0.6 source acceptance passed; the separate live proof remains open above.
 
 - [2026-07-29, Codex] Resolved: the tested VPS initially blocked the non-root Bubblewrap sandbox with AppArmor. With the operator-approved Ubuntu `apparmor-profiles` and `apparmor-utils` packages, SlopNet loaded Ubuntu's executable-specific `bwrap-userns-restrict` profile and kept `kernel.apparmor_restrict_unprivileged_userns=1`. The upstream profile grants `/usr/bin/bwrap` the setup permissions it needs, then stacks its child into a capability-denying profile. The real non-writing probe was `bwrap --unshare-user --ro-bind / / -- /bin/true`, which returned 0. Guided setup then confirmed private Codex credentials and completed the disposable edit proof in 16 seconds. SSH, password access, firewall, Docker configuration, and the global restriction were not changed.
 

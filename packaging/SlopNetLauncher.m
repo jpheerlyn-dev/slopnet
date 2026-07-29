@@ -618,6 +618,24 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 
 - (void)settingsShowServerHelp:(SlopNetSettings *)settings { [self openServerHelp:nil]; }
 
+- (void)settings:(SlopNetSettings *)settings setupLocalHelperModel:(NSString *)model {
+    if (self.busy || ![self connectionValid]) return;
+    NSString *script = [self helper:@"slopnet-vps-local-helper"];
+    if (script == nil) {
+        [self.console note:@"The local-helper setup is missing from this app. Build it again."];
+        return;
+    }
+    [self.console note:[NSString stringWithFormat:
+        @"\n=== Preparing local helper: %@ ===\n"
+         "This happens only on your server. It will show the real capacity before "
+         "it downloads anything, and it never opens a model port.", model]];
+    [self setBusy:YES];
+    if (![self.console runExecutable:@"/bin/bash"
+                           arguments:@[script, self.host, self.port, self.username, model]]) {
+        [self setBusy:NO];
+    }
+}
+
 - (void)checkConnection:(id)sender {
     if (self.busy || ![self connectionValid]) return;
     [self.console note:@"\n=== Checking the connection ==="];

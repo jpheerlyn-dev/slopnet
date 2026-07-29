@@ -76,6 +76,17 @@ permission. All setup questions appear in the app window. **Check connection**,
 **Clear screen**, and **Getting a server** are in Settings so the main screen
 can stay focused on the current request.
 
+Settings also has an **optional local helper**. It starts with the public
+Apache-2.0 `ibm-granite/granite-4.1-8b-GGUF:Q4_K_M` model, but you may enter a
+different public Hugging Face GGUF in `owner/model:quant` form. Before anything
+downloads, SlopNet shows the real free storage and available memory on the VPS;
+the Granite choice reserves 8 GiB of free disk for its roughly 5.35 GB model.
+It installs and proves Llama.cpp only as the private `slopnet` runtime account,
+does not request an API key, and does not start a listening model server. On a
+later project request it may offer one offline, plain-English draft. You see
+that draft and explicitly choose whether the paid coding planner receives it.
+The local helper cannot start coding or choose features.
+
 When setup says the server passed, use the larger request box at the bottom.
 Give the project a short lowercase name and write what you want made. The box
 grows for a longer request and scrolls once it reaches its limit. A **New**

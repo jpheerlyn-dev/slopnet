@@ -9,6 +9,9 @@
 @property(nonatomic, strong) NSArray<NSDictionary *> *tools;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSTextField *> *toolStatus;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSButton *> *toolButton;
+@property(nonatomic, strong) NSTextField *localModel;
+@property(nonatomic, strong) NSTextField *localHelperNote;
+@property(nonatomic, strong) NSButton *localHelperButton;
 @property(nonatomic, assign) BOOL connected;
 @end
 
@@ -155,6 +158,31 @@
 
     NSButton *recheck = [self button:@"Check what is installed"
                              action:@selector(refreshPressed:)];
+
+    self.localModel = [self field:@"ibm-granite/granite-4.1-8b-GGUF:Q4_K_M"
+                       placeholder:@"owner/model:quant"];
+    [self.localModel.widthAnchor constraintGreaterThanOrEqualToConstant:360].active = YES;
+    NSGridView *localModelRow = [NSGridView gridViewWithViews:@[
+        @[[self label:@"Hugging Face GGUF" size:12 grey:NO bold:NO], self.localModel],
+    ]];
+    localModelRow.translatesAutoresizingMaskIntoConstraints = NO;
+    localModelRow.columnSpacing = 10;
+    [localModelRow columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    [localModelRow columnAtIndex:1].xPlacement = NSGridCellPlacementLeading;
+
+    self.localHelperNote = [self helpText:@"Checking your server…"];
+    self.localHelperButton = [self button:@"Install and test this model"
+                                      action:@selector(localHelperPressed:)];
+    self.localHelperButton.enabled = self.connected;
+    NSButton *checkLocal = [self button:@"Check local models"
+                                   action:@selector(refreshLocalPressed:)];
+    checkLocal.enabled = self.connected;
+    NSStackView *localButtons =
+        [NSStackView stackViewWithViews:@[checkLocal, self.localHelperButton]];
+    localButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    localButtons.spacing = 10;
+    localButtons.translatesAutoresizingMaskIntoConstraints = NO;
+
     NSButton *done = [self button:@"Done" action:@selector(closePressed:)];
     done.keyEquivalent = @"\r";
     [done.widthAnchor constraintGreaterThanOrEqualToConstant:90].active = YES;
@@ -176,6 +204,15 @@
                        @"what happens."],
         recheck,
         self.toolGrid,
+        [self separator],
+        [self label:@"Optional local helper" size:15 grey:NO bold:YES],
+        [self helpText:@"A small model runs only on this server before planning. It can "
+                       @"draft clearer request wording, but it cannot start coding or make "
+                       @"a decision for you. SlopNet shows storage and memory first, downloads "
+                       @"only after you approve, and never opens a model port."],
+        localModelRow,
+        localButtons,
+        self.localHelperNote,
         [self separator],
         done,
     ]];
@@ -268,7 +305,10 @@
 
 - (void)presentFrom:(NSWindow *)parent {
     [parent beginSheet:self.window completionHandler:nil];
-    if (self.connected) [self refreshToolStatus];
+    if (self.connected) {
+        [self refreshToolStatus];
+        [self refreshLocalHelperStatus];
+    }
 }
 
 #pragma mark - actions
@@ -328,6 +368,29 @@
 }
 
 - (void)refreshPressed:(id)sender { [self refreshToolStatus]; }
+
+- (BOOL)localModelValid:(NSString *)model {
+    NSRegularExpression *expression = [NSRegularExpression
+        regularExpressionWithPattern:@"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$"
+                         options:0 error:nil];
+    return [expression firstMatchInString:model options:0
+                                    range:NSMakeRange(0, model.length)] != nil;
+}
+
+- (void)localHelperPressed:(id)sender {
+    NSString *model = [self.localModel.stringValue
+        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (![self localModelValid:model]) {
+        self.localHelperNote.stringValue =
+            @"Use public Hugging Face form owner/model:quant — no URLs or tokens.";
+        self.localHelperNote.textColor = NSColor.systemRedColor;
+        return;
+    }
+    [self.delegate settings:self setupLocalHelperModel:model];
+    [self closePressed:nil];
+}
+
+- (void)refreshLocalPressed:(id)sender { [self refreshLocalHelperStatus]; }
 
 #pragma mark - asking the server what it has
 
@@ -397,6 +460,95 @@
         for (NSTextField *status in self.toolStatus.allValues) {
             status.stringValue = @"could not run ssh";
         }
+    }
+}
+
+#pragma mark - local helper inspection
+
+- (void)refreshLocalHelperStatus {
+    if (!self.connected || self.host.stringValue.length == 0) {
+        self.localHelperNote.stringValue = @"Connect a server to inspect local models.";
+        self.localHelperNote.textColor = NSColor.secondaryLabelColor;
+        return;
+    }
+    self.localHelperNote.stringValue = @"Checking the protected runtime account…";
+    self.localHelperNote.textColor = NSColor.secondaryLabelColor;
+
+    // This is deliberately a read-only probe. It never starts a model, opens
+    // a port, downloads a file, or reads anything outside SlopNet's own
+    // runtime home.
+    NSString *probe =
+        @"set -eu; "
+         "if ! id -u slopnet >/dev/null 2>&1; then echo 'runtime no'; exit 0; fi; "
+         "home=$(getent passwd slopnet | cut -d: -f6); "
+         "if [ -z \"$home\" ] || [ ! -d \"$home\" ]; then echo 'runtime no'; exit 0; fi; "
+         "echo 'runtime yes'; "
+         "if [ -x \"$home/.local/bin/llama\" ]; then echo 'llama yes'; else echo 'llama no'; fi; "
+         "config=\"$home/.local/share/slopnet/local-helper.env\"; "
+         "if [ -r \"$config\" ]; then sed -n 's/^SLOPNET_LOCAL_HELPER_MODEL=//p' \"$config\" | head -n 1 | sed 's/^/model /'; fi; "
+         "df -Pm \"$home\" | awk 'NR==2 {print \"disk \" $4}'; "
+         "if command -v free >/dev/null 2>&1; then free -m | awk '/Mem:/ {print \"memory \" $7}'; else echo 'memory unknown'; fi; "
+         "if find \"$home/.cache\" -type f -name '*.gguf' -print -quit 2>/dev/null | grep -q .; then echo 'cache yes'; else echo 'cache no'; fi";
+
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
+    task.arguments = @[@"-p", self.port.stringValue,
+                       @"-o", @"BatchMode=yes",
+                       @"-o", @"ConnectTimeout=10",
+                       @"-o", @"StrictHostKeyChecking=accept-new",
+                       [NSString stringWithFormat:@"%@@%@",
+                        self.user.stringValue, self.host.stringValue], probe];
+    NSPipe *pipe = [NSPipe pipe];
+    task.standardOutput = pipe;
+    task.standardError = [NSPipe pipe];
+
+    __weak typeof(self) weakSelf = self;
+    task.terminationHandler = ^(NSTask *finished) {
+        NSData *data = [pipe.fileHandleForReading readDataToEndOfFile];
+        NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            if (strongSelf == nil) return;
+            if (finished.terminationStatus != 0 || text.length == 0) {
+                strongSelf.localHelperNote.stringValue = @"Could not inspect local models.";
+                strongSelf.localHelperNote.textColor = NSColor.systemRedColor;
+                return;
+            }
+            NSMutableDictionary<NSString *, NSString *> *values = [NSMutableDictionary dictionary];
+            for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+                NSRange split = [line rangeOfString:@" "];
+                if (split.location == NSNotFound) continue;
+                NSString *key = [line substringToIndex:split.location];
+                NSString *value = [line substringFromIndex:NSMaxRange(split)];
+                values[key] = value;
+            }
+            if (![values[@"runtime"] isEqualToString:@"yes"]) {
+                strongSelf.localHelperNote.stringValue =
+                    @"Run Connect and prepare this server before adding a local model.";
+                strongSelf.localHelperNote.textColor = NSColor.secondaryLabelColor;
+                return;
+            }
+            NSString *disk = values[@"disk"] ?: @"unknown storage";
+            NSString *memory = values[@"memory"] ?: @"unknown memory";
+            NSString *model = values[@"model"];
+            if ([values[@"llama"] isEqualToString:@"yes"] && model.length > 0) {
+                strongSelf.localHelperNote.stringValue = [NSString stringWithFormat:
+                    @"Ready: %@ • %@ MiB free storage • %@ MiB free memory%@.",
+                    model, disk, memory,
+                    [values[@"cache"] isEqualToString:@"yes"] ? @" • GGUF cache found" : @""];
+                strongSelf.localHelperNote.textColor = NSColor.systemGreenColor;
+            } else {
+                strongSelf.localHelperNote.stringValue = [NSString stringWithFormat:
+                    @"No local helper yet • %@ MiB free storage • %@ MiB free memory.",
+                    disk, memory];
+                strongSelf.localHelperNote.textColor = NSColor.secondaryLabelColor;
+            }
+        });
+    };
+    NSError *error = nil;
+    if (![task launchAndReturnError:&error]) {
+        self.localHelperNote.stringValue = @"Could not run the local-model check.";
+        self.localHelperNote.textColor = NSColor.systemRedColor;
     }
 }
 

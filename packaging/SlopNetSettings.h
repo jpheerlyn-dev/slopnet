@@ -28,6 +28,11 @@
 - (void)settingsCheckConnection:(SlopNetSettings *)settings;
 - (void)settingsClearConsole:(SlopNetSettings *)settings;
 - (void)settingsShowServerHelp:(SlopNetSettings *)settings;
+/// Set up the optional, server-only local helper with one public Hugging Face
+/// GGUF.  This is deliberately separate from coding subscriptions: it never
+/// receives an API key and only drafts wording a person can accept or reject.
+- (void)settings:(SlopNetSettings *)settings
+setupLocalHelperModel:(NSString *)model;
 @end
 
 @interface SlopNetSettings : NSWindowController

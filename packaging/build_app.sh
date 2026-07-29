@@ -41,9 +41,11 @@ clang -fobjc-arc -Wall -Wextra -mmacosx-version-min=13.0 -framework AppKit \
 cp "$icon_file" "$contents/Resources/AppIcon.icns"
 cp "$pkg/slopnet-vps-onboard.sh" "$contents/Resources/slopnet-vps-onboard.sh"
 cp "$pkg/slopnet-vps-project.sh" "$contents/Resources/slopnet-vps-project.sh"
+cp "$pkg/slopnet-vps-local-helper.sh" "$contents/Resources/slopnet-vps-local-helper.sh"
 cp "$pkg/tools.json" "$contents/Resources/tools.json"
 chmod 755 "$contents/Resources/slopnet-vps-onboard.sh"
 chmod 755 "$contents/Resources/slopnet-vps-project.sh"
+chmod 755 "$contents/Resources/slopnet-vps-local-helper.sh"
 
 built_at="$(date '+%Y-%m-%d %H:%M')"
 cat > "$contents/Info.plist" <<PLIST
@@ -54,8 +56,8 @@ cat > "$contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>SlopNet</string>
   <key>CFBundleDisplayName</key><string>SlopNet</string>
   <key>CFBundleIdentifier</key><string>com.slopnet.app</string>
-  <key>CFBundleVersion</key><string>0.5.0</string>
-  <key>CFBundleShortVersionString</key><string>0.5.0</string>
+  <key>CFBundleVersion</key><string>0.6.0</string>
+  <key>CFBundleShortVersionString</key><string>0.6.0</string>
   <key>SlopNetBuiltAt</key><string>${built_at}</string>
   <key>CFBundleExecutable</key><string>SlopNet</string>
   <key>CFBundlePackageType</key><string>APPL</string>

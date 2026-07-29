@@ -22,9 +22,9 @@ and SlopNet removed the proof workspace.
 | Whole-fleet real-world exam (J07) | Done; historical failure | Every available worker failed its real proof. Raw chronology: `archive/jobs/J07_FINDINGS.md`; a new full-fleet run needs an explicit operator brief after the first real project flow. |
 | Docker VPS containment gate | Done on tested VPS | Non-root, offline, read-only gate passed. Full output: `register/2026-07-29.md`. |
 | Guided VPS setup and one Codex proof | Done on tested VPS | Private non-root credential store confirmed; Ubuntu's Bubblewrap-only profile retained the global restriction and denies child capabilities; Codex wrote the disposable file in 16s and the proof was removed. |
-| Mac control app | v0.5 installed; live first-project proof pending | Dock app keeps setup inside its own console (no Terminal automation), has Settings-based connection/tool controls, one growing multi-line request box, and private local Markdown request history. The project helper is plan-only; a live proof still needs an operator-chosen project name. |
+| Mac control app | v0.6 ready to install; live first-project proof pending | Dock app keeps setup inside its own console (no Terminal automation), has Settings-based connection/tool controls, one growing multi-line request box, and private local Markdown request history. Settings can now inspect and, with two confirmations, install/test an optional server-only Llama.cpp GGUF helper under `slopnet`; its draft is offline and must be approved before the plan-only project helper uses it. A live first project and first local-model install remain separate proofs. |
 | J08 hosted brains / more providers / Hermes / OpenClaw / Buzz | Deferred | Do not start before the preceding proof succeeds. |
-| GitHub branch protection | Incomplete | Configure `law`, `manifest`, `register-audit`, and `container` as required checks after GitHub authentication is restored. |
+| GitHub branch protection | Failed direct-push enforcement test | GitHub accepted direct pushes to `main` while reporting all four required checks as “expected.” Record the exact bypass in `register/PENDING_OPERATOR.md`; restore a non-bypassable pull-request/status-check path before release. |
 
 ## The product rule
 
