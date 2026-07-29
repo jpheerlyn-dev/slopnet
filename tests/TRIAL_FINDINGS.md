@@ -9,13 +9,14 @@ something the script actually observed.
 - **AWAKE** `claude`
 - **AWAKE** `grok`
 - **AWAKE** `kimi`
-- asleep `gemini` — Approval mode overridden to "default" because the current folder is not trusted. Please set an Auth method in your /Users/**REDACTED**/.gemini/settings.json or specify
+- asleep `gemini` — it reported that the current folder was not trusted and
+  requested its normal authentication configuration.
 
 4 awake: codex claude grok kimi
 
 ## Step 2 — real project, armed the real way
 
-- folder: `/var/folders/tt/1rmv5zdj0pvb3nc47g3z7kyr0000gn/T/tmp.tPANIunz7p/hello-trial` (temporary)
+- folder: a new temporary folder (removed after the trial)
 - agent: `codex`
 
 ## Step 3 — the build
@@ -61,4 +62,4 @@ Merged: 1   Failed: 0
 
 - total time: 75s
 - human input needed after starting: none
-- project folder: `/var/folders/tt/1rmv5zdj0pvb3nc47g3z7kyr0000gn/T/tmp.tPANIunz7p/hello-trial` (removed)
+- project folder: temporary (removed)

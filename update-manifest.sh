@@ -24,12 +24,18 @@ paths=$(
       .dockerignore \
       slopnet \
       crew.py \
+      packaging/SlopNetConsole.h \
+      packaging/SlopNetConsole.m \
       packaging/SlopNetLauncher.m \
+      packaging/SlopNetSettings.h \
+      packaging/SlopNetSettings.m \
       packaging/build_app.sh \
       packaging/make_icon.py \
       packaging/slopnet-vps-onboard.sh \
       packaging/slopnet-vps-project.sh \
+      packaging/tools.json \
       tests/redteam.sh \
+      tests/settings_resize_probe.m \
       update-manifest.sh \
       .github/workflows/slopnet.yml \
       .github/workflows/watchman.yml \

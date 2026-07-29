@@ -5,7 +5,7 @@
 @property(nonatomic, strong) NSTextField *port;
 @property(nonatomic, strong) NSTextField *user;
 @property(nonatomic, strong) NSTextField *connectionNote;
-@property(nonatomic, strong) NSStackView *toolStack;
+@property(nonatomic, strong) NSGridView *toolGrid;
 @property(nonatomic, strong) NSArray<NSDictionary *> *tools;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSTextField *> *toolStatus;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSButton *> *toolButton;
@@ -19,12 +19,13 @@
                         user:(NSString *)user
                    connected:(BOOL)connected {
     NSWindow *window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, 620, 560)
+        initWithContentRect:NSMakeRect(0, 0, 660, 580)
                   styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                              NSWindowStyleMaskResizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     window.title = @"Settings";
+    window.minSize = NSMakeSize(520, 360);
     self = [super initWithWindow:window];
     if (!self) return nil;
     _connected = connected;
@@ -52,17 +53,26 @@
     NSTextField *label = [NSTextField labelWithString:text];
     label.font = bold ? [NSFont boldSystemFontOfSize:size] : [NSFont systemFontOfSize:size];
     label.lineBreakMode = NSLineBreakByWordWrapping;
-    label.maximumNumberOfLines = 4;
+    label.translatesAutoresizingMaskIntoConstraints = NO;
     if (grey) label.textColor = [NSColor secondaryLabelColor];
     return label;
 }
 
-- (NSTextField *)field:(NSString *)value placeholder:(NSString *)placeholder width:(CGFloat)width {
+/// Wrapping help text must be told how wide it may be, or it stretches into
+/// one long line and drags the window wider. This is why the page used to
+/// fall apart when resized.
+- (NSTextField *)helpText:(NSString *)text {
+    NSTextField *label = [self label:text size:11 grey:YES bold:NO];
+    label.maximumNumberOfLines = 0;
+    label.preferredMaxLayoutWidth = 540;
+    return label;
+}
+
+- (NSTextField *)field:(NSString *)value placeholder:(NSString *)placeholder {
     NSTextField *field = [[NSTextField alloc] initWithFrame:NSZeroRect];
     field.stringValue = value ?: @"";
     field.placeholderString = placeholder;
     field.translatesAutoresizingMaskIntoConstraints = NO;
-    [field.widthAnchor constraintEqualToConstant:width].active = YES;
     [field.heightAnchor constraintEqualToConstant:24].active = YES;
     return field;
 }
@@ -73,108 +83,159 @@
     button.bezelStyle = NSBezelStyleRounded;
     button.target = self;
     button.action = action;
+    button.translatesAutoresizingMaskIntoConstraints = NO;
     return button;
 }
 
-- (NSStackView *)row:(NSArray<NSView *> *)views spacing:(CGFloat)spacing {
-    NSStackView *row = [NSStackView stackViewWithViews:views];
-    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    row.alignment = NSLayoutAttributeCenterY;
-    row.spacing = spacing;
-    return row;
+/// A real hairline. Plain [NSBox new] draws an empty bordered frame, which
+/// is what made the page look broken.
+- (NSBox *)separator {
+    NSBox *line = [[NSBox alloc] initWithFrame:NSZeroRect];
+    line.boxType = NSBoxSeparator;
+    line.translatesAutoresizingMaskIntoConstraints = NO;
+    [line.heightAnchor constraintEqualToConstant:1].active = YES;
+    return line;
 }
 
 #pragma mark - layout
 
 - (void)buildWithHost:(NSString *)host port:(NSString *)port user:(NSString *)user {
-    self.host = [self field:host placeholder:@"address or name of your server" width:260];
-    self.port = [self field:port.length ? port : @"22" placeholder:@"22" width:70];
-    self.user = [self field:user.length ? user : @"root" placeholder:@"root" width:150];
+    self.host = [self field:host placeholder:@"address or name of your server"];
+    self.user = [self field:user.length ? user : @"root" placeholder:@"root"];
+    self.port = [self field:port.length ? port : @"22" placeholder:@"22"];
+    [self.host.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
+    [self.user.widthAnchor constraintEqualToConstant:170].active = YES;
+    [self.port.widthAnchor constraintEqualToConstant:70].active = YES;
 
     self.connectionNote = [self label:@"" size:11 grey:YES bold:NO];
     [self updateConnectionNote];
 
-    NSStackView *connectionRows = [NSStackView stackViewWithViews:@[
-        [self row:@[[self label:@"Address" size:12 grey:NO bold:NO], self.host] spacing:8],
-        [self row:@[[self label:@"Login name" size:12 grey:NO bold:NO], self.user,
-                    [self label:@"Port" size:12 grey:NO bold:NO], self.port] spacing:8],
-        [self row:@[[self button:@"Connect and prepare this server"
-                          action:@selector(connectPressed:)],
-                    [self button:@"Forget" action:@selector(forgetPressed:)]] spacing:8],
-        self.connectionNote,
+    // A grid keeps labels and fields aligned at any window size — hand-built
+    // rows of fixed widths never manage that.
+    NSGridView *connection = [NSGridView gridViewWithViews:@[
+        @[[self label:@"Address" size:12 grey:NO bold:NO], self.host],
+        @[[self label:@"Login name" size:12 grey:NO bold:NO], self.user],
+        @[[self label:@"Port" size:12 grey:NO bold:NO], self.port],
     ]];
-    connectionRows.orientation = NSUserInterfaceLayoutOrientationVertical;
-    connectionRows.alignment = NSLayoutAttributeLeading;
-    connectionRows.spacing = 8;
+    connection.translatesAutoresizingMaskIntoConstraints = NO;
+    connection.rowSpacing = 8;
+    connection.columnSpacing = 10;
+    [connection columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    [connection columnAtIndex:1].xPlacement = NSGridCellPlacementLeading;
 
-    self.toolStack = [NSStackView stackViewWithViews:@[]];
-    self.toolStack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    self.toolStack.alignment = NSLayoutAttributeLeading;
-    self.toolStack.spacing = 6;
+    NSButton *connect = [self button:@"Connect and prepare this server"
+                             action:@selector(connectPressed:)];
+    NSButton *forget = [self button:@"Forget this server" action:@selector(forgetPressed:)];
+    NSStackView *connectionButtons = [NSStackView stackViewWithViews:@[connect, forget]];
+    connectionButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    connectionButtons.spacing = 10;
+    connectionButtons.translatesAutoresizingMaskIntoConstraints = NO;
+
+    // These are useful, but not part of the project conversation. Keeping
+    // them here leaves the left-hand rail for navigation rather than a row
+    // of maintenance controls.
+    NSButton *checkConnection = [self button:@"Check connection"
+                                      action:@selector(checkConnectionPressed:)];
+    checkConnection.enabled = self.connected;
+    NSButton *clearConsole = [self button:@"Clear screen"
+                                   action:@selector(clearConsolePressed:)];
+    NSButton *gettingServer = [self button:@"Getting a server"
+                                    action:@selector(serverHelpPressed:)];
+    NSStackView *utilityButtons =
+        [NSStackView stackViewWithViews:@[checkConnection, clearConsole, gettingServer]];
+    utilityButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    utilityButtons.spacing = 10;
+    utilityButtons.translatesAutoresizingMaskIntoConstraints = NO;
+
+    self.toolGrid = [NSGridView gridViewWithNumberOfColumns:4 rows:0];
+    self.toolGrid.translatesAutoresizingMaskIntoConstraints = NO;
+    self.toolGrid.rowSpacing = 8;
+    self.toolGrid.columnSpacing = 14;
     [self buildToolRows];
 
-    NSButton *recheck = [self button:@"Check what is installed" action:@selector(refreshPressed:)];
-    NSButton *close = [self button:@"Done" action:@selector(closePressed:)];
-    close.keyEquivalent = @"\r";
+    NSButton *recheck = [self button:@"Check what is installed"
+                             action:@selector(refreshPressed:)];
+    NSButton *done = [self button:@"Done" action:@selector(closePressed:)];
+    done.keyEquivalent = @"\r";
+    [done.widthAnchor constraintGreaterThanOrEqualToConstant:90].active = YES;
 
     NSStackView *page = [NSStackView stackViewWithViews:@[
         [self label:@"Your server" size:15 grey:NO bold:YES],
-        [self label:@"Any computer you can reach over SSH: a rented server, a "
-                    @"dedicated machine, a home server or a Raspberry Pi. Your "
-                    @"password is never stored — it goes straight from the "
-                    @"console to your server." size:11 grey:YES bold:NO],
-        connectionRows,
-        [NSBox new],
+        [self helpText:@"Any computer you can reach over SSH: a rented server, a "
+                       @"dedicated machine, a home server, or a Raspberry Pi. Your "
+                       @"password is never stored — it goes straight from the console "
+                       @"to your server."],
+        connection,
+        connectionButtons,
+        self.connectionNote,
+        utilityButtons,
+        [self separator],
         [self label:@"Coding tools on your server" size:15 grey:NO bold:YES],
-        [self label:@"SlopNet asks your server which of these it already has. "
-                    @"Installing runs in the main window so you can watch it." size:11 grey:YES bold:NO],
+        [self helpText:@"SlopNet asks your server which of these it already has. "
+                       @"Installing runs in the main window, so you can watch exactly "
+                       @"what happens."],
         recheck,
-        self.toolStack,
-        close,
+        self.toolGrid,
+        [self separator],
+        done,
     ]];
     page.orientation = NSUserInterfaceLayoutOrientationVertical;
     page.alignment = NSLayoutAttributeLeading;
     page.spacing = 12;
-    page.edgeInsets = NSEdgeInsetsMake(20, 24, 20, 24);
+    page.edgeInsets = NSEdgeInsetsMake(22, 24, 22, 24);
     page.translatesAutoresizingMaskIntoConstraints = NO;
 
+    // The scroll view is what stops a resize from breaking anything: make the
+    // window small and the content stays reachable instead of being clipped.
+    NSScrollView *scroller = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    scroller.hasVerticalScroller = YES;
+    scroller.hasHorizontalScroller = NO;
+    scroller.autohidesScrollers = YES;
+    scroller.drawsBackground = NO;
+    scroller.borderType = NSNoBorder;
+    scroller.translatesAutoresizingMaskIntoConstraints = NO;
+    scroller.documentView = page;
+
     NSView *content = self.window.contentView;
-    [content addSubview:page];
-    // Constrain the page to the window. Skipping this is exactly the bug
-    // that made the previous settings form unclickable: an auto-layout view
-    // with no constraints collapses to nothing.
+    [content addSubview:scroller];
     [NSLayoutConstraint activateConstraints:@[
-        [page.topAnchor constraintEqualToAnchor:content.topAnchor],
-        [page.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
-        [page.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
-        [page.bottomAnchor constraintGreaterThanOrEqualToAnchor:content.bottomAnchor
-                                                       constant:-20],
+        [scroller.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [scroller.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [scroller.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [scroller.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+        // Page width follows the visible area, so nothing scrolls sideways;
+        // its height is free to grow as tall as the content needs.
+        [page.widthAnchor constraintEqualToAnchor:scroller.contentView.widthAnchor],
+        [page.topAnchor constraintEqualToAnchor:scroller.contentView.topAnchor],
+        [page.leadingAnchor constraintEqualToAnchor:scroller.contentView.leadingAnchor],
     ]];
 }
 
 - (void)buildToolRows {
-    for (NSView *view in [self.toolStack.arrangedSubviews copy]) {
-        [self.toolStack removeArrangedSubview:view];
-        [view removeFromSuperview];
+    while (self.toolGrid.numberOfRows > 0) {
+        [self.toolGrid removeRowAtIndex:0];
     }
     [self.toolStatus removeAllObjects];
     [self.toolButton removeAllObjects];
 
     if (self.tools.count == 0) {
-        [self.toolStack addArrangedSubview:
-            [self label:@"No tools list found in this app." size:12 grey:YES bold:NO]];
+        [self.toolGrid addRowWithViews:@[
+            [self label:@"No tools list found in this app." size:12 grey:YES bold:NO]]];
         return;
     }
+
+    NSGridRow *header = [self.toolGrid addRowWithViews:@[
+        [self label:@"TOOL" size:10 grey:YES bold:NO],
+        [self label:@"ON YOUR SERVER" size:10 grey:YES bold:NO],
+        [self label:@"" size:10 grey:YES bold:NO],
+        [self label:@"SUBSCRIPTION" size:10 grey:YES bold:NO]]];
+    header.bottomPadding = 3;
 
     for (NSDictionary *tool in self.tools) {
         NSString *toolID = tool[@"id"] ?: @"";
         NSTextField *name = [self label:tool[@"name"] ?: toolID size:12 grey:NO bold:NO];
-        name.translatesAutoresizingMaskIntoConstraints = NO;
-        [name.widthAnchor constraintEqualToConstant:150].active = YES;
 
         NSTextField *status = [self label:@"unknown" size:11 grey:YES bold:NO];
-        status.translatesAutoresizingMaskIntoConstraints = NO;
-        [status.widthAnchor constraintEqualToConstant:170].active = YES;
         self.toolStatus[toolID] = status;
 
         NSString *install = tool[@"install"] ?: @"";
@@ -182,22 +243,27 @@
                                  action:@selector(installPressed:)];
         action.identifier = toolID;
         action.enabled = install.length > 0 && self.connected;
+        if (install.length == 0) {
+            action.toolTip = @"Nobody has verified this tool's install command yet, so "
+                             @"SlopNet will not guess one. Add it to tools.json.";
+        }
         self.toolButton[toolID] = action;
 
         NSTextField *subscription = [self label:tool[@"subscription"] ?: @""
                                            size:10 grey:YES bold:NO];
-        subscription.translatesAutoresizingMaskIntoConstraints = NO;
-        [subscription.widthAnchor constraintEqualToConstant:210].active = YES;
-
-        [self.toolStack addArrangedSubview:
-            [self row:@[name, status, action, subscription] spacing:10]];
+        [self.toolGrid addRowWithViews:@[name, status, action, subscription]];
     }
 }
 
 - (void)updateConnectionNote {
-    self.connectionNote.stringValue = self.connected
-        ? @"This server is set up and ready."
-        : @"Not set up yet. Fill in the details and press Connect.";
+    if (self.connected) {
+        self.connectionNote.stringValue = @"●  This server is set up and ready.";
+        self.connectionNote.textColor = [NSColor systemGreenColor];
+    } else {
+        self.connectionNote.stringValue =
+            @"Not set up yet. Fill in the details above, then press Connect.";
+        self.connectionNote.textColor = [NSColor secondaryLabelColor];
+    }
 }
 
 - (void)presentFrom:(NSWindow *)parent {
@@ -214,6 +280,7 @@
 - (void)connectPressed:(id)sender {
     if (self.host.stringValue.length == 0) {
         self.connectionNote.stringValue = @"Type your server's address first.";
+        self.connectionNote.textColor = [NSColor systemRedColor];
         return;
     }
     [self.delegate settings:self
@@ -226,8 +293,24 @@
 - (void)forgetPressed:(id)sender {
     [self.delegate settingsDidForget:self];
     self.connected = NO;
+    self.host.stringValue = @"";
     [self updateConnectionNote];
     [self buildToolRows];
+}
+
+- (void)checkConnectionPressed:(id)sender {
+    [self.delegate settingsCheckConnection:self];
+    [self closePressed:nil];
+}
+
+- (void)clearConsolePressed:(id)sender {
+    [self.delegate settingsClearConsole:self];
+    [self closePressed:nil];
+}
+
+- (void)serverHelpPressed:(id)sender {
+    [self.delegate settingsShowServerHelp:self];
+    [self closePressed:nil];
 }
 
 - (void)installPressed:(NSButton *)sender {
@@ -284,7 +367,8 @@
     __weak typeof(self) weakSelf = self;
     task.terminationHandler = ^(NSTask *finished) {
         NSData *data = [pipe.fileHandleForReading readDataToEndOfFile];
-        NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+        NSString *text = [[NSString alloc] initWithData:data
+                                              encoding:NSUTF8StringEncoding] ?: @"";
         dispatch_async(dispatch_get_main_queue(), ^{
             typeof(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;
@@ -301,12 +385,10 @@
                 NSButton *action = strongSelf.toolButton[parts[0]];
                 if (status == nil) continue;
                 BOOL present = [parts[1] isEqualToString:@"yes"];
-                status.stringValue = present ? @"installed" : @"not installed";
+                status.stringValue = present ? @"●  installed" : @"not installed";
                 status.textColor = present ? [NSColor systemGreenColor]
                                            : [NSColor secondaryLabelColor];
-                if (action && present) {
-                    action.title = @"Reinstall";
-                }
+                if (action && present && action.enabled) action.title = @"Reinstall";
             }
         });
     };

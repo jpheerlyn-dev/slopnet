@@ -10,12 +10,12 @@
 #   bash tests/trial.sh --keep       # leave the project folder for a look
 #
 # It never touches this repository, your VPS, or anything you own. The
-# findings land in tests/TRIAL_FINDINGS.md — paste that anywhere.
+# findings land in a private temporary file — paste a redacted copy anywhere.
 
 set -uo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-findings="$repo/tests/TRIAL_FINDINGS.md"
+findings="${TMPDIR:-/tmp}/slopnet-trial-findings-$(date '+%Y%m%d-%H%M%S').md"
 keep=0
 who_only=0
 for arg in "$@"; do
@@ -28,7 +28,15 @@ done
 
 start_time=$(date +%s)
 say() { printf '%s\n' "$*"; }
-note() { printf '%s\n' "$*" >> "$findings"; }
+# Coding CLIs sometimes include their configuration path in an error. This
+# report is intended for sharing, so remove local home and temporary paths
+# before anything reaches it. The live console remains unaltered.
+note() {
+  printf '%s\n' "$*" | sed -E \
+    -e 's#/(Users|home)/[^/[:space:]]+#<local-home>#g' \
+    -e 's#/var/folders/[^[:space:]]+#<temporary-path>#g' \
+    -e 's#/(private/)?tmp/[^[:space:]]+#<temporary-path>#g' >> "$findings"
+}
 
 {
   printf '# Trial findings — %s\n\n' "$(date '+%Y-%m-%d %H:%M')"
@@ -121,7 +129,7 @@ say "  agent:  $worker"
 note ""
 note "## Step 2 — real project, armed the real way"
 note ""
-note "- folder: \`$project\` (temporary)"
+note "- folder: a new temporary folder (removed after the trial)"
 note "- agent: \`$worker\`"
 
 cp "$repo/slopnet" "$repo/crew.py" "$project/" 2>/dev/null

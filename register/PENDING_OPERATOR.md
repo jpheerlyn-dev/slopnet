@@ -1,5 +1,7 @@
 ## Open
 
+- [2026-07-29, Codex] Local helper onboarding is not implemented yet: official IBM Granite 4.1 8B GGUF Q4_K_M is a 5.35 GB Apache-2.0 download and official llama.cpp can serve it locally. Before adding an automatic installer, decide whether the app must show an explicit capacity and download-confirmation screen, then prove install/detection under the protected slopnet runtime account rather than a server login account.
+
 - [2026-07-29, Codex] Core MVP gap: the first guided VPS setup and private Codex edit proof now pass on a tested VPS. SlopNet is still not beginner-ready: the Mac app hands the detail to Terminal, the proof covers one provider only, no first user project flow has passed, and the credentialed agent runtime has not earned a scoped-egress design. Do not substitute more providers or integrations for those product steps.
 
 - [2026-07-29, Codex] Privacy remediation needs an operator decision: the current product files are being made generic and no tracked key, password, token, IP address, or crew configuration was found. Older tracked register and archive material still contains legacy test-machine labels and local-account paths, and GitHub history retains every previous commit. Removing that material from GitHub requires a history rewrite and force-push, which can disrupt existing clones. Do not perform that destructive operation without the operator's explicit approval.

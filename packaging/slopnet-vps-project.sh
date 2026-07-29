@@ -71,7 +71,9 @@ cp /opt/slopnet/.slopnet/crew.json "$project_root/.slopnet/crew.json"
 chmod 600 "$project_root/.slopnet/crew.json"
 cd "$project_root"
 git init -q
-exec /opt/slopnet/slopnet go "$idea"'
+# This is deliberately plan-only. The person must see WAVES.md and make the
+# next explicit choice before a coding agent can touch a project file.
+exec /opt/slopnet/slopnet plan "$idea"'
 encoded_project=$(printf '%s' "$remote_project" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then

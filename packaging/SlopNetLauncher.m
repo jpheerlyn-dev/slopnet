@@ -15,6 +15,7 @@
 // dedicated machine, a home server, a Raspberry Pi.
 
 #import <Cocoa/Cocoa.h>
+#import <float.h>
 #import "SlopNetConsole.h"
 #import "SlopNetSettings.h"
 
@@ -22,9 +23,36 @@ static NSString *const kHostKey     = @"SlopNetVPSHost";
 static NSString *const kUserKey     = @"SlopNetVPSUser";
 static NSString *const kPortKey     = @"SlopNetVPSPort";
 static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cleanly
-static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have built
 
-@interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate, SlopNetSettingsDelegate>
+// NSTextView has no native placeholder on the oldest macOS version SlopNet
+// supports. Keep the tiny drawing behaviour here instead of putting a fake
+// label over the editor (which would steal clicks and accessibility focus).
+@interface SlopNetEntryView : NSTextView
+@property(nonatomic, copy) NSString *prompt;
+@end
+
+@implementation SlopNetEntryView
+- (void)setPrompt:(NSString *)prompt {
+    _prompt = [prompt copy];
+    [self setNeedsDisplay:YES];
+}
+- (void)drawRect:(NSRect)dirtyRect {
+    [super drawRect:dirtyRect];
+    if (self.string.length == 0 && self.prompt.length > 0) {
+        NSDictionary *attributes = @{
+            NSFontAttributeName: self.font ?: [NSFont systemFontOfSize:12],
+            NSForegroundColorAttributeName: [NSColor placeholderTextColor],
+        };
+        [self.prompt drawAtPoint:NSMakePoint(self.textContainerInset.width,
+                                             self.textContainerInset.height + 1)
+                   withAttributes:attributes];
+    }
+}
+- (void)didChangeText { [super didChangeText]; [self setNeedsDisplay:YES]; }
+@end
+
+@interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate,
+                                          SlopNetSettingsDelegate, NSTextViewDelegate>
 @property(nonatomic, strong) NSWindow *window;
 
 // sidebar
@@ -42,8 +70,11 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 // main
 @property(nonatomic, strong) SlopNetConsole *console;
 @property(nonatomic, strong) NSTextField *projectName;
-@property(nonatomic, strong) NSTextField *entry;
+@property(nonatomic, strong) SlopNetEntryView *entry;
+@property(nonatomic, strong) NSScrollView *entryScroller;
+@property(nonatomic, strong) NSLayoutConstraint *entryHeight;
 @property(nonatomic, strong) NSButton *sendButton;
+@property(nonatomic, strong) NSURL *conversationURL;
 
 @property(nonatomic, assign) BOOL busy;
 @property(nonatomic, assign) BOOL setupRunning;
@@ -62,15 +93,20 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     return label;
 }
 
+// Sidebar rows look and behave like navigation: the whole row is the click
+// target, not just the words.
 - (NSButton *)sidebarButton:(NSString *)title action:(SEL)action {
     NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
     button.title = title;
     button.target = self;
     button.action = action;
-    button.bezelStyle = NSBezelStyleInline;
+    button.bezelStyle = NSBezelStyleRecessed;
+    button.bordered = NO;
     button.alignment = NSTextAlignmentLeft;
+    button.font = [NSFont systemFontOfSize:12.5];
+    button.contentTintColor = [NSColor labelColor];
     button.translatesAutoresizingMaskIntoConstraints = NO;
-    [button.heightAnchor constraintEqualToConstant:26].active = YES;
+    [button.heightAnchor constraintEqualToConstant:28].active = YES;
     return button;
 }
 
@@ -99,7 +135,7 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     NSBox *line = [[NSBox alloc] initWithFrame:NSZeroRect];
     line.boxType = NSBoxSeparator;
     line.translatesAutoresizingMaskIntoConstraints = NO;
-    [line.widthAnchor constraintEqualToConstant:200].active = YES;
+    [line.heightAnchor constraintEqualToConstant:1].active = YES;
     return line;
 }
 
@@ -154,14 +190,10 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     status.alignment = NSLayoutAttributeCenterY;
     status.spacing = 6;
 
-    NSButton *checkButton = [self sidebarButton:@"⇄   Check connection"
-                                         action:@selector(checkConnection:)];
-    NSButton *clearButton = [self sidebarButton:@"⌫   Clear screen"
-                                         action:@selector(clearConsole:)];
-    NSButton *helpButton = [self sidebarButton:@"?   Getting a server"
-                                        action:@selector(openServerHelp:)];
+    NSButton *newButton = [self sidebarButton:@"＋   New"
+                                       action:@selector(newConversation:)];
 
-    NSTextField *historyTitle = [self label:@"PROJECTS" size:10 grey:YES];
+    NSTextField *historyTitle = [self label:@"RECENT REQUESTS" size:10 grey:YES];
     self.historyStack = [NSStackView stackViewWithViews:@[]];
     self.historyStack.orientation = NSUserInterfaceLayoutOrientationVertical;
     self.historyStack.alignment = NSLayoutAttributeLeading;
@@ -179,8 +211,7 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     NSStackView *sidebar = [NSStackView stackViewWithViews:@[
         title, status,
         [self separator],
-        checkButton, clearButton, helpButton,
-        [self separator],
+        newButton,
         historyTitle, self.historyStack,
         spacer,
         [self separator],
@@ -188,10 +219,19 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
         [self label:[NSString stringWithFormat:@"v%@", version] size:10 grey:YES]]];
     sidebar.orientation = NSUserInterfaceLayoutOrientationVertical;
     sidebar.alignment = NSLayoutAttributeLeading;
-    sidebar.spacing = 8;
-    sidebar.edgeInsets = NSEdgeInsetsMake(18, 14, 14, 14);
+    sidebar.spacing = 6;
+    sidebar.edgeInsets = NSEdgeInsetsMake(18, 12, 14, 12);
     [sidebar setHuggingPriority:NSLayoutPriorityDefaultLow
                  forOrientation:NSLayoutConstraintOrientationVertical];
+    // Every row fills the sidebar's width. Without this, rows keep their
+    // natural size and the panel looks ragged — and separators appear as
+    // stubs — however the divider is dragged.
+    for (NSView *rowView in sidebar.arrangedSubviews) {
+        [rowView.widthAnchor constraintEqualToAnchor:sidebar.widthAnchor
+                                           constant:-24].active = YES;
+    }
+    [self.historyStack.widthAnchor constraintEqualToAnchor:sidebar.widthAnchor
+                                                 constant:-24].active = YES;
     return sidebar;
 }
 
@@ -202,39 +242,63 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 
     // The chat bar. What it does depends on what is happening: answer the
     // running program's question, or describe the thing you want built.
+    // It starts comfortably large, grows with a long request, then scrolls
+    // rather than stealing the entire console.
     self.projectName = [self field:@"project name" value:nil];
     [self.projectName.widthAnchor constraintEqualToConstant:150].active = YES;
-    self.entry = [self field:@"Describe what you want built, then press Return" value:nil];
+    self.entry = [[SlopNetEntryView alloc] initWithFrame:NSZeroRect];
+    self.entry.delegate = self;
+    self.entry.richText = NO;
+    self.entry.allowsUndo = YES;
     self.entry.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
-    self.entry.target = self;
-    self.entry.action = @selector(sendPressed:);
-    [self.entry setContentHuggingPriority:NSLayoutPriorityDefaultLow
+    self.entry.textContainerInset = NSMakeSize(8, 8);
+    self.entry.prompt = @"Describe what you want built… Return sends · Shift-Return adds a line";
+    self.entry.automaticQuoteSubstitutionEnabled = NO;
+    self.entry.automaticDashSubstitutionEnabled = NO;
+    self.entry.automaticTextReplacementEnabled = NO;
+    self.entry.minSize = NSMakeSize(0, 0);
+    self.entry.maxSize = NSMakeSize(FLT_MAX, FLT_MAX);
+    self.entry.verticallyResizable = YES;
+    self.entry.horizontallyResizable = NO;
+    self.entry.textContainer.widthTracksTextView = YES;
+
+    self.entryScroller = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    self.entryScroller.hasVerticalScroller = NO;
+    self.entryScroller.autohidesScrollers = YES;
+    self.entryScroller.borderType = NSBezelBorder;
+    self.entryScroller.documentView = self.entry;
+    self.entryScroller.translatesAutoresizingMaskIntoConstraints = NO;
+    self.entryHeight = [self.entryScroller.heightAnchor constraintEqualToConstant:56];
+    self.entryHeight.active = YES;
+    [self.entryScroller setContentHuggingPriority:NSLayoutPriorityDefaultLow
                            forOrientation:NSLayoutConstraintOrientationHorizontal];
     self.sendButton = [[NSButton alloc] initWithFrame:NSZeroRect];
     self.sendButton.title = @"Build it";
     self.sendButton.bezelStyle = NSBezelStyleRounded;
-    self.sendButton.keyEquivalent = @"\r";
     self.sendButton.target = self;
     self.sendButton.action = @selector(sendPressed:);
 
     NSStackView *chatBar = [NSStackView stackViewWithViews:@[
-        self.projectName, self.entry, self.sendButton]];
+        self.projectName, self.entryScroller, self.sendButton]];
     chatBar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    chatBar.alignment = NSLayoutAttributeCenterY;
+    chatBar.alignment = NSLayoutAttributeTop;
     chatBar.spacing = 8;
     chatBar.translatesAutoresizingMaskIntoConstraints = NO;
 
-    NSStackView *main = [NSStackView stackViewWithViews:@[self.console, chatBar]];
-    main.orientation = NSUserInterfaceLayoutOrientationVertical;
-    main.alignment = NSLayoutAttributeLeading;
-    main.spacing = 10;
-    main.edgeInsets = NSEdgeInsetsMake(16, 16, 16, 16);
-    [main setHuggingPriority:NSLayoutPriorityDefaultLow
-              forOrientation:NSLayoutConstraintOrientationVertical];
+    // Plain constraints rather than a stack here: two children, and the
+    // console must take every spare pixel at any window size.
+    NSView *main = [[NSView alloc] initWithFrame:NSZeroRect];
+    [main addSubview:self.console];
+    [main addSubview:chatBar];
     [NSLayoutConstraint activateConstraints:@[
-        [self.console.widthAnchor constraintEqualToAnchor:main.widthAnchor constant:-32],
-        [chatBar.widthAnchor constraintEqualToAnchor:main.widthAnchor constant:-32],
-        [self.console.heightAnchor constraintGreaterThanOrEqualToConstant:280],
+        [self.console.topAnchor constraintEqualToAnchor:main.topAnchor constant:16],
+        [self.console.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
+        [self.console.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-16],
+
+        [chatBar.topAnchor constraintEqualToAnchor:self.console.bottomAnchor constant:10],
+        [chatBar.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
+        [chatBar.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-16],
+        [chatBar.bottomAnchor constraintEqualToAnchor:main.bottomAnchor constant:-16],
     ]];
     return main;
 }
@@ -257,16 +321,17 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     }
     self.projectName.hidden = !ready;
     if (self.busy) {
-        self.entry.placeholderString =
-            @"Type your answer here and press Return (for example: y)";
+        self.entry.prompt = @"Type your answer here, then press Return (for example: y)";
         self.sendButton.title = @"Answer";
     } else if (ready) {
-        self.entry.placeholderString = @"Describe what you want built, then press Return";
+        self.entry.prompt =
+            @"Describe what you want built… Return sends · Shift-Return adds a line";
         self.sendButton.title = @"Build it";
     } else {
-        self.entry.placeholderString = @"Open Settings to connect a server first";
+        self.entry.prompt = @"Open Settings to connect a server first";
         self.sendButton.title = @"Build it";
     }
+    [self resizeEntry];
     [self rebuildHistory];
 }
 
@@ -280,25 +345,120 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
         [self.historyStack removeArrangedSubview:view];
         [view removeFromSuperview];
     }
-    NSArray<NSString *> *projects =
-        [[NSUserDefaults standardUserDefaults] arrayForKey:kProjectsKey];
-    if (projects.count == 0) {
+    NSArray<NSURL *> *conversations = [self conversationURLs];
+    if (conversations.count == 0) {
         [self.historyStack addArrangedSubview:[self label:@"nothing yet" size:11 grey:YES]];
         return;
     }
-    for (NSString *name in [projects reverseObjectEnumerator]) {
-        [self.historyStack addArrangedSubview:
-            [self sidebarButton:[@"•  " stringByAppendingString:name]
-                         action:@selector(reuseProject:)]];
+    NSUInteger visible = MIN(conversations.count, 12);
+    for (NSUInteger index = 0; index < visible; index++) {
+        NSURL *url = conversations[index];
+        NSButton *button = [self sidebarButton:[@"•  " stringByAppendingString:
+                                           [self conversationTitle:url]]
+                                          action:@selector(openConversation:)];
+        button.identifier = url.path;
+        [self.historyStack addArrangedSubview:button];
     }
 }
 
-- (void)reuseProject:(NSButton *)sender {
-    NSString *name = [sender.title stringByReplacingOccurrencesOfString:@"•  " withString:@""];
-    self.projectName.stringValue = name;
+- (NSURL *)historyDirectory {
+    NSURL *support = [[NSFileManager defaultManager]
+        URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+    return [support URLByAppendingPathComponent:@"SlopNet/history" isDirectory:YES];
+}
+
+- (NSArray<NSURL *> *)conversationURLs {
+    NSURL *directory = [self historyDirectory];
+    NSArray<NSURL *> *items = [[NSFileManager defaultManager]
+        contentsOfDirectoryAtURL:directory
+        includingPropertiesForKeys:@[NSURLContentModificationDateKey, NSURLIsRegularFileKey]
+                           options:NSDirectoryEnumerationSkipsHiddenFiles error:nil] ?: @[];
+    NSPredicate *markdown = [NSPredicate predicateWithBlock:^BOOL(NSURL *url, NSDictionary *_) {
+        NSNumber *regular = nil;
+        [url getResourceValue:&regular forKey:NSURLIsRegularFileKey error:nil];
+        return regular.boolValue && [url.pathExtension.lowercaseString isEqualToString:@"md"];
+    }];
+    return [[items filteredArrayUsingPredicate:markdown]
+        sortedArrayUsingComparator:^NSComparisonResult(NSURL *left, NSURL *right) {
+            NSDate *leftDate = nil;
+            NSDate *rightDate = nil;
+            [left getResourceValue:&leftDate forKey:NSURLContentModificationDateKey error:nil];
+            [right getResourceValue:&rightDate forKey:NSURLContentModificationDateKey error:nil];
+            NSDate *safeLeft = leftDate ?: [NSDate distantPast];
+            NSDate *safeRight = rightDate ?: [NSDate distantPast];
+            return [safeRight compare:safeLeft];
+        }];
+}
+
+- (NSString *)conversationTitle:(NSURL *)url {
+    NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
+    NSString *first = lines.firstObject ?: @"";
+    if ([first hasPrefix:@"# "] && first.length > 2) return [first substringFromIndex:2];
+    return @"untitled request";
+}
+
+- (void)newConversation:(id)sender {
+    self.conversationURL = nil;
+    self.projectName.stringValue = @"";
+    self.entry.string = @"";
     [self.console note:[NSString stringWithFormat:
-        @"\nUsing project “%@”. Say what you want done to it and press Return.", name]];
+        @"\nNew request. Give the project a short lowercase name, then describe what you want built."]];
     [self.window makeFirstResponder:self.entry];
+    [self resizeEntry];
+}
+
+- (void)openConversation:(NSButton *)sender {
+    NSURL *url = [NSURL fileURLWithPath:sender.identifier ?: @""];
+    NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
+    if (text.length == 0) return;
+    self.conversationURL = url;
+    self.projectName.stringValue = [self conversationTitle:url];
+    NSRange marker = [text rangeOfString:@"## Request\n\n" options:NSBackwardsSearch];
+    if (marker.location != NSNotFound) {
+        NSUInteger start = NSMaxRange(marker);
+        NSRange next = [text rangeOfString:@"\n\n## " options:0
+                                     range:NSMakeRange(start, text.length - start)];
+        NSUInteger end = next.location == NSNotFound ? text.length : next.location;
+        self.entry.string = [[text substringWithRange:NSMakeRange(start, end - start)]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    }
+    [self.console note:@"\nOpened a local request note. Its project request is back in the box; edit it or add a new one."];
+    [self.window makeFirstResponder:self.entry];
+    [self resizeEntry];
+}
+
+// History intentionally records only an idle project request. It never
+// captures console output or an answer to a live prompt: either could contain
+// a VPS password or provider information.
+- (void)rememberRequest:(NSString *)idea project:(NSString *)name {
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSURL *directory = [self historyDirectory];
+    NSError *error = nil;
+    if (![files createDirectoryAtURL:directory withIntermediateDirectories:YES
+                          attributes:@{NSFilePosixPermissions: @0700} error:&error]) {
+        [self.console note:@"\nSlopNet could not save this request history on this Mac. The build can still continue."];
+        return;
+    }
+
+    NSString *existing = self.conversationURL
+        ? [NSString stringWithContentsOfURL:self.conversationURL encoding:NSUTF8StringEncoding error:nil]
+        : nil;
+    BOOL sameProject = existing.length > 0 &&
+        [[self conversationTitle:self.conversationURL] isEqualToString:name];
+    if (!sameProject) {
+        self.conversationURL = [directory URLByAppendingPathComponent:
+            [NSString stringWithFormat:@"request-%@.md", NSUUID.UUID.UUIDString.lowercaseString]];
+        existing = [NSString stringWithFormat:@"# %@\n\nCreated locally by SlopNet.\n", name];
+    }
+    NSString *updated = [NSString stringWithFormat:@"%@\n## Request\n\n%@\n", existing, idea];
+    if (![updated writeToURL:self.conversationURL atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+        [self.console note:@"\nSlopNet could not save this request history on this Mac. The build can still continue."];
+        return;
+    }
+    [files setAttributes:@{NSFilePosixPermissions: @0600}
+             ofItemAtPath:self.conversationURL.path error:nil];
+    [self rebuildHistory];
 }
 
 #pragma mark - remembering (never a password, never inside the repo)
@@ -324,8 +484,8 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     if ([self isReady]) {
         [self.console note:[NSString stringWithFormat:
             @"Your server (%@) is set up and ready.\n"
-            @"Name your project in the small box below, say what you want built, "
-            @"and press Return.", self.host]];
+            @"Give your project a short name, say what you want built, and press Return. "
+            @"Your local request notes appear on the left.", self.host]];
     } else {
         [self.console note:@"Welcome. Press Settings at the bottom left to connect "
                            @"your server.\nEverything that happens appears here, and "
@@ -356,6 +516,27 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 }
 
 - (void)clearConsole:(id)sender { [self.console clear]; }
+
+- (void)resizeEntry {
+    if (self.entry == nil || self.entryHeight == nil) return;
+    [self.entry.layoutManager ensureLayoutForTextContainer:self.entry.textContainer];
+    CGFloat textHeight = [self.entry.layoutManager usedRectForTextContainer:self.entry.textContainer].size.height + 16;
+    CGFloat maximum = 168;
+    self.entryHeight.constant = MIN(MAX(textHeight, 56), maximum);
+    self.entryScroller.hasVerticalScroller = textHeight > maximum;
+}
+
+- (void)textDidChange:(NSNotification *)notification { [self resizeEntry]; }
+
+- (BOOL)textView:(NSTextView *)textView doCommandBySelector:(SEL)commandSelector {
+    if (commandSelector == @selector(insertNewline:)) {
+        NSEvent *event = NSApp.currentEvent;
+        if ((event.modifierFlags & NSEventModifierFlagShift) != 0) return NO;
+        [self sendPressed:textView];
+        return YES;
+    }
+    return NO;
+}
 
 - (BOOL)matches:(NSString *)value pattern:(NSString *)pattern {
     NSRange range = NSMakeRange(0, value.length);
@@ -431,6 +612,12 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     [self refreshState];
 }
 
+- (void)settingsCheckConnection:(SlopNetSettings *)settings { [self checkConnection:nil]; }
+
+- (void)settingsClearConsole:(SlopNetSettings *)settings { [self clearConsole:nil]; }
+
+- (void)settingsShowServerHelp:(SlopNetSettings *)settings { [self openServerHelp:nil]; }
+
 - (void)checkConnection:(id)sender {
     if (self.busy || ![self connectionValid]) return;
     [self.console note:@"\n=== Checking the connection ==="];
@@ -450,8 +637,9 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 /// is the thing you want built.
 - (void)sendPressed:(id)sender {
     if (self.busy) {
-        [self.console sendLine:self.entry.stringValue];
-        self.entry.stringValue = @"";
+        [self.console sendLine:self.entry.string];
+        self.entry.string = @"";
+        [self resizeEntry];
         return;
     }
     if (![self isReady]) {
@@ -461,7 +649,7 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
     }
     NSString *name = [self.projectName.stringValue stringByTrimmingCharactersInSet:
         [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    NSString *idea = [self.entry.stringValue stringByTrimmingCharactersInSet:
+    NSString *idea = [self.entry.string stringByTrimmingCharactersInSet:
         [NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (![self matches:name pattern:@"^[a-z0-9][a-z0-9-]{0,62}$"]) {
         [self.console note:@"\nGive the project a short name in the small box: lowercase "
@@ -478,24 +666,16 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
         [self.console note:@"The project helper is missing from this app. Build it again."];
         return;
     }
-    [self rememberProject:name];
+    [self rememberRequest:idea project:name];
     [self.console note:[NSString stringWithFormat:@"\n=== %@ — %@ ===", name, idea]];
-    self.entry.stringValue = @"";
+    self.entry.string = @"";
+    [self resizeEntry];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port,
                                        self.username, name, idea]]) {
         [self setBusy:NO];
     }
-}
-
-- (void)rememberProject:(NSString *)name {
-    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    NSMutableArray *projects = [([store arrayForKey:kProjectsKey] ?: @[]) mutableCopy];
-    [projects removeObject:name];
-    [projects addObject:name];
-    while (projects.count > 12) [projects removeObjectAtIndex:0];
-    [store setObject:projects forKey:kProjectsKey];
 }
 
 #pragma mark - console callbacks
@@ -526,6 +706,8 @@ static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have bui
 
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
+        (void)argc;
+        (void)argv;
         NSApplication *app = [NSApplication sharedApplication];
         SlopNetAppDelegate *delegate = [[SlopNetAppDelegate alloc] init];
         app.delegate = delegate;

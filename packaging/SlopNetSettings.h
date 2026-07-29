@@ -23,6 +23,11 @@
            title:(NSString *)title;
 /// Forget this Mac's memory of the server (never touches the server).
 - (void)settingsDidForget:(SlopNetSettings *)settings;
+/// Small utility actions live in Settings so the main window stays focused
+/// on the work the person is asking SlopNet to do.
+- (void)settingsCheckConnection:(SlopNetSettings *)settings;
+- (void)settingsClearConsole:(SlopNetSettings *)settings;
+- (void)settingsShowServerHelp:(SlopNetSettings *)settings;
 @end
 
 @interface SlopNetSettings : NSWindowController

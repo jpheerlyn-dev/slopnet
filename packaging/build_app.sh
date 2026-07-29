@@ -34,7 +34,7 @@ command -v clang >/dev/null 2>&1 || { printf '%s\n' 'SlopNet.app needs the macOS
 python3 "$pkg/make_icon.py" "$icon_file"
 
 mkdir -p "$contents/MacOS" "$contents/Resources"
-clang -fobjc-arc -mmacosx-version-min=13.0 -framework AppKit \
+clang -fobjc-arc -Wall -Wextra -mmacosx-version-min=13.0 -framework AppKit \
   -I "$pkg" "$pkg/SlopNetLauncher.m" "$pkg/SlopNetConsole.m" \
   "$pkg/SlopNetSettings.m" \
   -o "$contents/MacOS/SlopNet"
@@ -54,8 +54,8 @@ cat > "$contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>SlopNet</string>
   <key>CFBundleDisplayName</key><string>SlopNet</string>
   <key>CFBundleIdentifier</key><string>com.slopnet.app</string>
-  <key>CFBundleVersion</key><string>0.3.0</string>
-  <key>CFBundleShortVersionString</key><string>0.3.0</string>
+  <key>CFBundleVersion</key><string>0.4.0</string>
+  <key>CFBundleShortVersionString</key><string>0.4.0</string>
   <key>SlopNetBuiltAt</key><string>${built_at}</string>
   <key>CFBundleExecutable</key><string>SlopNet</string>
   <key>CFBundlePackageType</key><string>APPL</string>

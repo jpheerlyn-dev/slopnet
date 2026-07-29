@@ -22,11 +22,12 @@ it needs while its sandbox child loses capabilities. The strict Docker safety
 gate is also proved.
 
 That is evidence for one Codex path, not a release claim. It is not yet a
-broad multi-provider runtime or a beginner-ready release, and the current Mac
-control app still hands the detailed setup conversation to Terminal. The long
-walkthrough later in this file is preserved as the historical local-development
-route for contributors. It is not the product flow we should ask a new user to
-follow or market as beginner-ready.
+broad multi-provider runtime or a beginner-ready release. The current Mac
+control app keeps the SSH conversation inside its own window; it still needs a
+real first-project proof before it is something we should market as
+beginner-ready. The long walkthrough later in this file is preserved as the
+historical local-development route for contributors. It is not the product flow
+we should ask a new user to follow.
 
 The current build priority is making that proved path pleasant inside the Mac
 control app, then adding exactly one real project flow with tests. Only after
@@ -44,7 +45,7 @@ This checkout is moving from its earlier local-first implementation to that
 model. Until remote execution is enforced by the program, a local
 `slopnet go` run is a development check, not the intended user workflow.
 
-### Mac control app (early shell)
+### Mac control app (early control screen)
 
 The source checkout can build a real Mac application with a Dock icon and a
 small VPS connection screen:
@@ -53,40 +54,41 @@ small VPS connection screen:
 ./packaging/build_app.sh "$HOME/Applications"
 ```
 
-Open `SlopNet.app` from your Applications folder. It asks whether you already
-have a VPS, offers Hetzner, Contabo, and Hostinger links if you do not, then
-collects only the host, SSH username, and port. It opens Terminal for the
-normal SSH password prompt, creates a dedicated passphrase-protected SSH key,
-adds it to the macOS Keychain when available, and begins the guided VPS setup.
-It never receives or stores a VPS password. This is an early control shell, not
-a promise that every VPS or coding CLI has passed the required proof.
+Open `SlopNet.app` from your Applications folder. In **Settings**, enter only
+the server address, SSH login name, and port. **Getting a server** explains
+that Hetzner, Contabo, Hostinger, and many other providers work; any computer
+reachable over SSH is valid. SlopNet then keeps the normal SSH password prompt
+and every setup question in its own scrolling window. It creates a dedicated
+passphrase-protected SSH key, adds it to the macOS Keychain when available, and
+begins the guided VPS setup. It never receives or stores a VPS password.
 
-The Terminal guide has three numbered steps: protect the connection key,
-confirm the VPS, and prepare the VPS. You do not need to type an SSH command or
+The in-app guide has three numbered steps: protect the connection key, confirm
+the server, and prepare the server. You do not need to type an SSH command or
 interpret Git output. If it stops, copy the final plain-English message rather
-than the whole Terminal transcript.
+than the whole transcript.
 
 When SlopNet asks whether to continue, type `y` only after its sentence says
 exactly what it will change. That confirmation comes from the VPS itself and
 protects you from accidental setup changes.
 
-The first time you press **Connect and begin guided VPS setup**, macOS asks
-whether SlopNet may control Terminal. Choose **Allow**: that permission is only
-used to open a Terminal window for the setup you explicitly started. If you
-previously chose not to allow it, open **System Settings → Privacy & Security →
-Automation**, find SlopNet, and turn on Terminal.
+SlopNet does not automate Terminal and does not request the macOS Automation
+permission. All setup questions appear in the app window. **Check connection**,
+**Clear screen**, and **Getting a server** are in Settings so the main screen
+can stay focused on the current request.
 
-Use **Test Terminal access** first if you want to check that permission before
-you enter any VPS details. It opens only a harmless message in Terminal: no
-connection, password prompt, or SSH key is involved.
+When setup says the server passed, use the larger request box at the bottom.
+Give the project a short lowercase name and write what you want made. The box
+grows for a longer request and scrolls once it reaches its limit. A **New**
+button starts a fresh request; prior requests are saved only as private Markdown
+files in this Mac's SlopNet application-support folder. Console output and
+interactive answers are intentionally not saved there, because either could
+contain a password or provider information.
 
-When Terminal says VPS setup passed, leave the app open and use **After VPS
-setup succeeds**. You choose the project folder name and write one sentence
-about what you want made. SlopNet creates only that folder on the VPS, reuses
-the already-proved Codex app there, produces a plan, and waits for you to
-approve the plan before any coding agents run. The VPS address, login name,
-and project request stay in the current app window and are not written into
-this repository or sent to GitHub.
+SlopNet creates only that named folder on the VPS, reuses the already-proved
+Codex app there, and produces a plan only. It does **not** start coding agents
+from this screen; read the plan and make the next explicit choice before code
+is allowed to change. The server address, login name, and request history stay
+on the Mac and are not written into this repository or sent to GitHub.
 
 The first coding-app path is deliberately one-at-a-time. Guided VPS setup
 installs Codex only if it is missing and opens its normal device sign-in only

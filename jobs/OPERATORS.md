@@ -22,7 +22,7 @@ and SlopNet removed the proof workspace.
 | Whole-fleet real-world exam (J07) | Done; historical failure | Every available worker failed its real proof. Raw chronology: `archive/jobs/J07_FINDINGS.md`; a new full-fleet run needs an explicit operator brief after the first real project flow. |
 | Docker VPS containment gate | Done on tested VPS | Non-root, offline, read-only gate passed. Full output: `register/2026-07-29.md`. |
 | Guided VPS setup and one Codex proof | Done on tested VPS | Private non-root credential store confirmed; Ubuntu's Bubblewrap-only profile retained the global restriction and denies child capabilities; Codex wrote the disposable file in 16s and the proof was removed. |
-| Mac control app | Project-plan step build-ready; live proof pending | Dock app now asks for a user-named project and plain request, then opens a VPS-only plan flow that stops before coding agents run. It still uses Terminal for the remote interaction. A live test needs the operator to choose a project name. |
+| Mac control app | v0.4 installed; live first-project proof pending | Dock app keeps setup inside its own console (no Terminal automation), has Settings-based connection/tool controls, a growing multi-line request box, and private local Markdown request history. The project helper is plan-only; a live proof still needs an operator-chosen project name. |
 | J08 hosted brains / more providers / Hermes / OpenClaw / Buzz | Deferred | Do not start before the preceding proof succeeds. |
 | GitHub branch protection | Incomplete | Configure `law`, `manifest`, `register-audit`, and `container` as required checks after GitHub authentication is restored. |
 
@@ -36,10 +36,10 @@ to a proved result shorter, safer, or easier to understand.
 ## Immediate next proof
 
 Use the Mac app after VPS setup succeeds. Choose the first project folder name
-and give it one plain-language request. SlopNet must create only that project,
-make a plan with the already-proved Codex app, and wait for approval before any
-coding agents run. Record the actual outcome before scheduling any additional
-coding provider or a J07 rerun.
+and give it one plain-language request. SlopNet must create only that project
+and make a plan with the already-proved Codex app. Confirm that no coding agent
+runs from the app's plan-only step; record the actual plan before scheduling
+the separate explicit approval/run step, additional providers, or a J07 rerun.
 
 ## Archive
 
