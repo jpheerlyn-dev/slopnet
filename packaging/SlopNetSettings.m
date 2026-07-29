@@ -187,12 +187,20 @@
     done.keyEquivalent = @"\r";
     [done.widthAnchor constraintGreaterThanOrEqualToConstant:90].active = YES;
 
+    NSString *serverTitle = self.connected ? @"Your server" : @"Step 1 of 2 — connect your VPS";
+    NSString *serverHelp = self.connected
+        ? @"Any computer you can reach over SSH: a rented server, a dedicated machine, a home server, or a Raspberry Pi. Your password is never stored — it goes straight from the console to your server."
+        : @"Start here. Enter the address, login name, and port from your VPS provider. SlopNet will show every change in its own window and never saves the VPS password.";
+    NSString *helperTitle = self.connected
+        ? @"Step 2 of 2 — private local guide"
+        : @"Step 2 — private local guide (after server setup)";
+    NSString *helperHelp = self.connected
+        ? @"This small model runs only on your server for ordinary setup chat and request drafting. It cannot start coding, make a decision, or spend from a coding subscription. SlopNet shows capacity, downloads only after you approve, limits it to a small 4K context and a 15-minute test, and never opens a model port."
+        : @"After the server passes, come back here to install the private local guide. It handles ordinary setup chat without using a coding subscription.";
+
     NSStackView *page = [NSStackView stackViewWithViews:@[
-        [self label:@"Your server" size:15 grey:NO bold:YES],
-        [self helpText:@"Any computer you can reach over SSH: a rented server, a "
-                       @"dedicated machine, a home server, or a Raspberry Pi. Your "
-                       @"password is never stored — it goes straight from the console "
-                       @"to your server."],
+        [self label:serverTitle size:15 grey:NO bold:YES],
+        [self helpText:serverHelp],
         connection,
         connectionButtons,
         self.connectionNote,
@@ -205,12 +213,8 @@
         recheck,
         self.toolGrid,
         [self separator],
-        [self label:@"Optional local helper" size:15 grey:NO bold:YES],
-        [self helpText:@"A small model runs only on this server before planning. It can "
-                       @"draft clearer request wording, but it cannot start coding or make "
-                       @"a decision for you. SlopNet shows storage and memory first, downloads "
-                       @"only after you approve, limits it to a small 4K context and a 15-minute "
-                       @"test, and never opens a model port."],
+        [self label:helperTitle size:15 grey:NO bold:YES],
+        [self helpText:helperHelp],
         localModelRow,
         localButtons,
         self.localHelperNote,

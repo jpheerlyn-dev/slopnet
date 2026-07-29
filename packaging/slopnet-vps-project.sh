@@ -75,7 +75,7 @@ if [ -r "$helper_config" ] && [ -x "$runtime_home/.local/bin/llama" ]; then
 REQUEST:
 $idea"
         helper_error=$(mktemp "${TMPDIR:-/tmp}/slopnet-local-draft.XXXXXX")
-        if helper_draft=$(HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" timeout 300 nice -n 10 "$runtime_home/.local/bin/llama" cli -hf "$helper_model" --offline -c 4096 -b 512 -ub 256 --no-warmup -p "$helper_prompt" -st --no-display-prompt --no-perf --simple-io 2>"$helper_error"); then
+        if helper_draft=$(HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" timeout 300 nice -n 10 "$runtime_home/.local/bin/llama" cli -hf "$helper_model" --offline -c 4096 -b 512 -ub 256 --no-warmup -n 256 --single-turn -p "$helper_prompt" -st --no-display-prompt --no-perf --simple-io 2>"$helper_error"); then
           if [ -n "$helper_draft" ]; then
             echo
             echo "--- local helper draft ---"
@@ -116,7 +116,21 @@ cd "$project_root"
 git init -q
 # This is deliberately plan-only. The person must see WAVES.md and make the
 # next explicit choice before a coding agent can touch a project file.
-exec /opt/slopnet/slopnet plan "$idea"'
+if ! /opt/slopnet/slopnet plan "$idea"; then
+  exit 1
+fi
+# The runner refuses a dirty project because it needs a known safe base for
+# worktrees. Recording this machine-made plan changes no project source file
+# and does not start a coding agent; the separate approved-build step remains
+# the only route to a run.
+git add .slopnet/crew.json WAVES.md
+if git diff --cached --quiet; then
+  echo "SlopNet did not produce a plan to save. Nothing ran."
+  exit 1
+fi
+git -c user.name=slopnet -c user.email=crew@slopnet -c core.hooksPath=/dev/null \
+  commit -qm "SlopNet: record plan"
+echo "[OK] Plan recorded locally. No coding agent has run."'
 encoded_project=$(printf '%s' "$remote_project" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then

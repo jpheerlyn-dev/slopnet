@@ -34,6 +34,8 @@ paths=$(
       packaging/slopnet-vps-onboard.sh \
       packaging/slopnet-vps-project.sh \
       packaging/slopnet-vps-local-helper.sh \
+      packaging/slopnet-vps-chat.sh \
+      packaging/slopnet-vps-build.sh \
       packaging/tools.json \
       tests/redteam.sh \
       tests/settings_resize_probe.m \

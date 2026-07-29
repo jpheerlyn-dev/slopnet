@@ -43,22 +43,30 @@ integrations, a longer README, or a local-only workaround. Every change must
 make the above path shorter, safer, or easier to understand.
 
 The next proved step is a user-named project. The Mac control app asks for the
-name and a plain-language request, creates only that named folder on the VPS,
-and asks the already-proved coding app for a plan. It stops for plan approval
-before it lets coding agents run. The provider selector remains deliberately
-narrow: a person must explicitly choose another provider before SlopNet can
-install it or begin its login flow.
+name and a plain-language request only after a person chooses Build, creates
+only that named folder on the VPS, and asks the already-proved coding app for a
+plan. It stops for plan approval before it lets coding agents run. The provider
+selector remains deliberately narrow: a person must explicitly choose another
+provider before SlopNet can install it or begin its login flow.
 
-An optional local Llama.cpp helper is part of that control screen, not a
-second autonomous agent. It runs one selected public GGUF as the non-root
-runtime account, with no API key and no listening port. Its only current role
-is to offer an offline rewrite of a person's request before planning; the
-person must accept the exact wording before the coding planner sees it. The
-default is IBM Granite 4.1 3B Q4_K_M, while a person may choose another public
-Hugging Face identifier. Capacity and an actual one-word model proof happen
-before SlopNet marks it ready. The helper uses a bounded 4,096-token context,
-small batches, and a 15-minute proof so it cannot reserve a model's full
-advertised context window for a tiny request rewrite.
+The private local Llama.cpp guide is part of that control screen, not a second
+autonomous agent. It runs one selected public GGUF as the non-root runtime
+account, with no API key and no listening port. The default is IBM Granite 4.1
+3B Q4_K_M; a person may explicitly choose a different public Hugging Face
+identifier in Settings. Capacity and an actual one-word model proof happen
+before SlopNet marks it ready. The guide uses a bounded 4,096-token context,
+small batches, a five-minute reply limit, and a 256-token answer limit.
+
+Ordinary **Chat** is one finite Granite reply about setup or preparing a
+request. It has no tools and cannot start a project, planner, coding agent, or
+build; it does not spend from a coding subscription. **Build** is deliberately
+separate: the person confirms that the proved coding app may make a plan, then
+reads that plan, then sees a second explicit confirmation before SlopNet can
+run the multi-agent coding pipeline. The current build control refuses safely
+until a project-specific runner and its walls have passed a real VPS proof; it
+never substitutes a local or unprotected run. A local request draft remains
+optional, and a person must accept its exact wording before the paid planner
+sees it.
 
 ## MVP crew roles
 

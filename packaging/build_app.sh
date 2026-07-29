@@ -42,10 +42,14 @@ cp "$icon_file" "$contents/Resources/AppIcon.icns"
 cp "$pkg/slopnet-vps-onboard.sh" "$contents/Resources/slopnet-vps-onboard.sh"
 cp "$pkg/slopnet-vps-project.sh" "$contents/Resources/slopnet-vps-project.sh"
 cp "$pkg/slopnet-vps-local-helper.sh" "$contents/Resources/slopnet-vps-local-helper.sh"
+cp "$pkg/slopnet-vps-chat.sh" "$contents/Resources/slopnet-vps-chat.sh"
+cp "$pkg/slopnet-vps-build.sh" "$contents/Resources/slopnet-vps-build.sh"
 cp "$pkg/tools.json" "$contents/Resources/tools.json"
 chmod 755 "$contents/Resources/slopnet-vps-onboard.sh"
 chmod 755 "$contents/Resources/slopnet-vps-project.sh"
 chmod 755 "$contents/Resources/slopnet-vps-local-helper.sh"
+chmod 755 "$contents/Resources/slopnet-vps-chat.sh"
+chmod 755 "$contents/Resources/slopnet-vps-build.sh"
 
 built_at="$(date '+%Y-%m-%d %H:%M')"
 cat > "$contents/Info.plist" <<PLIST
@@ -56,8 +60,8 @@ cat > "$contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>SlopNet</string>
   <key>CFBundleDisplayName</key><string>SlopNet</string>
   <key>CFBundleIdentifier</key><string>com.slopnet.app</string>
-  <key>CFBundleVersion</key><string>0.8.0</string>
-  <key>CFBundleShortVersionString</key><string>0.8.0</string>
+  <key>CFBundleVersion</key><string>0.9.0</string>
+  <key>CFBundleShortVersionString</key><string>0.9.0</string>
   <key>SlopNetBuiltAt</key><string>${built_at}</string>
   <key>CFBundleExecutable</key><string>SlopNet</string>
   <key>CFBundlePackageType</key><string>APPL</string>

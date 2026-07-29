@@ -70,6 +70,8 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 // main
 @property(nonatomic, strong) SlopNetConsole *console;
 @property(nonatomic, strong) NSTextField *projectName;
+@property(nonatomic, strong) NSPopUpButton *modePicker;
+@property(nonatomic, strong) NSPopUpButton *modelPicker;
 @property(nonatomic, strong) SlopNetEntryView *entry;
 @property(nonatomic, strong) NSScrollView *entryScroller;
 @property(nonatomic, strong) NSLayoutConstraint *entryHeight;
@@ -78,6 +80,12 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 
 @property(nonatomic, assign) BOOL busy;
 @property(nonatomic, assign) BOOL setupRunning;
+@property(nonatomic, assign) BOOL localHelperRunning;
+@property(nonatomic, assign) BOOL planningRunning;
+@property(nonatomic, assign) BOOL approvedBuildRunning;
+@property(nonatomic, copy) NSString *activeProjectName;
+@property(nonatomic, copy) NSString *plannedProjectName;
+@property(nonatomic, copy) NSString *localModelName;
 @end
 
 @implementation SlopNetAppDelegate
@@ -174,6 +182,14 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     [self.window makeKeyAndOrderFront:nil];
     [self.window makeFirstResponder:self.entry];
     [NSApp activateIgnoringOtherApps:YES];
+
+    // First-run is an in-app guide, not a buried hint. It starts before any
+    // provider login, planning, or model conversation can be reached.
+    if (![self isReady]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self openSettings:nil]; });
+    } else {
+        [self refreshLocalModelName];
+    }
 }
 
 - (NSView *)buildSidebar {
@@ -245,7 +261,22 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     // It starts comfortably large, grows with a long request, then scrolls
     // rather than stealing the entire console.
     self.projectName = [self field:@"project name" value:nil];
-    [self.projectName.widthAnchor constraintEqualToConstant:150].active = YES;
+    [self.projectName.widthAnchor constraintEqualToConstant:130].active = YES;
+
+    self.modePicker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [self.modePicker addItemWithTitle:@"Chat"];
+    [self.modePicker addItemWithTitle:@"Build"];
+    self.modePicker.target = self;
+    self.modePicker.action = @selector(modeChanged:);
+    self.modePicker.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.modePicker.widthAnchor constraintEqualToConstant:76].active = YES;
+
+    self.modelPicker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    self.modelPicker.target = self;
+    self.modelPicker.action = @selector(modelChanged:);
+    self.modelPicker.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.modelPicker.widthAnchor constraintEqualToConstant:180].active = YES;
+    [self refreshModelPicker];
     self.entry = [[SlopNetEntryView alloc] initWithFrame:NSZeroRect];
     self.entry.delegate = self;
     self.entry.richText = NO;
@@ -279,7 +310,7 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     self.sendButton.action = @selector(sendPressed:);
 
     NSStackView *chatBar = [NSStackView stackViewWithViews:@[
-        self.projectName, self.entryScroller, self.sendButton]];
+        self.modePicker, self.modelPicker, self.projectName, self.entryScroller, self.sendButton]];
     chatBar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     chatBar.alignment = NSLayoutAttributeTop;
     chatBar.spacing = 8;
@@ -310,8 +341,11 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
            self.host.length > 0;
 }
 
+- (BOOL)isChatMode { return self.modePicker.indexOfSelectedItem == 0; }
+
 - (void)refreshState {
     BOOL ready = [self isReady];
+    BOOL chat = [self isChatMode];
     if (ready) {
         self.statusDot.textColor = [NSColor systemGreenColor];
         self.statusText.stringValue = [NSString stringWithFormat:@"Ready — %@", self.host];
@@ -319,17 +353,31 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         self.statusDot.textColor = [NSColor systemGrayColor];
         self.statusText.stringValue = @"No server yet";
     }
-    self.projectName.hidden = !ready;
+    self.modePicker.enabled = ready && !self.busy;
+    self.modelPicker.hidden = !ready || !chat;
+    self.modelPicker.enabled = ready && !self.busy && chat;
+    self.projectName.hidden = !ready || chat;
     if (self.busy) {
         self.entry.prompt = @"Type your answer here, then press Return (for example: y)";
         self.sendButton.title = @"Answer";
+        self.entry.editable = YES;
+    } else if (ready && chat) {
+        self.entry.prompt = @"Ask the local guide about setup or how to prepare a request…";
+        self.sendButton.title = @"Ask";
+        self.entry.editable = YES;
+    } else if (ready && self.plannedProjectName.length > 0) {
+        self.entry.prompt = @"Read the plan above. Start only when you are ready for coding agents.";
+        self.sendButton.title = @"Start approved build";
+        self.entry.editable = NO;
     } else if (ready) {
         self.entry.prompt =
-            @"Describe what you want built… Return sends · Shift-Return adds a line";
-        self.sendButton.title = @"Build it";
+            @"Describe what you want built… SlopNet will make a plan, then stop.";
+        self.sendButton.title = @"Make a plan";
+        self.entry.editable = YES;
     } else {
         self.entry.prompt = @"Open Settings to connect a server first";
-        self.sendButton.title = @"Build it";
+        self.sendButton.title = @"Set up";
+        self.entry.editable = YES;
     }
     [self resizeEntry];
     [self rebuildHistory];
@@ -400,10 +448,13 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 
 - (void)newConversation:(id)sender {
     self.conversationURL = nil;
+    self.plannedProjectName = nil;
+    self.activeProjectName = nil;
+    [self.modePicker selectItemAtIndex:0];
     self.projectName.stringValue = @"";
     self.entry.string = @"";
     [self.console note:[NSString stringWithFormat:
-        @"\nNew request. Give the project a short lowercase name, then describe what you want built."]];
+        @"\nNew chat. Ask the local guide about setup, or choose Build when you are ready to make a plan."]];
     [self.window makeFirstResponder:self.entry];
     [self resizeEntry];
 }
@@ -413,6 +464,8 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
     if (text.length == 0) return;
     self.conversationURL = url;
+    self.plannedProjectName = nil;
+    [self.modePicker selectItemAtIndex:1];
     self.projectName.stringValue = [self conversationTitle:url];
     NSRange marker = [text rangeOfString:@"## Request\n\n" options:NSBackwardsSearch];
     if (marker.location != NSNotFound) {
@@ -484,12 +537,11 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     if ([self isReady]) {
         [self.console note:[NSString stringWithFormat:
             @"Your server (%@) is set up and ready.\n"
-            @"Give your project a short name, say what you want built, and press Return. "
+            @"Chat uses only your private local model. Choose Build only when you want a paid coding app to make a plan. "
             @"Your local request notes appear on the left.", self.host]];
     } else {
-        [self.console note:@"Welcome. Press Settings at the bottom left to connect "
-                           @"your server.\nEverything that happens appears here, and "
-                           @"you can answer any question in the box below."];
+        [self.console note:@"Welcome. The setup guide is opening now.\n"
+                           @"First connect your server; then SlopNet can install and prove its private local guide."];
     }
 }
 
@@ -500,6 +552,17 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
                                                      port:self.port
                                                      user:self.username
                                                 connected:[self isReady]];
+    self.settings.window.title = [self isReady] ? @"Settings" : @"Set up SlopNet — step 1 of 2";
+    self.settings.delegate = self;
+    [self.settings presentFrom:self.window];
+}
+
+- (void)openLocalGuideSettings {
+    self.settings = [[SlopNetSettings alloc] initWithHost:self.host
+                                                     port:self.port
+                                                     user:self.username
+                                                connected:YES];
+    self.settings.window.title = @"Set up SlopNet — step 2 of 2";
     self.settings.delegate = self;
     [self.settings presentFrom:self.window];
 }
@@ -524,6 +587,29 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     CGFloat maximum = 168;
     self.entryHeight.constant = MIN(MAX(textHeight, 56), maximum);
     self.entryScroller.hasVerticalScroller = textHeight > maximum;
+}
+
+- (void)modeChanged:(id)sender {
+    self.plannedProjectName = nil;
+    [self refreshState];
+    [self.window makeFirstResponder:self.entry];
+}
+
+- (void)refreshModelPicker {
+    if (self.modelPicker == nil) return;
+    NSString *title = self.localModelName.length > 0
+        ? [NSString stringWithFormat:@"%@ — local", self.localModelName]
+        : @"Local model — set up in Settings";
+    [self.modelPicker removeAllItems];
+    [self.modelPicker addItemWithTitle:title];
+    [self.modelPicker addItemWithTitle:@"Choose local model in Settings…"];
+    [self.modelPicker selectItemAtIndex:0];
+}
+
+- (void)modelChanged:(id)sender {
+    if (self.modelPicker.indexOfSelectedItem != 1) return;
+    [self.modelPicker selectItemAtIndex:0];
+    [self openSettings:nil];
 }
 
 - (void)textDidChange:(NSNotification *)notification { [self resizeEntry]; }
@@ -630,10 +716,57 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
          "This happens only on your server. It will show the real capacity before "
          "it downloads anything, keeps this small helper to a 4K context and a "
          "15-minute test, and never opens a model port.", model]];
+    self.localHelperRunning = YES;
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port, self.username, model]]) {
         [self setBusy:NO];
+    }
+}
+
+- (void)refreshLocalModelName {
+    if (![self isReady] || self.host.length == 0) {
+        self.localModelName = nil;
+        [self refreshModelPicker];
+        return;
+    }
+    // A quiet read-only check. It never starts a model, calls a coding CLI,
+    // asks for a password, or changes the VPS. A non-root login may not be
+    // able to read this private file; chat itself will then explain what is
+    // missing in the visible console.
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
+    task.arguments = @[@"-p", self.port,
+                       @"-o", @"BatchMode=yes",
+                       @"-o", @"ConnectTimeout=10",
+                       @"-o", @"StrictHostKeyChecking=accept-new",
+                       [NSString stringWithFormat:@"%@@%@", self.username, self.host],
+                       @"home=$(getent passwd slopnet | cut -d: -f6); test -n \"$home\" && sed -n 's/^SLOPNET_LOCAL_HELPER_MODEL=//p' \"$home/.local/share/slopnet/local-helper.env\" 2>/dev/null | head -n 1"];
+    NSPipe *pipe = [NSPipe pipe];
+    task.standardOutput = pipe;
+    task.standardError = [NSPipe pipe];
+    __weak typeof(self) weakSelf = self;
+    task.terminationHandler = ^(NSTask *finished) {
+        NSData *data = [pipe.fileHandleForReading readDataToEndOfFile];
+        NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+        NSString *model = [text stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            if (strongSelf == nil) return;
+            if (finished.terminationStatus == 0 &&
+                [strongSelf matches:model pattern:@"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$"]) {
+                strongSelf.localModelName = model;
+            } else {
+                strongSelf.localModelName = nil;
+            }
+            [strongSelf refreshModelPicker];
+        });
+    };
+    NSError *error = nil;
+    if (![task launchAndReturnError:&error]) {
+        self.localModelName = nil;
+        [self refreshModelPicker];
     }
 }
 
@@ -652,8 +785,9 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     }
 }
 
-/// The chat box. Running → the text answers the question. Idle → the text
-/// is the thing you want built.
+/// The chat box has three deliberately separate paths. Running → the text
+/// answers the visible program. Chat → one finite, private local-model reply.
+/// Build → an explicit plan, then a second explicit approval before agents run.
 - (void)sendPressed:(id)sender {
     if (self.busy) {
         [self.console sendLine:self.entry.string];
@@ -666,9 +800,59 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         [self openSettings:nil];
         return;
     }
-    NSString *name = [self.projectName.stringValue stringByTrimmingCharactersInSet:
-        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
     NSString *idea = [self.entry.string stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if ([self isChatMode]) {
+        if (idea.length == 0) {
+            [self.console note:@"\nAsk the local guide a question first."];
+            return;
+        }
+        NSString *script = [self helper:@"slopnet-vps-chat"];
+        if (script == nil) {
+            [self.console note:@"The private-chat helper is missing from this app. Build it again."];
+            return;
+        }
+        [self.console note:@"\n=== Private local-model chat ===\n"
+                           "This reply uses only the selected local model on your VPS. "
+                           "It cannot start a plan, coding agent, or build."];
+        self.entry.string = @"";
+        [self resizeEntry];
+        [self setBusy:YES];
+        if (![self.console runExecutable:@"/bin/bash"
+                               arguments:@[script, self.host, self.port, self.username, idea]]) {
+            [self setBusy:NO];
+        }
+        return;
+    }
+    if (self.plannedProjectName.length > 0) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"Start coding agents?";
+        alert.informativeText = [NSString stringWithFormat:
+            @"You approved the plan for %@. This starts the multi-agent coding run on your VPS and spends from the proved coding subscription. Agents may edit only that project; walls and its test command decide what can merge.",
+            self.plannedProjectName];
+        [alert addButtonWithTitle:@"Start coding agents"];
+        [alert addButtonWithTitle:@"Keep plan only"];
+        if ([alert runModal] != NSAlertFirstButtonReturn) return;
+        NSString *script = [self helper:@"slopnet-vps-build"];
+        if (script == nil) {
+            [self.console note:@"The approved-build helper is missing from this app. Build it again."];
+            return;
+        }
+        [self.console note:[NSString stringWithFormat:
+            @"\n=== Starting approved build: %@ ===\nYou explicitly approved this coding run.",
+            self.plannedProjectName]];
+        self.approvedBuildRunning = YES;
+        self.activeProjectName = self.plannedProjectName;
+        [self setBusy:YES];
+        if (![self.console runExecutable:@"/bin/bash"
+                               arguments:@[script, self.host, self.port, self.username,
+                                           self.plannedProjectName]]) {
+            self.approvedBuildRunning = NO;
+            [self setBusy:NO];
+        }
+        return;
+    }
+    NSString *name = [self.projectName.stringValue stringByTrimmingCharactersInSet:
         [NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (![self matches:name pattern:@"^[a-z0-9][a-z0-9-]{0,62}$"]) {
         [self.console note:@"\nGive the project a short name in the small box: lowercase "
@@ -680,6 +864,14 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         [self.console note:@"\nSay what you want built, in one sentence."];
         return;
     }
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"Make a plan, then stop?";
+    alert.informativeText = [NSString stringWithFormat:
+        @"SlopNet will ask the proved coding app to make a plan for %@ on your VPS. This uses that coding subscription, but does not start coding agents or change project files. You will read the plan and explicitly approve any build afterwards.",
+        name];
+    [alert addButtonWithTitle:@"Make plan"];
+    [alert addButtonWithTitle:@"Keep editing"];
+    if ([alert runModal] != NSAlertFirstButtonReturn) return;
     NSString *script = [self helper:@"slopnet-vps-project"];
     if (script == nil) {
         [self.console note:@"The project helper is missing from this app. Build it again."];
@@ -687,6 +879,8 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     }
     [self rememberRequest:idea project:name];
     [self.console note:[NSString stringWithFormat:@"\n=== %@ — %@ ===", name, idea]];
+    self.activeProjectName = name;
+    self.planningRunning = YES;
     self.entry.string = @"";
     [self resizeEntry];
     [self setBusy:YES];
@@ -707,8 +901,31 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         self.setupRunning = NO;
         if (status == 0) {
             [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kReadyKey];
-            [self.console note:@"Your server is ready. Name a project below and say what "
-                               @"you want built — you will not be asked to set it up again."];
+            [self.console note:@"Your server is ready. Step 2 is to install and prove the private local guide. "
+                               @"It does not use your coding subscription."];
+            [self refreshLocalModelName];
+            dispatch_async(dispatch_get_main_queue(), ^{ [self openLocalGuideSettings]; });
+        }
+    }
+    if (self.localHelperRunning) {
+        self.localHelperRunning = NO;
+        if (status == 0) {
+            [self.console note:@"The private local guide is ready. Choose Chat to ask it about setup, or Build when you want a separate coding plan."];
+            [self refreshLocalModelName];
+        }
+    }
+    if (self.planningRunning) {
+        self.planningRunning = NO;
+        if (status == 0 && self.activeProjectName.length > 0) {
+            self.plannedProjectName = self.activeProjectName;
+            [self.console note:@"The plan is ready above. Read it. No coding agent has run. Choose Build and press Start approved build only when you want the multi-agent run to begin."];
+        }
+    }
+    if (self.approvedBuildRunning) {
+        self.approvedBuildRunning = NO;
+        self.plannedProjectName = nil;
+        if (status == 0) {
+            [self.console note:@"The approved build finished. Read the result above; SlopNet kept only work that passed its walls and project tests."];
         }
     }
     [self setBusy:NO];

@@ -54,11 +54,12 @@ small VPS connection screen:
 ./packaging/build_app.sh "$HOME/Applications"
 ```
 
-Open `SlopNet.app` from your Applications folder. In **Settings**, enter only
-the server address, SSH login name, and port. **Getting a server** explains
-that Hetzner, Contabo, Hostinger, and many other providers work; any computer
-reachable over SSH is valid. SlopNet then keeps the normal SSH password prompt
-and every setup question in its own scrolling window. It creates a dedicated
+Open `SlopNet.app` from your Applications folder. On its first launch, the
+in-app setup guide opens automatically: enter only the server address, SSH
+login name, and port. **Getting a server** explains that Hetzner, Contabo,
+Hostinger, and many other providers work; any computer reachable over SSH is
+valid. SlopNet then keeps the normal SSH password prompt and every setup
+question in its own scrolling window. It creates a dedicated
 passphrase-protected SSH key, adds it to the macOS Keychain when available, and
 begins the guided VPS setup. It never receives or stores a VPS password.
 
@@ -76,8 +77,9 @@ permission. All setup questions appear in the app window. **Check connection**,
 **Clear screen**, and **Getting a server** are in Settings so the main screen
 can stay focused on the current request.
 
-Settings also has an **optional local helper**. It starts with the public
-Apache-2.0 `ibm-granite/granite-4.1-3b-GGUF:Q4_K_M` model, but you may enter a
+Settings then guides the person to install the **private local guide**. It
+starts with the public Apache-2.0
+`ibm-granite/granite-4.1-3b-GGUF:Q4_K_M` model, but a person may choose a
 different public Hugging Face GGUF in `owner/model:quant` form. Before anything
 downloads, SlopNet shows the real free storage and available memory on the VPS;
 the Granite choice reserves 5 GiB of free disk and requires 6 GiB available
@@ -85,25 +87,32 @@ memory for its roughly 2.1 GB model. Those limits come from SlopNet's real
 bounded VPS proof, rather than the model's parameter count alone.
 It installs and proves Llama.cpp only as the private `slopnet` runtime account,
 does not request an API key, and does not start a listening model server. It
-uses a bounded 4,096-token context, small batches, and a 15-minute test so a
-short rewrite cannot consume a whole VPS. On a later project request it may
-offer one offline, plain-English draft (with a five-minute limit). You see that
-draft and explicitly choose whether the paid coding planner receives it. The
-local helper cannot start coding or choose features.
+uses a bounded 4,096-token context, small batches, a 15-minute proof, and a
+five-minute/256-token cap for ordinary replies. The model selector identifies
+the installed local model and opens Settings when a person wants to change it.
 
-When setup says the server passed, use the larger request box at the bottom.
-Give the project a short lowercase name and write what you want made. The box
-grows for a longer request and scrolls once it reaches its limit. A **New**
-button starts a fresh request; prior requests are saved only as private Markdown
-files in this Mac's SlopNet application-support folder. Console output and
-interactive answers are intentionally not saved there, because either could
-contain a password or provider information.
+Choose **Chat** for ordinary questions about setup or writing a request. Each
+reply is a finite local-model call: it has no tools and cannot call the coding
+planner, coding agents, or a build pipeline. It therefore uses no coding-plan
+quota. Choose **Build** only when ready to spend from the proved coding
+subscription. SlopNet first asks for confirmation to make a plan and stops; no
+coding agent runs. After the person reads the plan, **Start approved build**
+asks for a second explicit confirmation before a multi-agent pipeline may edit
+the VPS project. That control currently refuses safely until a project-specific
+runner and its walls have passed their first VPS proof; it never falls back to
+an unprotected or local run. A local request draft remains optional, and the
+person must accept its exact wording before the paid planner sees it.
 
-SlopNet creates only that named folder on the VPS, reuses the already-proved
-Codex app there, and produces a plan only. It does **not** start coding agents
-from this screen; read the plan and make the next explicit choice before code
-is allowed to change. The server address, login name, and request history stay
-on the Mac and are not written into this repository or sent to GitHub.
+When setup says the server passed, the large box at the bottom begins in Chat.
+Use its selector to see or change the private model. Switch to Build to give a
+project a short lowercase name and write what you want made. The box grows for
+a longer request and scrolls once it reaches its limit. A **New** button starts
+a fresh request; prior requests are saved only as private Markdown files in
+this Mac's SlopNet application-support folder. Console output and interactive
+answers are intentionally not saved there, because either could contain a
+password or provider information. The server address, login name, and request
+history stay on the Mac and are not written into this repository or sent to
+GitHub.
 
 The first coding-app path is deliberately one-at-a-time. Guided VPS setup
 installs Codex only if it is missing and opens its normal device sign-in only
