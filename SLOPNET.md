@@ -30,10 +30,11 @@ The product is not ready to call beginner-ready until this path is real:
    safe way to inspect it.
 
 This is a product requirement, not a claim about the present checkout. The
-strict Docker gate is proved, but the guided remote agent-runtime and
-one-command beginner setup are still missing. Do not paper over that gap with
-more integrations, a longer README, or a local-only workaround. Every change
-must make the above path shorter, safer, or easier to understand.
+strict Docker gate is proved. The first guided Linux VPS setup for one Codex
+CLI is ready for live verification; it is not yet a general agent runtime or
+a beginner-ready release. Do not paper over that gap with more integrations,
+a longer README, or a local-only workaround. Every change must make the above
+path shorter, safer, or easier to understand.
 
 ## MVP crew roles
 

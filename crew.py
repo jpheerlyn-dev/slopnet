@@ -58,7 +58,7 @@ KNOWN_AGENTS = {
     },
     "codex": {
         "invocation": "{exe} exec {auto_approve} {prompt}",
-        "auto_approve": "--dangerously-bypass-approvals-and-sandbox",
+        "auto_approve": "--sandbox workspace-write --ask-for-approval never",
         "long_invocation": "{exe} exec {auto_approve} -",
         "long_transport": "stdin",
         "probe": PROBE_JOB,
@@ -120,7 +120,12 @@ NOT_CODERS = {
 }
 
 # Some CLIs install outside the default PATH; look there too.
-EXTRA_BINS = ["~/.kimi-code/bin", "~/.grok/bin", "~/.local/bin"]
+EXTRA_BINS = [
+    "~/.kimi-code/bin",
+    "~/.grok/bin",
+    "~/.local/bin",
+    "~/.local/node_modules/.bin",
+]
 
 # PROVIDERS — non-CLI coding subscriptions, verified only from
 # archive/jobs/RESEARCH_subscriptions_REPORT.md (2026-07-28). A worker of kind
@@ -443,7 +448,7 @@ def _probe_worker(worker):
         return True, f"wrote the file in {elapsed}s", elapsed
 
 
-def setup(root, ask, say, automatic=False):
+def setup(root, ask, say, automatic=False, resource_limits=None):
     """Onboarding. `ask(question, options)` returns the chosen string."""
     say("Let's meet your crew.\n")
     workers = available_workers()
@@ -453,6 +458,11 @@ def setup(root, ask, say, automatic=False):
             "SlopNet needs an AI coding app installed and on your PATH.",
             "Install one (claude, codex, gemini, hermes, …), log in, then: slopnet setup",
         )
+
+    if resource_limits:
+        for worker in workers:
+            if worker.get("kind") in ("cli", "env-cli"):
+                worker["resource_limits"] = dict(resource_limits)
 
     labels = [_worker_label(w) for w in workers]
     say("Found on this machine:")
@@ -630,6 +640,38 @@ def _stop_process(proc):
         return
 
 
+def _apply_resource_limits(limits):
+    """Best-effort child limits for a VPS agent process.
+
+    This runs in the child immediately before its agent command. Limits are
+    inherited by that command and its children; unsupported platforms simply
+    keep their normal operating-system limits.
+    """
+    if not limits or os.name != "posix":
+        return
+    try:
+        import resource
+    except ImportError:
+        return
+    choices = (
+        (getattr(resource, "RLIMIT_AS", None), limits.get("memory_bytes")),
+        (getattr(resource, "RLIMIT_NPROC", None), limits.get("processes")),
+        (getattr(resource, "RLIMIT_CPU", None), limits.get("cpu_seconds")),
+    )
+    for kind, wanted in choices:
+        if kind is None or not isinstance(wanted, int) or wanted <= 0:
+            continue
+        try:
+            _, hard = resource.getrlimit(kind)
+            ceiling = wanted if hard == resource.RLIM_INFINITY else min(wanted, hard)
+            resource.setrlimit(kind, (ceiling, ceiling))
+        except (OSError, ValueError):
+            # The proof still has its command timeout and non-root identity.
+            # Do not fail an otherwise safe setup merely because one host does
+            # not expose a particular POSIX limit.
+            continue
+
+
 def _run_cli(worker, prompt, cwd, timeout, cancel_event=None):
     import shlex
     timeout = _worker_timeout(worker, timeout)
@@ -673,6 +715,9 @@ def _run_cli(worker, prompt, cwd, timeout, cancel_event=None):
         # Never exported to the shell, never written to disk, never printed.
         env = _resolve_worker_env(worker)
         popen_options = {"start_new_session": True} if os.name == "posix" else {}
+        if worker.get("resource_limits") and os.name == "posix":
+            limits = dict(worker["resource_limits"])
+            popen_options["preexec_fn"] = lambda: _apply_resource_limits(limits)
         proc = subprocess.Popen(
             cmd, shell=True, cwd=cwd, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True, env=env,

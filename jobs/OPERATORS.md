@@ -2,13 +2,14 @@
 
 ## Active work
 
-**No job is currently scheduled.**
+**Guided VPS setup plus one Codex proof is scheduled and awaiting its live
+**REDACTED** run.**
 
-The next and only MVP build is a guided VPS setup with one real coding CLI
-proof. It needs an operator-named brief before an agent starts it. That is not
-administrative fuss: the brief must choose the supported VPS access method,
-the approved installer and login handoff, credential ownership and storage,
-allowed egress, resource limits, and the exact harmless edit-and-test proof.
+The implementation is deliberately narrow: Linux VPS plus one Codex CLI. It
+creates a private non-root runtime account without changing SSH policy, asks
+before installation and device login, checks private credential storage, and
+runs the disposable edit proof. The live VPS result decides whether it earns
+the next step.
 
 ## Current position — no file-opening required
 
@@ -17,7 +18,7 @@ allowed egress, resource limits, and the exact harmless edit-and-test proof.
 | Original local SlopNet engine (J01–J06) | Done; historical | The briefs and research live in `archive/jobs/`. They are not the VPS product. |
 | Whole-fleet real-world exam (J07) | Done; no app was built | Every available worker failed its real proof. Raw chronology: `archive/jobs/J07_FINDINGS.md`; rerun only after the VPS proof. |
 | Docker VPS containment gate | Done on **REDACTED** | Non-root, offline, read-only gate passed. Full output: `register/2026-07-29.md`. |
-| Guided VPS setup and one agent proof | Missing; the product blocker | Scope is recorded in `register/PENDING_OPERATOR.md`; this is the next brief. |
+| Guided VPS setup and one Codex proof | In live verification | Run `slopnet setup --vps` on **REDACTED** It must complete a real login and disposable edit proof. |
 | J08 hosted brains / more providers / Hermes / OpenClaw / Buzz | Deferred | Do not start before the preceding proof succeeds. |
 | GitHub branch protection | Incomplete | Configure `law`, `manifest`, `register-audit`, and `container` as required checks after GitHub authentication is restored. |
 

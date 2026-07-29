@@ -2,9 +2,9 @@
 
 > **Current status: local-engine reference, not the VPS-first beginner
 > product.** It documents the existing planner and fleet behaviour. The
-> guided VPS setup and credentialed agent runtime described in `SLOPNET.md`
-> have not been built yet, so do not give this file to a newcomer as setup
-> instructions.
+> first guided VPS Codex proof is awaiting live verification; the general
+> credentialed agent runtime described in `SLOPNET.md` does not exist yet, so
+> do not give this file to a newcomer as setup instructions.
 
 SlopNet's walls stop bad work landing. The crew is how good work gets
 made: one agent **plans**, several agents **write code at the same time**,
@@ -99,7 +99,7 @@ from their own help and then tested by asking each one to write
 | Agent | Command used for a normal prompt | Edit permission | Prompts over 100 KiB | Probe on 2026-07-28 |
 |---|---|---|---|---|
 | `claude` | `claude --dangerously-skip-permissions -p {prompt}` | explicit bypass flag | stdin from a temporary file | **UNPROVEN** — OAuth session expired |
-| `codex` | `codex exec --dangerously-bypass-approvals-and-sandbox {prompt}` | explicit bypass flag | stdin from a temporary file | **PROVEN** — wrote the file in 10s |
+| `codex` | `codex exec --sandbox workspace-write --ask-for-approval never {prompt}` | workspace-only sandbox | stdin from a temporary file | **PROVEN** — wrote the file in 10s |
 | `gemini` | `gemini --yolo -p {prompt}` | `--yolo` | stdin from a temporary file | **UNPROVEN** — no authentication method configured |
 | `grok` | `grok --permission-mode bypassPermissions -p {prompt}` | explicit bypass mode | `--prompt-file` | **PROVEN** — wrote the file in 5s |
 | `kimi` | `kimi -p {prompt}` | prompt mode itself uses `auto` permission | temporary file referenced by the prompt | **PROVEN** — wrote the file in 11s |

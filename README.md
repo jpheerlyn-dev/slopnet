@@ -13,14 +13,15 @@ harmless edit on the VPS, and then keep all agent work, tests, and credentials
 off their laptop.
 
 **This checkout is not there yet.** The VPS Docker safety gate is real and
-proved; the guided remote agent runtime and one-command onboarding are not.
-The long walkthrough later in this file is preserved as the historical
-local-development route for contributors. It is not the product flow we
-should ask a new user to follow or market as beginner-ready.
+proved. The first guided Linux VPS path for one Codex CLI is ready for its
+live **REDACTED** proof; it is not yet a broad multi-provider runtime or a
+beginner-ready release. The long walkthrough later in this file is preserved
+as the historical local-development route for contributors. It is not the
+product flow we should ask a new user to follow or market as beginner-ready.
 
-The current build priority is one narrow, proven VPS path for one approved
-coding CLI. Only after that works should SlopNet broaden to more providers or
-Hermes, OpenClaw, and Buzz integrations.
+The current build priority is proving that narrow path. Only after it works
+should SlopNet broaden to more providers or Hermes, OpenClaw, and Buzz
+integrations.
 
 ## VPS-first policy
 
