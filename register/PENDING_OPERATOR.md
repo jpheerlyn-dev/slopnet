@@ -1,5 +1,6 @@
 ## Open
 
+- [2026-07-29, Grok README upgrade] README is ~360+ lines after beginner-first rewrite (operator requested zero-knowledge onboarding). J05 soft guide was ~250; treat length as an operator call: keep deep onboarding, split a HUMANS.md later, or trim. Not silently shortened.
 - [2026-07-29, Grok J05 redo] Peer (beginner follow of new README) confusions for operator triage — do not silent-fix without operator call:
   1. Demo sits before Install; unclear whether to run demo first.
   2. “Crew” / “met your crew” used before defined.
