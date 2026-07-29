@@ -75,7 +75,7 @@ if [ -r "$helper_config" ] && [ -x "$runtime_home/.local/bin/llama" ]; then
 REQUEST:
 $idea"
         helper_error=$(mktemp "${TMPDIR:-/tmp}/slopnet-local-draft.XXXXXX")
-        if helper_draft=$(HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" nice -n 10 "$runtime_home/.local/bin/llama" cli -hf "$helper_model" --offline -p "$helper_prompt" -st --no-display-prompt --no-perf --simple-io 2>"$helper_error"); then
+        if helper_draft=$(HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" timeout 300 nice -n 10 "$runtime_home/.local/bin/llama" cli -hf "$helper_model" --offline -c 4096 -b 512 -ub 256 --no-warmup -p "$helper_prompt" -st --no-display-prompt --no-perf --simple-io 2>"$helper_error"); then
           if [ -n "$helper_draft" ]; then
             echo
             echo "--- local helper draft ---"

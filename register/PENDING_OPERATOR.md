@@ -1,5 +1,7 @@
 ## Open
 
+- [2026-07-29, Codex] Real v0.6 local-helper attempt did not pass: on the prepared VPS, Linux reported global OOM and killed llama at anon-rss 23090432 kB (23 GiB); the VPS has 23 GiB RAM and no swap. No local helper configuration was written. v0.7 bounds the helper proof to a 4,096-token context with smaller batches and a timeout; repeat the user-approved live proof before claiming this path works.
+
 - [2026-07-29, Codex] Actual push observation: GitHub allowed direct pushes to main while reporting ‘4 of 4 required status checks are expected.’ Required checks did not gate the pushes. Restore a non-bypassable pull-request/status-check path before release; current branch rules are not evidence of enforcement.
 
 - [2026-07-29, Codex] Local helper onboarding is not implemented yet: official IBM Granite 4.1 8B GGUF Q4_K_M is a 5.35 GB Apache-2.0 download and official llama.cpp can serve it locally. Before adding an automatic installer, decide whether the app must show an explicit capacity and download-confirmation screen, then prove install/detection under the protected slopnet runtime account rather than a server login account.

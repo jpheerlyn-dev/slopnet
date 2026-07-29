@@ -18,6 +18,10 @@ username="$3"
 model="$4"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 default_model="ibm-granite/granite-4.1-8b-GGUF:Q4_K_M"
+# A request-rewriter never needs a model's enormous advertised context. This
+# deliberately small bound prevents its KV cache from consuming an otherwise
+# healthy VPS. It is not an agent-runtime limit and does not affect paid CLIs.
+helper_context="4096"
 
 say() {
   printf '\n%s\n' "$1"
@@ -60,6 +64,7 @@ remote_setup='set -eu
 umask 077
 model_b64=$1
 default_model="ibm-granite/granite-4.1-8b-GGUF:Q4_K_M"
+helper_context=4096
 model=$(printf "%s" "$model_b64" | base64 -d)
 case "$model" in
   *[!A-Za-z0-9._:/\-]*|*//*|/*/|:*:*)
@@ -106,6 +111,7 @@ fi
 echo
 echo "Llama.cpp will be installed from its official installer into the slopnet account."
 echo "The selected public model will download now and answer one harmless word. This can take a while."
+echo "SlopNet limits this helper to a 4,096-token context and modest batches so a short draft cannot take over the VPS."
 read -r -p "Install and test it? [y/N] " answer
 answer_lower=$(printf "%s" "$answer" | tr "[:upper:]" "[:lower:]")
 case "$answer_lower" in
@@ -124,9 +130,16 @@ if [ ! -x "$llama" ]; then
   exit 1
 fi
 
+run_model() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 900 runuser -u slopnet -- env HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" "$@"
+  else
+    runuser -u slopnet -- env HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" "$@"
+  fi
+}
+
 echo "Downloading and proving the selected model as slopnet…"
-if ! proof_output=$(runuser -u slopnet -- env HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" \
-  nice -n 10 "$llama" cli -hf "$model" -p "Reply with exactly READY." -st --no-display-prompt --no-perf --simple-io); then
+if ! proof_output=$(run_model nice -n 10 "$llama" cli -hf "$model" -c "$helper_context" -b 512 -ub 256 --no-warmup -p "Reply with exactly READY." -st --no-display-prompt --no-perf --simple-io); then
   echo "The local model test failed. Llama.cpp and any partial cache were left in the protected runtime account for inspection; SlopNet did not enable the helper."
   exit 1
 fi

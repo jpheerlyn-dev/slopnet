@@ -56,7 +56,9 @@ is to offer an offline rewrite of a person's request before planning; the
 person must accept the exact wording before the coding planner sees it. The
 default is IBM Granite 4.1 8B Q4_K_M, while a person may choose another public
 Hugging Face identifier. Capacity and an actual one-word model proof happen
-before SlopNet marks it ready.
+before SlopNet marks it ready. The helper uses a bounded 4,096-token context,
+small batches, and a 15-minute proof so it cannot reserve a model's full
+advertised context window for a tiny request rewrite.
 
 ## MVP crew roles
 

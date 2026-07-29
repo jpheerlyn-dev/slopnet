@@ -82,10 +82,12 @@ different public Hugging Face GGUF in `owner/model:quant` form. Before anything
 downloads, SlopNet shows the real free storage and available memory on the VPS;
 the Granite choice reserves 8 GiB of free disk for its roughly 5.35 GB model.
 It installs and proves Llama.cpp only as the private `slopnet` runtime account,
-does not request an API key, and does not start a listening model server. On a
-later project request it may offer one offline, plain-English draft. You see
-that draft and explicitly choose whether the paid coding planner receives it.
-The local helper cannot start coding or choose features.
+does not request an API key, and does not start a listening model server. It
+uses a bounded 4,096-token context, small batches, and a 15-minute test so a
+short rewrite cannot consume a whole VPS. On a later project request it may
+offer one offline, plain-English draft (with a five-minute limit). You see that
+draft and explicitly choose whether the paid coding planner receives it. The
+local helper cannot start coding or choose features.
 
 When setup says the server passed, use the larger request box at the bottom.
 Give the project a short lowercase name and write what you want made. The box

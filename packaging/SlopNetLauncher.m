@@ -628,7 +628,8 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     [self.console note:[NSString stringWithFormat:
         @"\n=== Preparing local helper: %@ ===\n"
          "This happens only on your server. It will show the real capacity before "
-         "it downloads anything, and it never opens a model port.", model]];
+         "it downloads anything, keeps this small helper to a 4K context and a "
+         "15-minute test, and never opens a model port.", model]];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port, self.username, model]]) {

@@ -209,7 +209,8 @@
         [self helpText:@"A small model runs only on this server before planning. It can "
                        @"draft clearer request wording, but it cannot start coding or make "
                        @"a decision for you. SlopNet shows storage and memory first, downloads "
-                       @"only after you approve, and never opens a model port."],
+                       @"only after you approve, limits it to a small 4K context and a 15-minute "
+                       @"test, and never opens a model port."],
         localModelRow,
         localButtons,
         self.localHelperNote,
