@@ -1,63 +1,90 @@
 // SlopNet — the Mac control window.
 //
-// Everything runs INSIDE this window now (see SlopNetConsole): no
-// Terminal, no AppleScript, no macOS Automation permission. You see the
-// same output an expert would see in a terminal, and you can answer its
-// questions in the box underneath.
+// Shape: a sidebar on the left (what is connected, the controls, what you
+// built before), a terminal filling the middle, and a chat-style box along
+// the bottom. A command line wearing a familiar app.
+//
+// Everything runs INSIDE this window (see SlopNetConsole): no Terminal, no
+// AppleScript, no macOS Automation permission.
+//
+// The rule that shapes the layout: never ask someone to do a thing they
+// have already done. Once a VPS is set up, its form goes away into
+// Settings and the window offers the next real step instead.
 
 #import <Cocoa/Cocoa.h>
 #import "SlopNetConsole.h"
 
+static NSString *const kHostKey     = @"SlopNetVPSHost";
+static NSString *const kUserKey     = @"SlopNetVPSUser";
+static NSString *const kPortKey     = @"SlopNetVPSPort";
+static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cleanly
+static NSString *const kProjectsKey = @"SlopNetProjects";   // names we have built
+
 @interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate>
 @property(nonatomic, strong) NSWindow *window;
-@property(nonatomic, strong) NSButton *hasVPS;
+
+// sidebar
+@property(nonatomic, strong) NSTextField *statusDot;
+@property(nonatomic, strong) NSTextField *statusText;
+@property(nonatomic, strong) NSStackView *historyStack;
+@property(nonatomic, strong) NSButton *settingsToggle;
+
+// the VPS form: hidden once connected
+@property(nonatomic, strong) NSBox *settingsBox;
 @property(nonatomic, strong) NSTextField *host;
 @property(nonatomic, strong) NSTextField *username;
 @property(nonatomic, strong) NSTextField *port;
-@property(nonatomic, strong) NSTextField *projectName;
-@property(nonatomic, strong) NSTextField *projectIdea;
+
+// main
 @property(nonatomic, strong) SlopNetConsole *console;
-@property(nonatomic, strong) NSButton *setupButton;
-@property(nonatomic, strong) NSButton *projectButton;
+@property(nonatomic, strong) NSTextField *projectName;
+@property(nonatomic, strong) NSTextField *entry;
+@property(nonatomic, strong) NSButton *sendButton;
+
+@property(nonatomic, assign) BOOL settingsOpen;
+@property(nonatomic, assign) BOOL busy;
+@property(nonatomic, assign) BOOL setupRunning;
 @end
 
 @implementation SlopNetAppDelegate
 
-#pragma mark - small builders
+#pragma mark - tiny builders
 
 - (NSTextField *)label:(NSString *)text size:(CGFloat)size grey:(BOOL)grey {
     NSTextField *label = [NSTextField labelWithString:text];
     label.font = [NSFont systemFontOfSize:size];
     label.lineBreakMode = NSLineBreakByWordWrapping;
-    label.maximumNumberOfLines = 4;
+    label.maximumNumberOfLines = 5;
     if (grey) label.textColor = [NSColor secondaryLabelColor];
     return label;
 }
 
-- (NSButton *)button:(NSString *)title action:(SEL)action {
+- (NSButton *)sidebarButton:(NSString *)title action:(SEL)action {
     NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
     button.title = title;
     button.target = self;
     button.action = action;
-    button.bezelStyle = NSBezelStyleRounded;
+    button.bezelStyle = NSBezelStyleInline;
+    button.alignment = NSTextAlignmentLeft;
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    [button.heightAnchor constraintEqualToConstant:26].active = YES;
     return button;
 }
 
-- (NSTextField *)field:(NSString *)placeholder value:(NSString *)value width:(CGFloat)width {
+- (NSTextField *)field:(NSString *)placeholder value:(NSString *)value {
     NSTextField *field = [[NSTextField alloc] initWithFrame:NSZeroRect];
     field.placeholderString = placeholder;
     if (value) field.stringValue = value;
     field.translatesAutoresizingMaskIntoConstraints = NO;
-    [field.widthAnchor constraintEqualToConstant:width].active = YES;
     [field.heightAnchor constraintEqualToConstant:24].active = YES;
     return field;
 }
 
-/// One labelled row, so the layout never needs pixel arithmetic.
-- (NSStackView *)row:(NSString *)labelText control:(NSView *)control {
-    NSTextField *label = [self label:labelText size:13 grey:NO];
+- (NSStackView *)row:(NSString *)labelText control:(NSView *)control width:(CGFloat)width {
+    NSTextField *label = [self label:labelText size:12 grey:NO];
     label.translatesAutoresizingMaskIntoConstraints = NO;
-    [label.widthAnchor constraintEqualToConstant:150].active = YES;
+    [label.widthAnchor constraintEqualToConstant:110].active = YES;
+    [control.widthAnchor constraintEqualToConstant:width].active = YES;
     NSStackView *row = [NSStackView stackViewWithViews:@[label, control]];
     row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     row.alignment = NSLayoutAttributeCenterY;
@@ -65,122 +92,305 @@
     return row;
 }
 
-#pragma mark - window
+- (NSBox *)separator {
+    NSBox *line = [[NSBox alloc] initWithFrame:NSZeroRect];
+    line.boxType = NSBoxSeparator;
+    line.translatesAutoresizingMaskIntoConstraints = NO;
+    [line.widthAnchor constraintEqualToConstant:200].active = YES;
+    return line;
+}
+
+#pragma mark - launch
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     self.window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, 860, 720)
+        initWithContentRect:NSMakeRect(0, 0, 1000, 700)
                   styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                              NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     self.window.title = @"SlopNet";
-    self.window.minSize = NSMakeSize(760, 560);
+    self.window.minSize = NSMakeSize(820, 520);
     [self.window center];
 
-    NSTextField *title = [self label:@"SlopNet" size:28 grey:NO];
-    title.font = [NSFont boldSystemFontOfSize:28];
-    // Show which build this is. Without it there is no way to tell an
-    // updated app from the one you installed last week — which is exactly
-    // how someone ends up watching an old version misbehave.
+    NSSplitView *split = [[NSSplitView alloc] initWithFrame:NSZeroRect];
+    split.vertical = YES;
+    split.dividerStyle = NSSplitViewDividerStyleThin;
+    split.translatesAutoresizingMaskIntoConstraints = NO;
+    [split addArrangedSubview:[self buildSidebar]];
+    [split addArrangedSubview:[self buildMain]];
+
+    NSView *content = self.window.contentView;
+    [content addSubview:split];
+    [NSLayoutConstraint activateConstraints:@[
+        [split.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [split.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [split.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [split.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+    ]];
+    [split setPosition:236 ofDividerAtIndex:0];
+
+    [self recall];
+    [self refreshState];
+    [self.window makeKeyAndOrderFront:nil];
+    [self.window makeFirstResponder:self.entry];
+    [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (NSView *)buildSidebar {
     NSString *version = [[NSBundle mainBundle]
         objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
-    NSString *built = [[NSBundle mainBundle]
-        objectForInfoDictionaryKey:@"SlopNetBuiltAt"] ?: @"";
-    NSTextField *subtitle = [self label:[NSString stringWithFormat:
-        @"Describe what you want built. Everything runs on your own VPS, and "
-        @"you can watch every step below.\nVersion %@%@ — runs inside this "
-        @"window, never Terminal.", version,
-        built.length ? [@", built " stringByAppendingString:built] : @""]
-                                   size:13 grey:YES];
 
-    self.hasVPS = [[NSButton alloc] initWithFrame:NSZeroRect];
-    self.hasVPS.title = @"I already have a VPS";
-    self.hasVPS.buttonType = NSButtonTypeSwitch;
-    self.hasVPS.state = NSControlStateValueOn;
-    self.hasVPS.target = self;
-    self.hasVPS.action = @selector(changeVPSChoice:);
+    NSTextField *title = [self label:@"SlopNet" size:20 grey:NO];
+    title.font = [NSFont boldSystemFontOfSize:20];
 
-    self.host = [self field:@"the IP address from your VPS welcome email" value:nil width:330];
-    self.username = [self field:@"root" value:@"root" width:200];
-    self.port = [self field:@"22" value:@"22" width:80];
-    self.projectName = [self field:@"a name you choose, like photo-sheet" value:nil width:240];
-    self.projectIdea = [self field:@"a sentence in your own words" value:nil width:400];
+    self.statusDot = [self label:@"●" size:13 grey:NO];
+    self.statusText = [self label:@"Checking…" size:12 grey:YES];
+    NSStackView *status = [NSStackView stackViewWithViews:@[self.statusDot, self.statusText]];
+    status.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    status.alignment = NSLayoutAttributeCenterY;
+    status.spacing = 6;
 
-    self.setupButton = [self button:@"Set up my VPS" action:@selector(beginSetup:)];
-    self.setupButton.keyEquivalent = @"\r";
-    self.projectButton = [self button:@"Make my project plan" action:@selector(beginProject:)];
-    NSButton *clearButton = [self button:@"Clear output" action:@selector(clearConsole:)];
-    NSButton *forgetButton = [self button:@"Forget my VPS" action:@selector(forgetConnection:)];
+    self.settingsToggle = [self sidebarButton:@"⚙   VPS settings"
+                                       action:@selector(toggleSettings:)];
+    NSButton *checkButton = [self sidebarButton:@"⇄   Check connection"
+                                         action:@selector(checkConnection:)];
+    NSButton *clearButton = [self sidebarButton:@"⌫   Clear screen"
+                                         action:@selector(clearConsole:)];
 
-    NSStackView *buttons = [NSStackView stackViewWithViews:@[
-        self.setupButton, self.projectButton, clearButton, forgetButton]];
-    buttons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    buttons.spacing = 10;
+    NSTextField *historyTitle = [self label:@"PROJECTS" size:10 grey:YES];
+    self.historyStack = [NSStackView stackViewWithViews:@[]];
+    self.historyStack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    self.historyStack.alignment = NSLayoutAttributeLeading;
+    self.historyStack.spacing = 1;
 
-    NSStackView *providers = [NSStackView stackViewWithViews:@[
-        [self label:@"No VPS yet?" size:12 grey:YES],
-        [self button:@"Hetzner" action:@selector(openHetzner:)],
-        [self button:@"Contabo" action:@selector(openContabo:)],
-        [self button:@"Hostinger" action:@selector(openHostinger:)]]];
-    providers.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    providers.spacing = 8;
+    NSStackView *sidebar = [NSStackView stackViewWithViews:@[
+        title, status,
+        [self separator],
+        self.settingsToggle, checkButton, clearButton,
+        [self separator],
+        historyTitle, self.historyStack,
+        [self label:[NSString stringWithFormat:@"v%@", version] size:10 grey:YES]]];
+    sidebar.orientation = NSUserInterfaceLayoutOrientationVertical;
+    sidebar.alignment = NSLayoutAttributeLeading;
+    sidebar.spacing = 8;
+    sidebar.edgeInsets = NSEdgeInsetsMake(18, 14, 14, 14);
+    [sidebar setHuggingPriority:NSLayoutPriorityDefaultLow
+                 forOrientation:NSLayoutConstraintOrientationVertical];
+    return sidebar;
+}
+
+- (NSView *)buildMain {
+    self.host = [self field:@"the IP address from your VPS welcome email" value:nil];
+    self.username = [self field:@"root" value:@"root"];
+    self.port = [self field:@"22" value:@"22"];
+
+    NSButton *setupButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    setupButton.title = @"Set up this VPS";
+    setupButton.bezelStyle = NSBezelStyleRounded;
+    setupButton.target = self;
+    setupButton.action = @selector(beginSetup:);
+    NSButton *forgetButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    forgetButton.title = @"Forget";
+    forgetButton.bezelStyle = NSBezelStyleRounded;
+    forgetButton.target = self;
+    forgetButton.action = @selector(forgetConnection:);
+    NSStackView *setupButtons = [NSStackView stackViewWithViews:@[setupButton, forgetButton]];
+    setupButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    setupButtons.spacing = 8;
+
+    NSStackView *settingsStack = [NSStackView stackViewWithViews:@[
+        [self label:@"Your VPS password is never typed or stored here. The first "
+                    @"connection asks for it below, and it goes straight to your VPS."
+               size:11 grey:YES],
+        [self row:@"VPS address" control:self.host width:300],
+        [self row:@"Login name" control:self.username width:180],
+        [self row:@"Port" control:self.port width:80],
+        setupButtons]];
+    settingsStack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    settingsStack.alignment = NSLayoutAttributeLeading;
+    settingsStack.spacing = 7;
+    settingsStack.edgeInsets = NSEdgeInsetsMake(10, 12, 12, 12);
+
+    self.settingsBox = [[NSBox alloc] initWithFrame:NSZeroRect];
+    self.settingsBox.title = @"VPS settings";
+    self.settingsBox.contentView = settingsStack;
+    self.settingsBox.translatesAutoresizingMaskIntoConstraints = NO;
 
     self.console = [[SlopNetConsole alloc] initWithFrame:NSZeroRect];
     self.console.delegate = self;
     self.console.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.console.heightAnchor constraintGreaterThanOrEqualToConstant:260].active = YES;
 
-    NSStackView *form = [NSStackView stackViewWithViews:@[
-        title, subtitle, self.hasVPS,
-        [self row:@"VPS address" control:self.host],
-        [self row:@"VPS login name" control:self.username],
-        [self row:@"Connection port" control:self.port],
-        [self label:@"Your VPS password is never typed here or saved by SlopNet. "
-                    @"The first connection asks for it in the window below, and it "
-                    @"goes straight to your VPS." size:12 grey:YES],
-        [self row:@"Project folder name" control:self.projectName],
-        [self row:@"What do you want made?" control:self.projectIdea],
-        buttons, providers, self.console]];
-    form.orientation = NSUserInterfaceLayoutOrientationVertical;
-    form.alignment = NSLayoutAttributeLeading;
-    form.spacing = 10;
-    form.edgeInsets = NSEdgeInsetsMake(20, 24, 20, 24);
-    form.translatesAutoresizingMaskIntoConstraints = NO;
-    [form setHuggingPriority:NSLayoutPriorityDefaultLow
+    // The chat bar. What it does depends on what is happening: answer the
+    // running program's question, or describe the thing you want built.
+    self.projectName = [self field:@"project name" value:nil];
+    [self.projectName.widthAnchor constraintEqualToConstant:150].active = YES;
+    self.entry = [self field:@"Describe what you want built, then press Return" value:nil];
+    self.entry.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
+    self.entry.target = self;
+    self.entry.action = @selector(sendPressed:);
+    [self.entry setContentHuggingPriority:NSLayoutPriorityDefaultLow
+                           forOrientation:NSLayoutConstraintOrientationHorizontal];
+    self.sendButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+    self.sendButton.title = @"Build it";
+    self.sendButton.bezelStyle = NSBezelStyleRounded;
+    self.sendButton.keyEquivalent = @"\r";
+    self.sendButton.target = self;
+    self.sendButton.action = @selector(sendPressed:);
+
+    NSStackView *chatBar = [NSStackView stackViewWithViews:@[
+        self.projectName, self.entry, self.sendButton]];
+    chatBar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    chatBar.alignment = NSLayoutAttributeCenterY;
+    chatBar.spacing = 8;
+    chatBar.translatesAutoresizingMaskIntoConstraints = NO;
+
+    NSStackView *main = [NSStackView stackViewWithViews:@[
+        self.settingsBox, self.console, chatBar]];
+    main.orientation = NSUserInterfaceLayoutOrientationVertical;
+    main.alignment = NSLayoutAttributeLeading;
+    main.spacing = 10;
+    main.edgeInsets = NSEdgeInsetsMake(16, 16, 16, 16);
+    [main setHuggingPriority:NSLayoutPriorityDefaultLow
               forOrientation:NSLayoutConstraintOrientationVertical];
-
-    NSView *content = self.window.contentView;
-    [content addSubview:form];
     [NSLayoutConstraint activateConstraints:@[
-        [form.topAnchor constraintEqualToAnchor:content.topAnchor],
-        [form.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
-        [form.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
-        [form.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
-        [self.console.widthAnchor constraintEqualToAnchor:form.widthAnchor constant:-48],
+        [self.settingsBox.widthAnchor constraintEqualToAnchor:main.widthAnchor constant:-32],
+        [self.console.widthAnchor constraintEqualToAnchor:main.widthAnchor constant:-32],
+        [chatBar.widthAnchor constraintEqualToAnchor:main.widthAnchor constant:-32],
+        [self.console.heightAnchor constraintGreaterThanOrEqualToConstant:240],
     ]];
+    return main;
+}
 
-    [self.console note:@"Ready. Fill in your VPS details above and press "
-                       @"“Set up my VPS”.\n"
-                       @"Everything that happens will appear here. When a question "
-                       @"appears, type your answer in the box below and press Return."];
+#pragma mark - one place decides what the window shows
 
-    [self recallConnection];
-    [self.window makeKeyAndOrderFront:nil];
-    [NSApp activateIgnoringOtherApps:YES];
+- (BOOL)isReady {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:kReadyKey] &&
+           self.host.stringValue.length > 0;
+}
+
+- (void)refreshState {
+    BOOL ready = [self isReady];
+    BOOL showSettings = self.settingsOpen || !ready;
+
+    self.settingsBox.hidden = !showSettings;
+    self.settingsToggle.title = showSettings ? @"⚙   Hide VPS settings"
+                                             : @"⚙   VPS settings";
+
+    if (ready) {
+        self.statusDot.textColor = [NSColor systemGreenColor];
+        self.statusText.stringValue = [NSString stringWithFormat:@"Ready — %@",
+                                       self.host.stringValue];
+    } else {
+        self.statusDot.textColor = [NSColor systemGrayColor];
+        self.statusText.stringValue = @"No VPS yet";
+    }
+
+    self.projectName.hidden = !ready;
+    if (self.busy) {
+        self.entry.placeholderString =
+            @"Type your answer here and press Return (for example: y)";
+        self.sendButton.title = @"Answer";
+    } else if (ready) {
+        self.entry.placeholderString = @"Describe what you want built, then press Return";
+        self.sendButton.title = @"Build it";
+    } else {
+        self.entry.placeholderString = @"Set up a VPS first — the form is above";
+        self.sendButton.title = @"Build it";
+    }
+    [self rebuildHistory];
+}
+
+- (void)setBusy:(BOOL)busy {
+    _busy = busy;
+    [self refreshState];
+}
+
+- (void)rebuildHistory {
+    for (NSView *view in [self.historyStack.arrangedSubviews copy]) {
+        [self.historyStack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    NSArray<NSString *> *projects =
+        [[NSUserDefaults standardUserDefaults] arrayForKey:kProjectsKey];
+    if (projects.count == 0) {
+        [self.historyStack addArrangedSubview:[self label:@"nothing yet" size:11 grey:YES]];
+        return;
+    }
+    for (NSString *name in [projects reverseObjectEnumerator]) {
+        [self.historyStack addArrangedSubview:
+            [self sidebarButton:[@"•  " stringByAppendingString:name]
+                         action:@selector(reuseProject:)]];
+    }
+}
+
+- (void)reuseProject:(NSButton *)sender {
+    NSString *name = [sender.title stringByReplacingOccurrencesOfString:@"•  "
+                                                             withString:@""];
+    self.projectName.stringValue = name;
+    [self.console note:[NSString stringWithFormat:
+        @"\nUsing project “%@”. Say what you want done to it and press Return.", name]];
+    [self.window makeFirstResponder:self.entry];
+}
+
+#pragma mark - remembering (never a password, never inside the repo)
+
+// Only the three details from a provider's welcome email are kept, in
+// macOS's own preferences for this app. A password is NEVER stored: it goes
+// from the console straight to your VPS. The SSH key that setup creates
+// stays in the macOS Keychain. Nothing is written into the SlopNet folder,
+// so none of it can be committed or uploaded by accident.
+- (void)remember {
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    [store setObject:self.host.stringValue forKey:kHostKey];
+    [store setObject:self.username.stringValue forKey:kUserKey];
+    [store setObject:self.port.stringValue forKey:kPortKey];
+}
+
+- (void)recall {
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    NSString *savedHost = [store stringForKey:kHostKey];
+    NSString *savedUser = [store stringForKey:kUserKey];
+    NSString *savedPort = [store stringForKey:kPortKey];
+    if (savedHost.length) self.host.stringValue = savedHost;
+    if (savedUser.length) self.username.stringValue = savedUser;
+    if (savedPort.length) self.port.stringValue = savedPort;
+
+    if ([self isReady]) {
+        [self.console note:[NSString stringWithFormat:
+            @"Your VPS (%@) is set up and ready.\n"
+            @"Name your project in the small box below, say what you want built, "
+            @"and press Return.", savedHost]];
+    } else {
+        [self.console note:@"Welcome. Fill in your VPS details above and press "
+                           @"“Set up this VPS”.\nEverything that happens appears here, "
+                           @"and you can answer any question in the box below."];
+    }
+}
+
+- (void)forgetConnection:(id)sender {
+    if (self.busy) return;
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey]) {
+        [store removeObjectForKey:key];
+    }
+    self.host.stringValue = @"";
+    self.username.stringValue = @"root";
+    self.port.stringValue = @"22";
+    self.settingsOpen = YES;
+    [self.console note:@"\nForgotten on this Mac. Your VPS itself is untouched, and "
+                       @"no password was ever stored."];
+    [self refreshState];
 }
 
 #pragma mark - actions
 
-- (void)changeVPSChoice:(id)sender {
-    BOOL have = self.hasVPS.state == NSControlStateValueOn;
-    self.setupButton.enabled = have;
-    self.projectButton.enabled = have;
-    if (!have) {
-        [self.console note:@"\nPick a VPS provider below, then come back with the "
-                           @"address, login name and password from their email."];
-    }
+- (void)toggleSettings:(id)sender {
+    self.settingsOpen = !self.settingsOpen;
+    [self refreshState];
 }
+
+- (void)clearConsole:(id)sender { [self.console clear]; }
 
 - (BOOL)matches:(NSString *)value pattern:(NSString *)pattern {
     NSRange range = NSMakeRange(0, value.length);
@@ -189,13 +399,14 @@
     return [expression firstMatchInString:value options:0 range:range] != nil;
 }
 
-- (BOOL)connectionDetailsValid {
+- (BOOL)connectionValid {
     if (![self matches:self.host.stringValue pattern:@"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$"] ||
         ![self matches:self.username.stringValue pattern:@"^[A-Za-z_][A-Za-z0-9_-]{0,31}$"] ||
-        self.port.integerValue < 1 || self.port.integerValue > 65535 ||
-        ![self matches:self.port.stringValue pattern:@"^[0-9]{1,5}$"]) {
+        self.port.integerValue < 1 || self.port.integerValue > 65535) {
         [self.console note:@"\nCheck the VPS address and login name against your "
                            @"provider's welcome email. The port is almost always 22."];
+        self.settingsOpen = YES;
+        [self refreshState];
         return NO;
     }
     return YES;
@@ -206,33 +417,66 @@
 }
 
 - (void)beginSetup:(id)sender {
-    if (self.hasVPS.state != NSControlStateValueOn) { [self changeVPSChoice:nil]; return; }
-    if (![self connectionDetailsValid]) return;
+    if (self.busy || ![self connectionValid]) return;
     NSString *script = [self helper:@"slopnet-vps-onboard"];
     if (script == nil) {
         [self.console note:@"The VPS setup helper is missing from this app. Build it again."];
         return;
     }
+    [self remember];
     [self.console note:@"\n=== Setting up your VPS ==="];
-    [self rememberConnection];
+    self.setupRunning = YES;
     [self setBusy:YES];
-    [self.console runExecutable:@"/bin/bash"
-                      arguments:@[script, self.host.stringValue,
-                                  self.port.stringValue, self.username.stringValue]];
+    if (![self.console runExecutable:@"/bin/bash"
+                           arguments:@[script, self.host.stringValue,
+                                       self.port.stringValue, self.username.stringValue]]) {
+        self.setupRunning = NO;
+        [self setBusy:NO];
+    }
 }
 
-- (void)beginProject:(id)sender {
-    if (self.hasVPS.state != NSControlStateValueOn) { [self changeVPSChoice:nil]; return; }
-    if (![self connectionDetailsValid]) return;
-    if (![self matches:self.projectName.stringValue pattern:@"^[a-z0-9][a-z0-9-]{0,62}$"]) {
-        [self.console note:@"\nChoose a project folder name using lowercase letters, "
-                           @"numbers and hyphens only. SlopNet will not pick a name for you."];
+- (void)checkConnection:(id)sender {
+    if (self.busy || ![self connectionValid]) return;
+    [self.console note:@"\n=== Checking the connection ==="];
+    [self setBusy:YES];
+    NSString *target = [NSString stringWithFormat:@"%@@%@",
+                        self.username.stringValue, self.host.stringValue];
+    if (![self.console runExecutable:@"/usr/bin/ssh"
+                           arguments:@[@"-p", self.port.stringValue,
+                                       @"-o", @"BatchMode=yes",
+                                       @"-o", @"ConnectTimeout=10",
+                                       @"-o", @"StrictHostKeyChecking=accept-new",
+                                       target, @"echo SlopNet reached your VPS."]]) {
+        [self setBusy:NO];
+    }
+}
+
+/// The chat box. Running → the text answers the question. Idle → the text
+/// is the thing you want built.
+- (void)sendPressed:(id)sender {
+    if (self.busy) {
+        [self.console sendLine:self.entry.stringValue];
+        self.entry.stringValue = @"";
         return;
     }
-    NSString *idea = [self.projectIdea.stringValue stringByTrimmingCharactersInSet:
+    if (![self isReady]) {
+        [self.console note:@"\nSet up a VPS first — press “VPS settings” on the left."];
+        self.settingsOpen = YES;
+        [self refreshState];
+        return;
+    }
+    NSString *name = [self.projectName.stringValue stringByTrimmingCharactersInSet:
         [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *idea = [self.entry.stringValue stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (![self matches:name pattern:@"^[a-z0-9][a-z0-9-]{0,62}$"]) {
+        [self.console note:@"\nGive the project a short name in the small box: lowercase "
+                           @"letters, numbers and hyphens, like photo-sheet."];
+        [self.window makeFirstResponder:self.projectName];
+        return;
+    }
     if (idea.length == 0) {
-        [self.console note:@"\nWrite one sentence about what you want made."];
+        [self.console note:@"\nSay what you want built, in one sentence."];
         return;
     }
     NSString *script = [self helper:@"slopnet-vps-project"];
@@ -240,86 +484,48 @@
         [self.console note:@"The project helper is missing from this app. Build it again."];
         return;
     }
-    [self.console note:@"\n=== Making your project plan ==="];
+    [self rememberProject:name];
+    [self.console note:[NSString stringWithFormat:@"\n=== %@ — %@ ===", name, idea]];
+    self.entry.stringValue = @"";
     [self setBusy:YES];
-    [self.console runExecutable:@"/bin/bash"
-                      arguments:@[script, self.host.stringValue, self.port.stringValue,
-                                  self.username.stringValue, self.projectName.stringValue, idea]];
-}
-
-- (void)clearConsole:(id)sender { [self.console clear]; }
-
-#pragma mark - remembering your VPS
-
-// Only the three details you would read off a provider email are stored,
-// and only in macOS's own preferences for this app (~/Library/Preferences).
-// A password is NEVER stored here: it goes straight from the console to
-// your VPS. The SSH key that setup creates lives in your Keychain, which
-// is macOS's encrypted store — SlopNet never copies it into this repo,
-// and nothing here is ever committed or uploaded.
-static NSString *const kHostKey = @"SlopNetVPSHost";
-static NSString *const kUserKey = @"SlopNetVPSUser";
-static NSString *const kPortKey = @"SlopNetVPSPort";
-
-- (void)rememberConnection {
-    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    [store setObject:self.host.stringValue forKey:kHostKey];
-    [store setObject:self.username.stringValue forKey:kUserKey];
-    [store setObject:self.port.stringValue forKey:kPortKey];
-}
-
-- (void)recallConnection {
-    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    NSString *savedHost = [store stringForKey:kHostKey];
-    NSString *savedUser = [store stringForKey:kUserKey];
-    NSString *savedPort = [store stringForKey:kPortKey];
-    if (savedHost.length) self.host.stringValue = savedHost;
-    if (savedUser.length) self.username.stringValue = savedUser;
-    if (savedPort.length) self.port.stringValue = savedPort;
-    if (savedHost.length) {
-        [self.console note:[NSString stringWithFormat:
-            @"Using the VPS you set up last time (%@). Change it above if "
-            @"you want a different one.", savedHost]];
+    if (![self.console runExecutable:@"/bin/bash"
+                           arguments:@[script, self.host.stringValue, self.port.stringValue,
+                                       self.username.stringValue, name, idea]]) {
+        [self setBusy:NO];
     }
 }
 
-- (void)forgetConnection:(id)sender {
+- (void)rememberProject:(NSString *)name {
     NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    for (NSString *key in @[kHostKey, kUserKey, kPortKey]) {
-        [store removeObjectForKey:key];
-    }
-    self.host.stringValue = @"";
-    self.username.stringValue = @"root";
-    self.port.stringValue = @"22";
-    [self.console note:@"\nForgotten. Your VPS itself is untouched, and no "
-                       @"password was ever stored."];
+    NSMutableArray *projects = [([store arrayForKey:kProjectsKey] ?: @[]) mutableCopy];
+    [projects removeObject:name];
+    [projects addObject:name];
+    while (projects.count > 12) [projects removeObjectAtIndex:0];
+    [store setObject:projects forKey:kProjectsKey];
 }
 
-/// While something is running, the buttons that would start a second
-/// thing are switched off. Pressing one used to produce the unhelpful
-/// "Something is already running here" line.
-- (void)setBusy:(BOOL)busy {
-    BOOL have = self.hasVPS.state == NSControlStateValueOn;
-    self.setupButton.enabled = have && !busy;
-    self.projectButton.enabled = have && !busy;
-}
+#pragma mark - console callbacks
 
 - (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status {
-    [self setBusy:NO];
-    if (status == 0) {
-        [self.console note:@"You can start the next step above."];
-    } else {
-        [self.console note:@"Nothing was left half-done. Read the last few lines "
-                           @"above, fix what they mention, and press the button again."];
+    // A VPS counts as ready only when SETUP itself finished cleanly — not
+    // because someone typed an address. That is what makes the green dot
+    // in the sidebar worth trusting.
+    if (self.setupRunning) {
+        self.setupRunning = NO;
+        if (status == 0) {
+            [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kReadyKey];
+            self.settingsOpen = NO;
+            [self.console note:@"Your VPS is ready. The setup form is tucked away under "
+                               @"“VPS settings” on the left — you will not be asked again."];
+        }
     }
+    [self setBusy:NO];
+    if (status != 0) {
+        [self.console note:@"Nothing was left half-done. Read the last few lines above, "
+                           @"fix what they mention, and try again."];
+    }
+    [self.window makeFirstResponder:self.entry];
 }
-
-- (void)open:(NSString *)address {
-    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:address]];
-}
-- (void)openHetzner:(id)sender { [self open:@"https://www.hetzner.com/cloud/"]; }
-- (void)openContabo:(id)sender { [self open:@"https://contabo.com/en/vps/"]; }
-- (void)openHostinger:(id)sender { [self open:@"https://www.hostinger.com/vps-hosting"]; }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app { return YES; }
 
