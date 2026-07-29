@@ -456,7 +456,7 @@ These are the unattended forms this project was checked with (the long flags let
 | App | How SlopNet runs it |
 |---|---|
 | Claude Code | `claude --dangerously-skip-permissions -p "…"` |
-| Codex | `codex exec --dangerously-bypass-approvals-and-sandbox "…"` |
+| Codex | `codex exec --sandbox workspace-write "…"` |
 | Gemini CLI | `gemini --yolo -p "…"` |
 | Grok Build | `grok --permission-mode bypassPermissions -p "…"` |
 | Kimi Code | `kimi -p "…"` |

@@ -58,7 +58,7 @@ KNOWN_AGENTS = {
     },
     "codex": {
         "invocation": "{exe} exec {auto_approve} {prompt}",
-        "auto_approve": "--sandbox workspace-write --ask-for-approval never",
+        "auto_approve": "--sandbox workspace-write",
         "long_invocation": "{exe} exec {auto_approve} -",
         "long_transport": "stdin",
         "probe": PROBE_JOB,

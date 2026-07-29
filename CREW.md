@@ -99,7 +99,7 @@ from their own help and then tested by asking each one to write
 | Agent | Command used for a normal prompt | Edit permission | Prompts over 100 KiB | Probe on 2026-07-28 |
 |---|---|---|---|---|
 | `claude` | `claude --dangerously-skip-permissions -p {prompt}` | explicit bypass flag | stdin from a temporary file | **UNPROVEN** — OAuth session expired |
-| `codex` | `codex exec --sandbox workspace-write --ask-for-approval never {prompt}` | workspace-only sandbox | stdin from a temporary file | **PROVEN** — wrote the file in 10s |
+| `codex` | `codex exec --sandbox workspace-write {prompt}` | workspace-only sandbox | stdin from a temporary file | **PROVEN** — wrote the file in 10s |
 | `gemini` | `gemini --yolo -p {prompt}` | `--yolo` | stdin from a temporary file | **UNPROVEN** — no authentication method configured |
 | `grok` | `grok --permission-mode bypassPermissions -p {prompt}` | explicit bypass mode | `--prompt-file` | **PROVEN** — wrote the file in 5s |
 | `kimi` | `kimi -p {prompt}` | prompt mode itself uses `auto` permission | temporary file referenced by the prompt | **PROVEN** — wrote the file in 11s |
