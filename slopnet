@@ -719,6 +719,28 @@ def ensure_private_directory(path, uid, label):
              "Set its mode to 700, then re-run: slopnet setup --vps")
 
 
+def ensure_vps_sandbox_prerequisite():
+    """Install bubblewrap only with approval; Codex needs it for safe writes."""
+    if shutil.which("bwrap"):
+        return
+    installer = shutil.which("apt-get")
+    if not installer:
+        fail("Codex's workspace sandbox needs bubblewrap, but this VPS has no supported installer.",
+             "SlopNet will not weaken Codex to bypass its sandbox.",
+             "Install bubblewrap with this VPS distribution's package manager, then re-run: slopnet setup --vps")
+    print("Codex's workspace-only sandbox needs the Linux bubblewrap package.")
+    print("SlopNet can run: apt-get install -y bubblewrap. This changes only that VPS package.")
+    if not ask_yes_no("Install bubblewrap now?"):
+        fail("Bubblewrap was not installed.",
+             "Codex cannot make its safe disposable edit without its sandbox prerequisite.",
+             "When ready, run: slopnet setup --vps and approve the bubblewrap install")
+    installed = subprocess.run([installer, "install", "-y", "bubblewrap"])
+    if installed.returncode != 0 or not shutil.which("bwrap"):
+        fail("Bubblewrap installation did not complete.",
+             "Codex's workspace sandbox is still unavailable, so setup stopped before the edit proof.",
+             "Read the package-manager error, install bubblewrap, then re-run: slopnet setup --vps")
+
+
 def bootstrap_vps_account(root):
     """One-time root step: create a locked runtime user, then drop privilege."""
     if os.name != "posix" or not sys.platform.startswith("linux"):
@@ -784,6 +806,8 @@ def bootstrap_vps_account(root):
              "Setup stopped before installing or logging into any coding tool.",
              "Fix the account or workspace ownership shown above, then retry")
 
+    ensure_vps_sandbox_prerequisite()
+
     runuser = shutil.which("runuser")
     if not runuser:
         fail("The Linux runuser command is unavailable.",
@@ -844,6 +868,11 @@ def cmd_vps_setup(root, args):
         fail("VPS setup currently supports Linux VPS hosts only.",
              "This guided path uses Linux account and permission checks.",
              "Use a supported Linux VPS, then re-run: slopnet setup --vps")
+
+    if not shutil.which("bwrap"):
+        fail("Codex's workspace sandbox needs the bubblewrap package.",
+             "This non-root setup cannot install a VPS system package on its own.",
+             "Sign in as the VPS root and run: slopnet setup --vps, then approve the bubblewrap install")
 
     home = vps_current_home()
     ensure_private_directory(home, os.geteuid(), "The runtime user home")
