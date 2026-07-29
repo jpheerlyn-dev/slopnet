@@ -118,7 +118,7 @@ truncated. API workers default to a sensible model; set `"model"` in
 ## Non-CLI subscriptions (env-cli)
 
 Some coding plans ship no CLI of their own. The research report
-(`jobs/RESEARCH_subscriptions_REPORT.md`) is the only source for how
+(`archive/jobs/RESEARCH_subscriptions_REPORT.md`) is the only source for how
 they join the fleet:
 
 | Plan | How SlopNet reaches it | Host CLI | Env (token via `$VAR`) | Covers terminal? |

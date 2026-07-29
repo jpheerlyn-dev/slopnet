@@ -5,7 +5,7 @@
 > authentication proof; re-verify them before a remote runtime uses them.
 
 **Where:** the `slopnet` repo. **Size:** medium.
-**Blocked until:** `jobs/RESEARCH_subscriptions_REPORT.md` exists (the
+**Blocked until:** `RESEARCH_subscriptions_REPORT.md` exists (the
 operator produces it from `RESEARCH_subscriptions.md`). If it is not
 there, stop and say so — do not guess endpoints or variable names.
 

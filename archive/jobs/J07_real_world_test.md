@@ -33,7 +33,7 @@ parallel, on one actual small app, judged by real tests.
 
 ## What to write down
 
-`jobs/J07_FINDINGS.md`, honest and chronological:
+`archive/jobs/J07_FINDINGS.md`, honest and chronological:
 
 - The plan the planner produced (paste `WAVES.md`).
 - Which agent did which task, how long each took, what merged, what
@@ -52,14 +52,14 @@ parallel, on one actual small app, judged by real tests.
 - Every failure gets recorded with its real message, including
   embarrassing ones. An unflattering finding is the most valuable thing
   this job can produce.
-- Do not touch the slopnet repo except to add `jobs/J07_FINDINGS.md` and
+- Do not touch the slopnet repo except to add `archive/jobs/J07_FINDINGS.md` and
   a register entry.
 - If the run destroys nothing but produces nothing either, that is a
   *result*, not a failure of the job — write it up plainly.
 
 ## Acceptance
 
-`jobs/J07_FINDINGS.md` exists, contains real pasted output (not
+`archive/jobs/J07_FINDINGS.md` exists, contains real pasted output (not
 summaries), and answers the verdict question. The register carries the
 session entry. A different agent runs `slopnet verify` afterwards to
 confirm the slopnet repo itself is still green (rule 7).

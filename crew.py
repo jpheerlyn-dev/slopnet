@@ -44,7 +44,7 @@ PROBE_JOB = (
 )
 
 # How to make each agent do ONE job and stop. Verified on 2026-07-28 by
-# reading each tool's own --help; jobs/J01_agent_adapters.md keeps this
+# reading each tool's own --help; archive/jobs/J01_agent_adapters.md keeps this
 # table honest. The auto-approve flags matter: without them an agent
 # waits forever for a human to confirm each edit. That is safe here only
 # because every attempt runs inside a throwaway git worktree.
@@ -116,14 +116,14 @@ KNOWN_AGENTS = {
 NOT_CODERS = {
     "zai-cli": "a client for Z.AI's search/vision/web tools — it does not "
                "edit files in your project. Your zAI coding plan reaches the "
-               "fleet a different way (see jobs/J02).",
+               "fleet a different way (see archive/jobs/J02_subscription_router.md).",
 }
 
 # Some CLIs install outside the default PATH; look there too.
 EXTRA_BINS = ["~/.kimi-code/bin", "~/.grok/bin", "~/.local/bin"]
 
 # PROVIDERS — non-CLI coding subscriptions, verified only from
-# jobs/RESEARCH_subscriptions_REPORT.md (2026-07-28). A worker of kind
+# archive/jobs/RESEARCH_subscriptions_REPORT.md (2026-07-28). A worker of kind
 # env-cli runs an existing host CLI with extra env vars for that one
 # invocation: never exported globally, never written to disk, never logged.
 #

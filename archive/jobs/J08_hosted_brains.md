@@ -4,7 +4,7 @@
 > guided VPS setup and one real credentialed-agent proof are incomplete.
 
 **Where:** the `slopnet` repo. **Size:** medium. **Touches:** `crew.py`,
-`CREW.md`, `jobs/RESEARCH_subscriptions.md` (tick off what it answers).
+`CREW.md`, `archive/jobs/RESEARCH_subscriptions.md` (tick off what it answers).
 
 ## The decision this job implements
 

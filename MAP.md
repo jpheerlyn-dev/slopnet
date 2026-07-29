@@ -34,15 +34,12 @@ credentialed coding-agent runtime. The tested VPS checkout is **REDACTED** at
 
 | Material | What it is now |
 |---|---|
-| `jobs/J01_*` through `jobs/J06_*` | completed local-path implementation briefs |
-| `jobs/J07_real_world_test.md` and `jobs/J07_FINDINGS.md` | the real-world exam brief and its failure evidence |
-| `jobs/J08_hosted_brains.md` | explicitly deferred work |
-| `jobs/RESEARCH_subscriptions*` | time-stamped research, not proof of a VPS login path |
-| `V02_DESIGN.md`, `STACK.md`, `WATCHMAN.md` | design and companion references; not the current MVP dispatch queue |
+| `archive/jobs/` | completed local-path briefs, J07 failure evidence, deferred J08, and subscription research |
+| `archive/reference/` | retired v0.2 design, companion, and watchman references |
 
 The active product path is deliberately small: prove one guided VPS setup and
-one real subscribed CLI, then rerun J07. See `jobs/OPERATORS.md` for the
-boundary.
+one real subscribed CLI, then rerun J07. `jobs/OPERATORS.md` is the complete
+current dashboard; it should be the only file needed to understand the queue.
 
 ## Ideas in orbit
 

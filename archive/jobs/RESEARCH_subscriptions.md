@@ -6,7 +6,7 @@
 
 **How to use this:** paste everything in the block into a deep-research
 agent in your browser. Save its answer as
-`jobs/RESEARCH_subscriptions_REPORT.md` in the slopnet repo. Job
+`archive/jobs/RESEARCH_subscriptions_REPORT.md` in the slopnet repo. Job
 `J02_subscription_router.md` then implements what it finds.
 
 **Why it's needed — updated 2026-07-28 after installing both:**
