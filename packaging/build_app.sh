@@ -38,8 +38,8 @@ cat > "$contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>SlopNet</string>
   <key>CFBundleDisplayName</key><string>SlopNet</string>
   <key>CFBundleIdentifier</key><string>com.slopnet.app</string>
-  <key>CFBundleVersion</key><string>0.1.2</string>
-  <key>CFBundleShortVersionString</key><string>0.1.2</string>
+  <key>CFBundleVersion</key><string>0.1.3</string>
+  <key>CFBundleShortVersionString</key><string>0.1.3</string>
   <key>CFBundleExecutable</key><string>SlopNet</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>

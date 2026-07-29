@@ -54,6 +54,11 @@ adds it to the macOS Keychain when available, and begins the guided VPS setup.
 It never receives or stores a VPS password. This is an early control shell, not
 a promise that every VPS or coding CLI has passed the required proof.
 
+The Terminal guide has three numbered steps: protect the connection key,
+confirm the VPS, and prepare the VPS. You do not need to type an SSH command or
+interpret Git output. If it stops, copy the final plain-English message rather
+than the whole Terminal transcript.
+
 The first time you press **Connect and begin guided VPS setup**, macOS asks
 whether SlopNet may control Terminal. Choose **Allow**: that permission is only
 used to open a Terminal window for the setup you explicitly started. If you

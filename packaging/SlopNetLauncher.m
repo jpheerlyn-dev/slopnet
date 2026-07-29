@@ -40,7 +40,7 @@
     NSTextField *title = [self label:@"SlopNet" frame:NSMakeRect(30, 476, 230, 39) size:30];
     title.font = [NSFont boldSystemFontOfSize:30];
     [content addSubview:title];
-    NSTextField *subtitle = [self label:@"Build on a private VPS, not on your laptop." frame:NSMakeRect(32, 451, 430, 20) size:14];
+    NSTextField *subtitle = [self label:@"Set up your private build computer, safely." frame:NSMakeRect(32, 451, 430, 20) size:14];
     subtitle.textColor = NSColor.secondaryLabelColor;
     [content addSubview:subtitle];
 
@@ -49,13 +49,13 @@
     self.hasVPS.state = NSControlStateValueOn;
     [content addSubview:self.hasVPS];
 
-    NSTextField *hostLabel = [self label:@"IP address or host" frame:NSMakeRect(42, 365, 145, 22) size:13];
+    NSTextField *hostLabel = [self label:@"VPS address" frame:NSMakeRect(42, 365, 145, 22) size:13];
     self.host = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 361, 410, 25)];
-    self.host.placeholderString = @"for example 203.0.113.10";
-    NSTextField *userLabel = [self label:@"SSH username" frame:NSMakeRect(42, 322, 145, 22) size:13];
+    self.host.placeholderString = @"the IP address from your VPS welcome email";
+    NSTextField *userLabel = [self label:@"VPS login name" frame:NSMakeRect(42, 322, 145, 22) size:13];
     self.username = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 318, 250, 25)];
     self.username.stringValue = @"root";
-    NSTextField *portLabel = [self label:@"SSH port" frame:NSMakeRect(42, 279, 145, 22) size:13];
+    NSTextField *portLabel = [self label:@"Connection port" frame:NSMakeRect(42, 279, 145, 22) size:13];
     self.port = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 275, 90, 25)];
     self.port.stringValue = @"22";
     [content addSubview:hostLabel];
@@ -66,11 +66,11 @@
     [content addSubview:self.port];
     self.connectionViews = @[hostLabel, self.host, userLabel, self.username, portLabel, self.port];
 
-    NSTextField *security = [self label:@"Your VPS password is never entered here or saved by SlopNet. Terminal will ask for it directly through SSH once, then SlopNet uses a dedicated SSH key for this VPS." frame:NSMakeRect(42, 211, 570, 49) size:12];
+    NSTextField *security = [self label:@"Look in your VPS provider's welcome email for these three details. The port is almost always 22. Your VPS password is never entered here or saved by SlopNet." frame:NSMakeRect(42, 211, 570, 49) size:12];
     security.textColor = NSColor.secondaryLabelColor;
     [content addSubview:security];
 
-    NSButton *start = [self button:@"Connect and begin guided VPS setup" frame:NSMakeRect(42, 158, 286, 34) action:@selector(beginSetup:)];
+    NSButton *start = [self button:@"Set up my VPS" frame:NSMakeRect(42, 158, 286, 34) action:@selector(beginSetup:)];
     start.bezelStyle = NSBezelStyleRounded;
     start.keyEquivalent = @"\r";
     [content addSubview:start];
@@ -117,7 +117,7 @@
         ![self matches:username pattern:@"^[A-Za-z_][A-Za-z0-9_-]{0,31}$"] ||
         port.integerValue < 1 || port.integerValue > 65535 ||
         ![self matches:port pattern:@"^[0-9]{1,5}$"]) {
-        [self show:@"Enter a standard host name or IPv4 address, a normal SSH username, and a port from 1 to 65535."];
+        [self show:@"Copy the VPS address and login name from your provider's welcome email. Leave the connection port as 22 unless your provider gave you a different one."];
         return;
     }
     NSString *script = [[NSBundle mainBundle] pathForResource:@"slopnet-vps-onboard" ofType:@"sh"];

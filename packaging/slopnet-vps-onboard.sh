@@ -14,33 +14,38 @@ say() {
   printf '\n%s\n' "$1"
 }
 
-say "SlopNet will now connect to ${username}@${host}:${port}."
-say "Your password is requested by OpenSSH only if this VPS has not accepted your dedicated SlopNet key yet."
+clear
+printf '\033]0;SlopNet VPS setup\007'
+say "SlopNet VPS setup"
+say "You are setting up a protected connection between this Mac and your VPS. SlopNet will never save your VPS password."
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 if [ ! -f "$key_path" ]; then
-  say "Creating one dedicated SSH key on this Mac for SlopNet VPS access. Choose a passphrase when SSH asks; SlopNet never sees or saves it."
-  ssh-keygen -t ed25519 -f "$key_path" -C "slopnet-vps"
+  say "Step 1 of 3 — protect this connection"
+  say "Create a passphrase for the SlopNet connection key. It stays on this Mac and protects the key if the Mac is ever lost."
+  ssh-keygen -q -t ed25519 -f "$key_path" -C "slopnet-vps"
 elif [ ! -f "$key_path.pub" ]; then
   ssh-keygen -y -f "$key_path" > "$key_path.pub"
 fi
 
 if command -v ssh-add >/dev/null 2>&1; then
-  say "Adding the dedicated key to the macOS SSH agent and Keychain if available."
-  ssh-add --apple-use-keychain "$key_path" || \
-    say "The key was not added to the SSH agent; SSH may ask for its passphrase during this setup."
+  say "macOS will now ask for that passphrase once more so it can keep the key in your Keychain."
+  ssh-add -q --apple-use-keychain "$key_path" || \
+    say "The key was not added to the macOS keychain. That is safe; SSH may ask for the passphrase during setup."
 fi
 
-say "First connection: check the VPS host fingerprint shown by SSH, then enter the password supplied by your provider if asked."
-cat "$key_path.pub" | ssh -p "$port" "$username@$host" \
-  'umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; cat >> "$HOME/.ssh/authorized_keys"'
+say "Step 2 of 3 — confirm your VPS"
+say "If SSH asks whether you trust this server, continue only when ${host} is the IP address from your VPS provider. Then enter the VPS password if asked. It is not saved."
+cat "$key_path.pub" | ssh -o LogLevel=ERROR -p "$port" "$username@$host" \
+  'key=$(cat); umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf "%s\n" "$key" >> "$HOME/.ssh/authorized_keys"'
 
-ssh -o BatchMode=yes -p "$port" "$username@$host" 'printf "SSH key accepted on %s\\n" "$(hostname)"'
+ssh -o LogLevel=ERROR -i "$key_path" -p "$port" "$username@$host" true
 
-say "Connection proved. The next command may ask for your VPS sudo password."
-say "It installs Git only when missing, downloads SlopNet, then lets SlopNet ask separately before it creates its isolated runtime account, installs a sandbox prerequisite, or starts a provider login."
-read -r -p "Press Return to continue, or close this Terminal window to stop: "
+say "Your protected connection is ready."
+say "Step 3 of 3 — prepare the VPS"
+say "SlopNet will update its own workspace and then ask separately before it changes anything on the VPS. If you did not sign in as root, your VPS may ask for your sudo password now."
+read -r -p "Press Return to prepare the VPS, or close this window to stop: "
 
 remote_setup='set -e
 if ! command -v git >/dev/null 2>&1; then
@@ -53,9 +58,13 @@ if ! command -v git >/dev/null 2>&1; then
   fi
 fi
 if [ -d /opt/slopnet/.git ]; then
-  git -C /opt/slopnet pull --ff-only
+  if id -u slopnet >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+    runuser -u slopnet -- git -C /opt/slopnet pull --ff-only --quiet
+  else
+    git -c safe.directory=/opt/slopnet -C /opt/slopnet pull --ff-only --quiet
+  fi
 else
-  git clone https://github.com/jpheerlyn-dev/slopnet.git /opt/slopnet
+  git clone --quiet https://github.com/jpheerlyn-dev/slopnet.git /opt/slopnet
 fi
 cd /opt/slopnet
 ./slopnet setup --vps'
