@@ -61,6 +61,7 @@
 /// not raise the same offer on every redraw.
 @property(nonatomic, copy) NSString *announcedSignIn;
 @property(nonatomic, copy) NSString *announcedCode;
+@property(nonatomic, strong) NSMutableString *collected;
 /// Whether the view should stay pinned to the newest output. Set false the
 /// moment somebody scrolls up, true again when they come back to the bottom.
 @property(nonatomic, assign) BOOL followTail;
@@ -443,6 +444,13 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 /// prompts and colour correctly. It is not a full terminal emulator — a
 /// full-screen program (a file manager, an editor) needs more than this.
 - (void)consume:(NSString *)raw {
+    // Held back rather than drawn. Deliberately before any parsing: a reply is
+    // plain text, and the window must not show half a panel while it arrives.
+    if (self.collectsOutput) {
+        if (self.collected == nil) self.collected = [NSMutableString string];
+        [self.collected appendString:raw];
+        return;
+    }
     NSUInteger i = 0, n = raw.length;
     while (i < n) {
         unichar c = [raw characterAtIndex:i];
@@ -730,6 +738,25 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
     return self.followingTail || [self atTail];
 }
 
+- (NSString *)collectedOutput {
+    if (self.collected == nil) return @"";
+    // Escape sequences are stripped here rather than parsed: this text is
+    // going into a panel that draws its own colours, and a stray SGR from the
+    // program would leak into the panel fill and stain the rest of the row.
+    static NSRegularExpression *escapes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        escapes = [NSRegularExpression regularExpressionWithPattern:
+                   @"\\x1B\\[[0-9;?]*[ -/]*[@-~]" options:0 error:nil];
+    });
+    NSString *clean = [escapes stringByReplacingMatchesInString:self.collected options:0
+                                                          range:NSMakeRange(0, self.collected.length)
+                                                   withTemplate:@""];
+    clean = [clean stringByReplacingOccurrencesOfString:@"\r" withString:@""];
+    return [clean stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
 - (NSString *)textForTesting {
     [self redraw];
     return self.output.textStorage.string;
@@ -852,6 +879,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
 #pragma mark - running
 
 - (BOOL)runExecutable:(NSString *)path arguments:(NSArray<NSString *> *)arguments {
+    self.collected = nil;      // this run's output, not the last one's
     if (self.running) {
         [self note:@"Something is already running here. Stop it first."];
         return NO;
@@ -952,6 +980,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
 
     BOOL quiet = self.quietWhenItWorks;
     self.quietWhenItWorks = NO;          // one run only
+    self.collectsOutput = NO;            // the buffer stays for the delegate
     if (status == 0) {
         [self setStatusText:@"Finished successfully." glyph:nil tint:nil];
         if (!quiet) [self note:@"\n— finished —"];

@@ -99,6 +99,13 @@
 + (NSString *)youSaidANSI:(NSString *)text width:(NSUInteger)width;
 /// The guide's name on its own line, with its mark, ready for the reply to
 /// stream underneath in ordinary ink.
+/// A finished reply, framed the way demo_agency.py frames a turn: the vendor's
+/// logo and name, the message icon beside it, then the words on that vendor's
+/// own surface.
++ (NSString *)guideSaidANSI:(NSString *)text
+                   provider:(NSString *)providerId
+                       name:(NSString *)name
+                      width:(NSUInteger)width;
 + (NSString *)guideRepliesANSIForProvider:(NSString *)providerId
                                      name:(NSString *)name;
 

@@ -239,6 +239,44 @@ int main(void) {
                   "a turn that failed still says so");
         }
 
+        // Collection is for a conversation turn only. The far more important
+        // half of this test is the second console: everything else — setup,
+        // installs, sign-ins — must still stream into the window line by line.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Watcher *w = [Watcher new];
+            c.delegate = w;
+            c.collectsOutput = YES;
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c",
+                @"printf '\033[32mgreen\033[0m reply\r\nsecond line\n'"]];
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:3];
+            while (!w.finished && [until timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check(![c.textForTesting containsString:@"second line"],
+                  "a collected run draws nothing while it is arriving");
+            NSString *held = c.collectedOutput;
+            check([held containsString:@"green reply"] && [held containsString:@"second line"],
+                  "the whole reply is held for framing");
+            check(![held containsString:@"\033"],
+                  "with no escape sequences left to stain the panel it goes into");
+
+            SlopNetConsole *plain = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [plain layoutSubtreeIfNeeded];
+            Watcher *w2 = [Watcher new];
+            plain.delegate = w2;
+            [plain runExecutable:@"/bin/bash" arguments:@[@"-c", @"printf 'installing…\n'"]];
+            NSDate *until2 = [NSDate dateWithTimeIntervalSinceNow:3];
+            while (!w2.finished && [until2 timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check([plain.textForTesting containsString:@"installing"],
+                  "an ordinary run still streams into the window, unchanged");
+        }
+
     fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }

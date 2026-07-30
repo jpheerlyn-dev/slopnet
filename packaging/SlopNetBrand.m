@@ -402,6 +402,33 @@ static const unichar kStripedBase = 0xE800;
     return lines;
 }
 
++ (NSString *)guideSaidANSI:(NSString *)text
+                   provider:(NSString *)providerId
+                       name:(NSString *)name
+                      width:(NSUInteger)width {
+    NSUInteger panelWidth = MAX((NSUInteger)24, width);
+    NSColor *panel = [self backgroundColorForProvider:providerId] ?: [self voidColor];
+    NSColor *ink = [self foregroundColorForProvider:providerId] ?: [self inkColor];
+    NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐" label:@""]];
+
+    NSString *mark = [self markForProvider:providerId] ?: @"◆";
+    NSString *icon = [self colorFontActive]
+        ? [self actionGlyph:@"message" frame:0 cells:2] : @"  ";
+    NSString *head = [NSString stringWithFormat:@" %@ \033[1m%@\033[22m  %@ \033[2mMessage\033[22m",
+                      mark, name, icon];
+    [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink body:head
+                                    columns:2 + kMarkColumns + name.length + 4 + 8]];
+
+    for (NSString *line in [self wrapText:text toColumns:(NSInteger)panelWidth - 6]) {
+        NSString *body = [NSString stringWithFormat:@"  %@", line];
+        [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink
+                                           body:body columns:2 + line.length]];
+    }
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘" label:@""]];
+    return [NSString stringWithFormat:@"\n%@", [rows componentsJoinedByString:@"\n"]];
+}
+
 + (NSString *)guideRepliesANSIForProvider:(NSString *)providerId name:(NSString *)name {
     NSString *mark = [self markForProvider:providerId] ?: @"◆";
     NSColor *tint = [self tintColorForProvider:providerId] ?: [self crimsonColor];

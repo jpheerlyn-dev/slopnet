@@ -69,11 +69,33 @@ fi
 # with its basic-I/O options. The marker is part of the model reply, so the
 # app shows only that reply. A malformed answer stays a plain failure rather
 # than leaking a transcript or silently falling through to a coding model.
-reply=$(printf "%s\n" "$model_output" | awk "
-  /^SLOPNET_REPLY_START[[:space:]]*\$/ { showing = 1; next }
-  showing && /^\\[ Prompt:/ { exit }
-  showing && /^Exiting/ { exit }
-  showing { print }
+# This build of llama.cpp echoes the whole prompt back regardless of its quiet
+# options, and that echo contains the marker word — so matching the marker
+# anywhere finds the instruction, not the answer. Requiring the marker alone on
+# its line avoided that, but then a 3B model writing it inline threw the entire
+# reply away and told the person their guide was unreadable.
+#
+# So anchor on the last thing known to belong to the echo: whichever comes
+# later, the marker or the question itself. Everything after that is the reply.
+reply=$(printf "%s\n" "$model_output" | awk -v q="$question" "
+  { lines[NR] = \$0 }
+  END {
+    start = 0
+    for (i = 1; i <= NR; i++) {
+      if (index(lines[i], \"SLOPNET_REPLY_START\")) start = i
+      if (length(q) && index(lines[i], q)) start = i
+    }
+    for (i = start + 1; i <= NR; i++) {
+      if (lines[i] ~ /^\\[ Prompt:/) break
+      if (lines[i] ~ /^Exiting/) break
+      out[++n] = lines[i]
+    }
+    last = n
+    while (last > 0 && out[last] ~ /^[[:space:]]*\$/) last--
+    first = 1
+    while (first <= last && out[first] ~ /^[[:space:]]*\$/) first++
+    for (i = first; i <= last; i++) print out[i]
+  }
 ")
 if [ -z "$reply" ]; then
   echo "The private local guide returned an unreadable reply. No action was taken. Try again."

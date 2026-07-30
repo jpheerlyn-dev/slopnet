@@ -67,6 +67,18 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 /// each run, so it never silences the next one by accident.
 @property(nonatomic, assign) BOOL quietWhenItWorks;
 
+/// Hold the next run's output instead of drawing it, so the caller can frame
+/// it once the run ends.
+///
+/// A panel needs its closing border, and output arriving from a live process
+/// has no end until the process has one. This is for a conversation turn and
+/// nothing else: setup, installs and sign-ins must keep streaming into the
+/// window line by line, because watching them is the point. Cleared after each
+/// run, like quietWhenItWorks.
+@property(nonatomic, assign) BOOL collectsOutput;
+/// What the last collected run printed, with no escape sequences left in it.
+@property(nonatomic, readonly, copy) NSString *collectedOutput;
+
 /// Everything currently on screen, for probes to read back.
 - (NSString *)textForTesting;
 

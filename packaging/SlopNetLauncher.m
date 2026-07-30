@@ -131,6 +131,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 @property(nonatomic, assign) BOOL busy;
 @property(nonatomic, assign) BOOL setupRunning;
+@property(nonatomic, assign) BOOL chatting;
 @property(nonatomic, assign) BOOL localHelperRunning;
 @property(nonatomic, assign) BOOL planningRunning;
 @property(nonatomic, assign) BOOL approvedBuildRunning;
@@ -1620,8 +1621,15 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // The reply is the news. A turn that worked should not be followed by a
     // note saying a program exited — that is the app talking about itself.
     self.console.quietWhenItWorks = YES;
+    // Held back so the reply can be framed once it is complete. Only a
+    // conversation turn does this — setup, installs and sign-ins keep
+    // streaming into the window line by line, because watching them is the
+    // whole point of showing a terminal at all.
+    self.console.collectsOutput = YES;
+    self.chatting = YES;
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port, self.username, question]]) {
+        self.chatting = NO;
         [self setBusy:NO];
     }
 }
@@ -1775,6 +1783,22 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 #pragma mark - console callbacks
 
 - (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status {
+    if (self.chatting) {
+        self.chatting = NO;
+        NSString *said = console.collectedOutput;
+        if (status == 0 && said.length > 0) {
+            NSString *provider =
+                [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
+            [console note:[SlopNetBrand guideSaidANSI:said
+                                             provider:provider
+                                                 name:@"Granite"
+                                                width:[self panelWidth]]];
+        } else if (said.length > 0) {
+            // A failure is shown plainly rather than dressed as the guide
+            // speaking. It did not say this; something went wrong.
+            [console note:[NSString stringWithFormat:@"\n%@", said]];
+        }
+    }
     // A coding-app sign-in that ended, however it ended. Recorded and moved
     // past, so one refusal cannot strand the rest of the queue.
     if (self.signingIn != nil) {
