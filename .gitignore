@@ -13,3 +13,9 @@ node_modules/
 # Local StormCode visual assets + Menlo-derived fonts (may ship inside the
 # Mac app from the operator machine; must not be a public git download).
 packaging/terminal-visuals/
+# Agent audit notes and raw evidence. These stay on the operator's machine on
+# purpose: raw output is where a server address, a home path and a machine
+# name leaked into the register on 2026-07-30. A register entry may reference
+# a file in here by name; it must never paste its contents.
+improvements/
+evidence/

@@ -1248,11 +1248,19 @@ def cmd_run(root, args):
     print(f"\nMerged: {len(done)}   Failed: {len(failed)}")
     if failed:
         print("Nothing failed silently — each line above says why.")
-    sign_register(root, "Crew run — merged: "
-                  + (", ".join(done) if done else "none")
-                  + ("; failed: " + "; ".join(f"{t} ({w})" for t, w in failed)
-                     if failed else ""),
-                  "the crew")
+    path = sign_register(root, "Crew run — merged: "
+                         + (", ".join(done) if done else "none")
+                         + ("; failed: " + "; ".join(f"{t} ({w})" for t, w in failed)
+                            if failed else ""),
+                         "the crew")
+    # Record the entry in the project's own history. Without this the file the
+    # run just wrote is left untracked, the tree is dirty, and the NEXT run
+    # refuses with "This repository has uncommitted work" — which a beginner
+    # can only escape with a Git lesson nobody offered them.
+    sh(["git", "add", "--", str(path.relative_to(root))], cwd=root)
+    sh(["git", "-c", "user.name=slopnet", "-c", "user.email=crew@slopnet",
+        "-c", "core.hooksPath=/dev/null",
+        "commit", "-qm", "SlopNet: record what the crew did"], cwd=root)
     sys.exit(1 if failed else 0)
 
 

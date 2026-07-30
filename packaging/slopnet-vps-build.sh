@@ -50,10 +50,17 @@ if [ ! -f "$project_root/.slopnet/crew.json" ]; then
   echo "The project has no proved coding crew. Nothing ran."
   exit 1
 fi
-if [ ! -d "$project_root/checks" ]; then
-  echo "RULE: This project has no proved SlopNet runner yet."
-  echo "WHY:  The current planner can make and save a plan, but a new project does not yet carry the project-specific walls the multi-agent runner needs."
-  echo "FIX:  Keep the approved plan. Build and prove the per-project runner before asking agents to edit this project. Nothing ran."
+# A directory on its own proves nothing: an empty checks/ used to satisfy this
+# gate, and the runner would then judge the agents against zero checks. Count
+# the real scripts, and name the ones a project must carry.
+missing=""
+for required_check in junk naming secrets slop-lint; do
+  [ -f "$project_root/checks/$required_check.sh" ] || missing="$missing $required_check.sh"
+done
+if [ -n "$missing" ]; then
+  echo "RULE: This project is missing the checks that judge agent work:$missing"
+  echo "WHY:  Coding agents may only keep work that something has judged. With no checks there is nothing to stop a secret, a junk file, or fake work being kept."
+  echo "FIX:  Your plan is safe. Make a new project so SlopNet can install its checks, or restore checks/ from /opt/slopnet/checks. Nothing ran."
   exit 1
 fi
 cd "$project_root"
@@ -63,7 +70,7 @@ exec runuser -u slopnet -- env HOME="$runtime_home" \
 encoded_build=$(printf '%s' "$remote_build" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; printf %s '$encoded_build' | base64 -d > /tmp/slopnet-approved-build.sh && chmod 700 /tmp/slopnet-approved-build.sh && sh /tmp/slopnet-approved-build.sh '$project_b64' </dev/tty; status=\$?; rm -f -- /tmp/slopnet-approved-build.sh; exit \$status"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_build' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$project_b64' </dev/tty"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; printf %s '$encoded_build' | base64 -d > /tmp/slopnet-approved-build.sh && sudo chmod 700 /tmp/slopnet-approved-build.sh && sudo sh /tmp/slopnet-approved-build.sh '$project_b64' </dev/tty; status=\$?; rm -f -- /tmp/slopnet-approved-build.sh; exit \$status"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_build' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$project_b64' </dev/tty"
 fi

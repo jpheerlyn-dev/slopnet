@@ -87,7 +87,7 @@ encoded_chat=$(printf '%s' "$remote_chat" | base64 | tr -d '\n')
 # immediately afterwards.  The model and its configuration stay private to
 # the locked runtime account.
 if [ "$username" = "root" ]; then
-  ssh -T -i "$key_path" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$username@$host" "umask 077; printf %s '$encoded_chat' | base64 -d > /tmp/slopnet-local-chat.sh && chmod 700 /tmp/slopnet-local-chat.sh && sh /tmp/slopnet-local-chat.sh '$question_b64'; status=\$?; rm -f -- /tmp/slopnet-local-chat.sh; exit \$status"
+  ssh -T -i "$key_path" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$question_b64'"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; printf %s '$encoded_chat' | base64 -d > /tmp/slopnet-local-chat.sh && sudo chmod 700 /tmp/slopnet-local-chat.sh && sudo sh /tmp/slopnet-local-chat.sh '$question_b64' </dev/tty; status=\$?; rm -f -- /tmp/slopnet-local-chat.sh; exit \$status"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$question_b64' </dev/tty"
 fi

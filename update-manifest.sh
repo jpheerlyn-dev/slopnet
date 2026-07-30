@@ -17,6 +17,8 @@ paths=$(
     printf '%s\n' \
       lefthook.yml \
       .gitleaks.toml \
+      banned-names.txt \
+      PROTECTED.txt \
       install.sh \
       doctor.sh \
       Dockerfile \

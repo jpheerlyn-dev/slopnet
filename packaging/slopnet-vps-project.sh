@@ -112,6 +112,30 @@ mkdir "$project_root"
 mkdir -p "$project_root/.slopnet"
 cp /opt/slopnet/.slopnet/crew.json "$project_root/.slopnet/crew.json"
 chmod 600 "$project_root/.slopnet/crew.json"
+# Give the project its own checks. Without these the runner has nothing to
+# judge an agent by: it refuses to keep unchecked work, so a project born
+# without them can never build. These five protect any codebase — no secret,
+# no junk file, no sloppy name, no fake work, and whatever the person later
+# lists in PROTECTED.txt.
+#
+# The SlopNet register check is deliberately NOT copied. That daily paper
+# trail belongs to this repository as a working practice; it has no business
+# being imposed on the photo app somebody asked SlopNet to build.
+mkdir -p "$project_root/checks"
+project_checks_installed=0
+for project_check in junk naming protected-paths secrets slop-lint; do
+  if [ -f "/opt/slopnet/checks/$project_check.sh" ]; then
+    cp "/opt/slopnet/checks/$project_check.sh" "$project_root/checks/$project_check.sh"
+    chmod 755 "$project_root/checks/$project_check.sh"
+    project_checks_installed=$((project_checks_installed + 1))
+  fi
+done
+if [ "$project_checks_installed" -eq 0 ]; then
+  echo "RULE: This server has no SlopNet checks to give the new project."
+  echo "WHY:  Coding agents are only allowed to keep work that something has judged."
+  echo "FIX:  Re-run the server setup so /opt/slopnet/checks exists, then try again. Nothing changed."
+  exit 1
+fi
 cd "$project_root"
 git init -q
 # This is deliberately plan-only. The person must see WAVES.md and make the
@@ -123,7 +147,7 @@ fi
 # worktrees. Recording this machine-made plan changes no project source file
 # and does not start a coding agent; the separate approved-build step remains
 # the only route to a run.
-git add .slopnet/crew.json WAVES.md
+git add .slopnet/crew.json WAVES.md checks
 if git diff --cached --quiet; then
   echo "SlopNet did not produce a plan to save. Nothing ran."
   exit 1
@@ -134,9 +158,9 @@ echo "[OK] Plan recorded locally. No coding agent has run."'
 encoded_project=$(printf '%s' "$remote_project" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; printf %s '$encoded_project' | base64 -d > /tmp/slopnet-project-plan.sh && chown slopnet:slopnet /tmp/slopnet-project-plan.sh && chmod 700 /tmp/slopnet-project-plan.sh && runuser -u slopnet -- env HOME=/home/slopnet sh /tmp/slopnet-project-plan.sh '$name_b64' '$idea_b64' </dev/tty; status=\$?; rm -f -- /tmp/slopnet-project-plan.sh; exit \$status"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_project' | base64 -d > \"\$f\" && chown slopnet:slopnet \"\$f\" && chmod 700 \"\$f\" && runuser -u slopnet -- env HOME=/home/slopnet sh \"\$f\" '$name_b64' '$idea_b64' </dev/tty"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; printf %s '$encoded_project' | base64 -d > /tmp/slopnet-project-plan.sh && sudo chown slopnet:slopnet /tmp/slopnet-project-plan.sh && sudo chmod 700 /tmp/slopnet-project-plan.sh && sudo -u slopnet env HOME=/home/slopnet sh /tmp/slopnet-project-plan.sh '$name_b64' '$idea_b64' </dev/tty; status=\$?; rm -f -- /tmp/slopnet-project-plan.sh; exit \$status"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_project' | base64 -d > \"\$f\" && sudo chown slopnet:slopnet \"\$f\" && sudo chmod 700 \"\$f\" && sudo -u slopnet env HOME=/home/slopnet sh \"\$f\" '$name_b64' '$idea_b64' </dev/tty"
 fi
 
 say "Project planning finished. Read the plan shown above before choosing whether agents should start coding."

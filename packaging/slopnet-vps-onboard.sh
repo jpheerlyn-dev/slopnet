@@ -38,7 +38,7 @@ fi
 say "Step 2 of 3 — confirm your VPS"
 say "If SSH asks whether you trust this server, continue only when ${host} is the IP address from your VPS provider. Then enter the VPS password if asked. It is not saved."
 cat "$key_path.pub" | ssh -o LogLevel=ERROR -p "$port" "$username@$host" \
-  'key=$(cat); umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf "%s\n" "$key" >> "$HOME/.ssh/authorized_keys"'
+  'key=$(cat); umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf "%s\n" "$key" >> "$HOME/.ssh/authorized_keys"'
 
 ssh -o LogLevel=ERROR -i "$key_path" -p "$port" "$username@$host" true
 
@@ -71,9 +71,9 @@ cd /opt/slopnet
 
 encoded_setup=$(printf '%s' "$remote_setup" | base64)
 if [ "$username" = "root" ]; then
-  ssh -tt -p "$port" "$username@$host" "umask 077; printf %s '$encoded_setup' | base64 -d > /tmp/slopnet-vps-bootstrap.sh && sh /tmp/slopnet-vps-bootstrap.sh </dev/tty; status=\$?; rm -f -- /tmp/slopnet-vps-bootstrap.sh; exit \$status"
+  ssh -tt -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sh \"\$f\" </dev/tty"
 else
-  ssh -tt -p "$port" "$username@$host" "umask 077; printf %s '$encoded_setup' | base64 -d > /tmp/slopnet-vps-bootstrap.sh && sudo sh /tmp/slopnet-vps-bootstrap.sh </dev/tty; status=\$?; rm -f -- /tmp/slopnet-vps-bootstrap.sh; exit \$status"
+  ssh -tt -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo sh \"\$f\" </dev/tty"
 fi
 
 say "SlopNet VPS setup finished. Read the result above before starting any project work."

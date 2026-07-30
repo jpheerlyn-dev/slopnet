@@ -990,6 +990,22 @@ def parse_waves(text):
                     "Use a path relative to the project, like src/app.py, then "
                     "re-run: slopnet plan \"your idea\"",
                 )
+            # The Files: line is not the only thing the agent reads. The task
+            # body is handed to it verbatim as instructions, so a body that
+            # says "copy ~/.ssh/config" escapes the project just as surely as
+            # a Files: entry would — and only one of the coding tools runs
+            # inside a workspace sandbox that would refuse it.
+            reach = _body_reaches_outside(task["body"])
+            if reach:
+                crew_fail(
+                    f"Task {task['id']} tells the agent to touch something "
+                    f"outside the project: {reach}.",
+                    "A task may only describe work inside its own project. "
+                    "Reaching into a home directory, a system path, or the "
+                    "history in .git is never part of building an app.",
+                    "Reword the task to name only files inside the project, "
+                    "then re-run: slopnet plan \"your idea\"",
+                )
     waves = [w for w in waves if w]
     if not waves:
         crew_fail(
@@ -1007,6 +1023,34 @@ def parse_waves(text):
                 "Edit WAVES.md or re-run: slopnet plan \"your idea\"",
             )
     return waves
+
+
+# Places a task body has no business naming. Deliberately a short, specific
+# list of things that are always outside a project being built, so ordinary
+# English ("go up a level in the menu", "the root of the page") does not trip
+# it. This is defence in depth, not a language filter: it catches the plan
+# that asks out loud, which is the realistic hallucinated case.
+_BODY_REACHES = [
+    (re.compile(r"(?<![\w.])\.\./"), "a path that climbs out with ../"),
+    (re.compile(r"~/"), "a home directory path (~/)"),
+    (re.compile(r"(?<![\w./])/(etc|root|var|usr|bin|sbin|proc|sys)/"),
+     "a system directory"),
+    (re.compile(r"(?<![\w./])/(Users|home)/"), "someone's home directory"),
+    (re.compile(r"(?<![\w.])\.ssh\b"), ".ssh"),
+    (re.compile(r"(?<![\w.])\.git/"), "the .git directory"),
+    (re.compile(r"(?i)\bauthorized_keys\b"), "authorized_keys"),
+    (re.compile(r"(?i)\b(?:/etc/)?(?:passwd|shadow)\b(?!\s*[:=])"),
+     "the system password files"),
+    (re.compile(r"(?i)\bcrontab\b"), "crontab"),
+]
+
+
+def _body_reaches_outside(body):
+    """Describe the first out-of-project reach in a task body, else ''."""
+    for pattern, description in _BODY_REACHES:
+        if pattern.search(body or ""):
+            return description
+    return ""
 
 
 def _escapes_project(path):
@@ -1047,6 +1091,12 @@ def plan(root, idea, say):
         reply = ask_worker(worker, prompt if attempt == 1 else
                            prompt + f"\n# Your last plan was rejected\n{errors}\n"
                                     "Emit the corrected markdown only.", cwd=str(root))
+        # Mask secret shapes BEFORE the plan is parsed, written to WAVES.md,
+        # or committed. The planner reads the project with full access, so a
+        # reply that echoes something it found in a .env would otherwise land
+        # on disk and in git history. The failure path was already masked;
+        # the success path is the one that persists.
+        reply = _redact(reply)
         body = reply[reply.find("# Waves"):] if "# Waves" in reply else reply
         try:
             waves = parse_waves(body)
@@ -1122,12 +1172,21 @@ def _attempt(root, task, worker, crew, base_branch, say, cancel_event=None,
         if not staged.strip():
             return False, branch, "the agent changed nothing"
 
-        # Gate 1 — the walls, judging the STAGED work. This must happen
-        # BEFORE the commit: the checks read the staged diff, so checking
+        # Gate 1 — the checks, judging the STAGED work. This must happen
+        # BEFORE the commit: they read the staged diff, so checking
         # afterwards would find an empty stage and pass on anything.
         if set_state:
             set_state("checking…")
-        for check in sorted((root / "checks").glob("*.sh")):
+        # A missing or empty checks/ used to mean this loop simply never ran:
+        # the agent's work was kept without a single check, silently, and the
+        # run still reported success. Refuse instead. "Nothing checked it" is
+        # never a pass.
+        scripts = sorted((root / "checks").glob("*.sh"))
+        if not scripts:
+            return False, branch, (
+                "this project has no checks, so nothing can judge the work — "
+                "no agent work is being kept")
+        for check in scripts:
             proc = subprocess.run(["sh", str(check)], cwd=wt,
                                   capture_output=True, text=True)
             if proc.returncode != 0:

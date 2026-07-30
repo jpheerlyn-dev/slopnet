@@ -167,9 +167,9 @@ echo "[OK] Local helper passed. Selected model is private to the slopnet account
 encoded_setup=$(printf '%s' "$remote_setup" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; printf %s '$encoded_setup' | base64 -d > /tmp/slopnet-local-helper.sh && chmod 700 /tmp/slopnet-local-helper.sh && sh /tmp/slopnet-local-helper.sh '$model_b64' </dev/tty; status=\$?; rm -f -- /tmp/slopnet-local-helper.sh; exit \$status"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$model_b64' </dev/tty"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; printf %s '$encoded_setup' | base64 -d > /tmp/slopnet-local-helper.sh && sudo chmod 700 /tmp/slopnet-local-helper.sh && sudo sh /tmp/slopnet-local-helper.sh '$model_b64' </dev/tty; status=\$?; rm -f -- /tmp/slopnet-local-helper.sh; exit \$status"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$model_b64' </dev/tty"
 fi
 
 say "Local helper setup finished. It remains on your server; no model service is running."
