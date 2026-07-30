@@ -132,6 +132,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, assign) BOOL busy;
 @property(nonatomic, assign) BOOL setupRunning;
 @property(nonatomic, assign) BOOL chatting;
+/// What has been said this conversation, oldest first, as "You: …" / "Granite: …".
+/// Kept on the Mac and handed to the guide with each question, because the
+/// model runs one finite process per turn and remembers nothing by itself.
+@property(nonatomic, strong) NSMutableArray<NSString *> *conversation;
 @property(nonatomic, assign) BOOL localHelperRunning;
 @property(nonatomic, assign) BOOL planningRunning;
 @property(nonatomic, assign) BOOL approvedBuildRunning;
@@ -809,6 +813,40 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 /// The coding apps from tools.json, as provider ids. Only real, listed
 /// tools — nothing invented, and unmapped ids are simply left out.
+/// Keep one line of the conversation, capped so a long session cannot grow the
+/// prompt without limit. Older turns fall off the front; the guide keeps the
+/// recent thread, which is what a person means by "remember what I said".
+- (void)remember:(NSString *)line {
+    if (self.conversation == nil) self.conversation = [NSMutableArray array];
+    [self.conversation addObject:line];
+    while (self.conversation.count > 20) [self.conversation removeObjectAtIndex:0];
+}
+
+/// Everything the guide is allowed to know: the recent conversation, then the
+/// tail of what the terminal has actually shown.
+///
+/// The terminal half is the point of this — a guide that can read what just
+/// scrolled past can explain it. It is read-only. Nothing here lets the model
+/// run anything; it has no tools, and the prompt says so.
+///
+/// Secrets are taken out first. Sign-in codes and keys pass through this
+/// window, and while the model is local and private, text that goes into a
+/// prompt should never be the place a credential is kept alive.
+- (NSString *)guideContext {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    if (self.conversation.count > 0) {
+        [parts addObject:[NSString stringWithFormat:@"Earlier in this conversation:\n%@",
+                          [self.conversation componentsJoinedByString:@"\n"]]];
+    }
+    NSString *screen = [self.console recentLinesForContext:60];
+    if (screen.length > 0) {
+        [parts addObject:[NSString stringWithFormat:
+            @"What the terminal has shown (you cannot run anything, only read this):\n%@",
+            screen]];
+    }
+    return [parts componentsJoinedByString:@"\n\n"];
+}
+
 - (NSArray<NSString *> *)codingToolProviders {
     NSString *path = [[NSBundle mainBundle] pathForResource:@"tools" ofType:@"json"];
     NSData *data = path ? [NSData dataWithContentsOfFile:path] : nil;
@@ -1612,6 +1650,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // thinking glyph, so the screen showed Granite's mark above words Granite
     // had not written.
     [self.console note:[SlopNetBrand youSaidANSI:question width:[self panelWidth]]];
+    NSString *context = [self guideContext];
+    [self remember:[NSString stringWithFormat:@"You: %@", question]];
     [self.console note:[SlopNetBrand guideRepliesANSIForProvider:provider
                                                             name:@"Granite"]];
     self.entry.string = @"";
@@ -1628,7 +1668,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.console.collectsOutput = YES;
     self.chatting = YES;
     if (![self.console runExecutable:@"/bin/bash"
-                           arguments:@[script, self.host, self.port, self.username, question]]) {
+                           arguments:@[script, self.host, self.port, self.username,
+                                       question, context]]) {
         self.chatting = NO;
         [self setBusy:NO];
     }
@@ -1787,6 +1828,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         self.chatting = NO;
         NSString *said = console.collectedOutput;
         if (status == 0 && said.length > 0) {
+            [self remember:[NSString stringWithFormat:@"Granite: %@", said]];
             NSString *provider =
                 [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
             [console note:[SlopNetBrand guideSaidANSI:said

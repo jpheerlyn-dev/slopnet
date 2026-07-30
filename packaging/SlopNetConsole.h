@@ -82,6 +82,13 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 /// Everything currently on screen, for probes to read back.
 - (NSString *)textForTesting;
 
+/// The last `count` lines the window has shown, as plain text with the colour
+/// taken out and anything that looks like a credential replaced.
+///
+/// This is what lets the local guide read what just happened. It is a copy for
+/// reading, never a handle on the terminal.
+- (NSString *)recentLinesForContext:(NSUInteger)count;
+
 - (BOOL)runExecutable:(NSString *)path
             arguments:(NSArray<NSString *> *)arguments;
 

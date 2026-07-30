@@ -4,8 +4,8 @@
 # no provider credential and no route to the planner or the project runner.
 set -euo pipefail
 
-if [ "$#" -ne 4 ]; then
-  printf '%s\n' 'Usage: slopnet-vps-chat.sh HOST PORT USER QUESTION' >&2
+if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
+  printf '%s\n' 'Usage: slopnet-vps-chat.sh HOST PORT USER QUESTION [CONTEXT]' >&2
   exit 2
 fi
 
@@ -25,8 +25,12 @@ if [ -z "$question" ]; then
 fi
 
 question_b64=$(printf '%s' "$question" | base64 | tr -d '\n')
+# What has happened so far: earlier turns, and what the terminal has shown.
+# Empty on the first question of a conversation.
+context_b64=$(printf '%s' "${5:-}" | base64 | tr -d '\n')
 remote_chat='set -eu
 question_b64=$1
+context_b64=${2:-}
 if ! id -u slopnet >/dev/null 2>&1; then
   echo "The protected SlopNet runtime account is missing. Run Connect and prepare this server first."
   exit 1
@@ -48,17 +52,25 @@ if ! printf "%s" "$model" | grep -Eq "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-
   exit 1
 fi
 question=$(printf "%s" "$question_b64" | base64 -d)
-system_prompt="You are the private SlopNet setup guide. Explain only SlopNet, a VPS, setup choices, or request wording. You have no tools, files, or secrets. Never run, promise, or claim actions; never make a project, plan, agent, or build. For a build request, say to choose Build, read the plan, and approve the run. Keep answers under 180 words."
-question_prompt="First output exactly SLOPNET_REPLY_START on one line. Then answer the question.\n\nQUESTION:\n$question"
+context=""
+if [ -n "$context_b64" ]; then
+  context=$(printf "%s" "$context_b64" | base64 -d)
+fi
+system_prompt="You are the private SlopNet guide, running on their own server. You can read what has happened so far, including what the terminal has printed. Use it to explain plainly what is going on and what to do next. You cannot run commands, open files, or change anything: you have no tools yet, so never claim to have done something, and never invent output you were not shown. If a build is wanted, say to choose Build, read the plan, then approve the run. Keep answers under 180 words."
+if [ -n "$context" ]; then
+  question_prompt="First output exactly SLOPNET_REPLY_START on one line. Then answer the question.\n\nWHAT HAS HAPPENED SO FAR:\n$context\n\nQUESTION:\n$question"
+else
+  question_prompt="First output exactly SLOPNET_REPLY_START on one line. Then answer the question.\n\nQUESTION:\n$question"
+fi
 run_model() {
   if command -v timeout >/dev/null 2>&1; then
     timeout 300 runuser -u slopnet -- env HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" \
-      nice -n 10 "$llama" cli -hf "$model" --offline -c 4096 -b 512 -ub 256 --no-warmup -n 256 --single-turn \
+      nice -n 10 "$llama" cli -hf "$model" --offline -c 16384 -b 512 -ub 256 --no-warmup -n 256 --single-turn \
       -sys "$system_prompt" -p "$question_prompt" -st --no-display-prompt --no-perf --simple-io
     return
   fi
   runuser -u slopnet -- env HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" \
-    nice -n 10 "$llama" cli -hf "$model" --offline -c 4096 -b 512 -ub 256 --no-warmup -n 256 --single-turn \
+    nice -n 10 "$llama" cli -hf "$model" --offline -c 16384 -b 512 -ub 256 --no-warmup -n 256 --single-turn \
     -sys "$system_prompt" -p "$question_prompt" -st --no-display-prompt --no-perf --simple-io
 }
 if ! model_output=$(run_model 2>&1); then
@@ -109,7 +121,7 @@ encoded_chat=$(printf '%s' "$remote_chat" | base64 | tr -d '\n')
 # immediately afterwards.  The model and its configuration stay private to
 # the locked runtime account.
 if [ "$username" = "root" ]; then
-  ssh -T -i "$key_path" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$question_b64'"
+  ssh -T -i "$key_path" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$question_b64' '$context_b64'"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$question_b64' </dev/tty"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$question_b64' '$context_b64' </dev/tty"
 fi

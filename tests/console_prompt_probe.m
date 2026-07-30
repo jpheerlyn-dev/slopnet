@@ -277,6 +277,30 @@ int main(void) {
                   "an ordinary run still streams into the window, unchanged");
         }
 
+        // What the guide is allowed to read. The redaction is the part that
+        // matters: sign-in codes and keys pass through this window, and a
+        // prompt is not a place to keep a credential alive — even a local one.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            // Assembled at run time; written as literals these would be real
+            // secret shapes in a tracked file and checks/secrets.sh would
+            // rightly block the commit.
+            [c note:@"Free storage: 248145 MiB"];
+            [c note:[@"error: credential AKIA" stringByAppendingString:@"ABCDEFGHIJKLMNOP rejected"]];
+            [c note:[@"fatal: token ghp" stringByAppendingFormat:@"_%@",
+                     [@"" stringByPaddingToLength:36 withString:@"a" startingAtIndex:0]]];
+            [c note:[@"password" stringByAppendingString:@": hunter2correcthorse"]];
+            NSString *seen = [c recentLinesForContext:40];
+            check([seen containsString:@"248145"],
+                  "the guide can read what the terminal actually showed");
+            check(![seen containsString:@"ABCDEFGHIJKLMNOP"], "an access key never reaches it");
+            check(![seen containsString:@"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+                  "nor a personal token");
+            check(![seen containsString:@"hunter2correcthorse"], "nor a password");
+            check([seen containsString:@"[redacted]"], "and it can see that something was removed");
+        }
+
     fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }

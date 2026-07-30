@@ -757,6 +757,47 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
             NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
 
+/// The shapes that must never be carried into a prompt. Matches
+/// crew.py's _SECRET_SHAPES, which redacts the same things server-side.
+static NSString *SlopNetWithoutSecrets(NSString *text) {
+    static NSArray<NSString *> *patterns;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        patterns = @[
+            @"AKIA[0-9A-Z]{16}",
+            @"gh[pousr]_[A-Za-z0-9]{20,}",
+            @"sk-[A-Za-z0-9_-]{20,}",
+            @"[A-Za-z0-9+/]{40,}={0,2}",                 // long base64-ish blobs
+            @"(?i)bearer\\s+[A-Za-z0-9._-]{16,}",
+            @"(?i)(api[_-]?key|secret|token|password)\\s*[:=]\\s*\\S+",
+            @"-----BEGIN[^-]*PRIVATE KEY-----",
+            @"ssh-(rsa|ed25519)\\s+[A-Za-z0-9+/=]+",
+        ];
+    });
+    NSMutableString *clean = [text mutableCopy];
+    for (NSString *pattern in patterns) {
+        NSRegularExpression *expression =
+            [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+        if (expression == nil) continue;
+        [expression replaceMatchesInString:clean options:0
+                                     range:NSMakeRange(0, clean.length)
+                              withTemplate:@"[redacted]"];
+    }
+    return clean;
+}
+
+- (NSString *)recentLinesForContext:(NSUInteger)count {
+    [self redraw];
+    NSUInteger from = self.lines.count > count ? self.lines.count - count : 0;
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    for (NSUInteger i = from; i < self.lines.count; i++) {
+        NSString *line = [self.lines[i].string
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (line.length > 0) [kept addObject:line];
+    }
+    return SlopNetWithoutSecrets([kept componentsJoinedByString:@"\n"]);
+}
+
 - (NSString *)textForTesting {
     [self redraw];
     return self.output.textStorage.string;
