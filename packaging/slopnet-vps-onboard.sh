@@ -10,7 +10,7 @@ username="$3"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.1"
+slopnet_release="v0.9.2"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 repo_url="https://github.com/jpheerlyn-dev/slopnet.git"
 
@@ -67,12 +67,27 @@ if ! command -v git >/dev/null 2>&1; then
     exit 1
   fi
 fi
+# After the first run /opt/slopnet belongs to the slopnet user while this
+# script runs as root, and git refuses to touch a repository somebody else
+# owns. Every git call here therefore goes through one helper: as the owner
+# when that user exists, so fetched objects do not end up owned by root, and
+# always naming the directory as trusted, which is what root needs to read it.
+#
+# Getting this wrong is invisible on a first install and fatal on every run
+# after it — the state a person is in precisely when they are retrying.
+checkout_owner=$(stat -c %U /opt/slopnet 2>/dev/null || echo root)
+if [ "$checkout_owner" != "root" ] && id -u "$checkout_owner" >/dev/null 2>&1 \
+   && command -v runuser >/dev/null 2>&1; then
+  as_owner="runuser -u $checkout_owner --"
+else
+  as_owner=""
+fi
+sgit() {
+  $as_owner git -c safe.directory=/opt/slopnet -c advice.detachedHead=false "$@"
+}
+
 if [ -d /opt/slopnet/.git ]; then
-  if id -u slopnet >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
-    runuser -u slopnet -- git -C /opt/slopnet fetch --quiet --tags origin
-  else
-    git -c safe.directory=/opt/slopnet -C /opt/slopnet fetch --quiet --tags origin
-  fi
+  sgit -C /opt/slopnet fetch --quiet --tags --force origin
 else
   git clone --quiet https://github.com/jpheerlyn-dev/slopnet.git /opt/slopnet
 fi
@@ -82,10 +97,15 @@ cd /opt/slopnet
 # decides which code a beginner runs as root on their own server; a moving
 # branch would mean anyone who could push could choose that for them.
 # Updating SlopNet is deliberately a decision, not a side effect of setup.
-if ! git -c advice.detachedHead=false checkout --quiet "$slopnet_release" 2>/dev/null; then
+#
+# The real git error is printed. Hiding it once cost an evening chasing a
+# network fault that did not exist: the failure was an ownership refusal, and
+# the message this prints said to check the connection to GitHub.
+if ! checkout_error=$(sgit -C /opt/slopnet checkout --quiet "$slopnet_release" 2>&1); then
   echo "RULE: SlopNet could not check out its released version ($slopnet_release)."
   echo "WHY:  Setup runs this code as root, so it will not fall back to whatever the branch currently holds."
-  echo "FIX:  Check this server can reach GitHub, then start setup again. Nothing was installed."
+  echo "FIX:  Read the git error below, fix what it names, then start setup again. Nothing was installed."
+  echo "$checkout_error"
   exit 1
 fi
 ./slopnet setup --vps'
