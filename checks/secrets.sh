@@ -52,10 +52,16 @@ if [ -n "$gl" ]; then
       "A committed secret is public forever and gets scraped within minutes." \
       "Remove and rotate the secret; run gitleaks yourself to see the exact file and line."
   fi
-  exit 0
 fi
 
-# 3. Pure-shell fallback: a fixed set of high-signal secret patterns.
+# 3. The pattern scan. Deliberately NOT an else — it runs whether or not
+# gitleaks is here.
+#
+# It used to stop after gitleaks. This machine has gitleaks in .slopnet/bin and
+# CI does not, so the two ran different scanners: every check passed here and
+# then CI failed on the push, on a pattern that had never once been evaluated
+# locally. The checks run before a push must be a superset of the ones gating
+# it, or they are not checks — they are a rehearsal of a different play.
 pat="AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9]{20,}|-----BEGIN( [A-Z]+)? PRIVATE KEY-----|(api[_-]?key|secret|token|passwd|password)[\"']?[[:space:]]*[:=][[:space:]]*[\"'][^\"']{12,}"
 
 if [ "$all" -eq 1 ]; then

@@ -1392,8 +1392,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.localHelperRunning = YES;
     [self beginActivity:@"db-research" caption:@"Preparing the local guide…"];
     [self setBusy:YES];
+    // --approved: the wizard already showed the download size against this
+    // server's free storage and memory, and would not enable Install until it
+    // had checked. Pressing it is the answer; asking twice more in a terminal
+    // is what left people staring at a screen that looked stuck.
     if (![self.console runExecutable:@"/bin/bash"
-                           arguments:@[script, self.host, self.port, self.username, model]]) {
+                           arguments:@[script, self.host, self.port, self.username,
+                                       model, @"--approved"]]) {
         [self setBusy:NO];
     }
 }

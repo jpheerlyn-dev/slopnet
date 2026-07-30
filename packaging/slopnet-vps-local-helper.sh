@@ -7,8 +7,8 @@
 # person whether to use it for a draft; it cannot start coding by itself.
 set -euo pipefail
 
-if [ "$#" -ne 4 ]; then
-  printf '%s\n' 'Usage: slopnet-vps-local-helper.sh HOST PORT USER MODEL' >&2
+if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
+  printf '%s\n' 'Usage: slopnet-vps-local-helper.sh HOST PORT USER MODEL [--approved]' >&2
   exit 2
 fi
 
@@ -18,6 +18,26 @@ username="$3"
 model="$4"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 default_model="ibm-granite/granite-4.1-3b-GGUF:Q4_K_M"
+# The wizard shows the download size and the server's free storage and memory,
+# and will not enable its Install button until it has checked. Pressing that
+# button is the approval. Asking twice more down here, in a terminal, is the
+# interrogation that was taken out of server setup for the same reason.
+approved="no"
+[ "${5:-}" = "--approved" ] && approved="yes"
+
+# Ask, unless it was already answered upstairs. Still printed either way, so
+# the transcript records what was agreed to.
+confirm() {
+  if [ "$approved" = "yes" ]; then
+    printf '\n%s [y/N] y   (approved in SlopNet before this started)\n' "$1"
+    return 0
+  fi
+  read -r -p "$1 [y/N] " answer
+  case "$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')" in
+    y|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 # A request-rewriter never needs a model's enormous advertised context. This
 # deliberately small bound prevents its KV cache from consuming an otherwise
 # healthy VPS. It is not an agent-runtime limit and does not affect paid CLIs.
@@ -52,12 +72,10 @@ else
   say "SlopNet does not know this model's size in advance. The server will show its actual free storage and memory before it downloads it."
 fi
 say "Llama.cpp and the model will belong only to the locked slopnet account. No API key is requested or saved, no external model port is opened, and the one test exits when it is done."
-read -r -p "Continue? [y/N] " answer
-answer_lower=$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')
-case "$answer_lower" in
-  y|yes) ;;
-  *) say "Nothing changed."; exit 0 ;;
-esac
+if ! confirm "Continue?"; then
+  say "Nothing changed on your VPS."
+  exit 0
+fi
 
 model_b64=$(printf '%s' "$model" | base64 | tr -d '\n')
 remote_setup='set -eu
@@ -120,12 +138,10 @@ echo
 echo "Llama.cpp will be installed from its official installer into the slopnet account."
 echo "The selected public model will download now and answer one harmless word. This can take a while."
 echo "SlopNet limits this helper to a 4,096-token context and modest batches so a short draft cannot take over the VPS."
-read -r -p "Install and test it? [y/N] " answer
-answer_lower=$(printf "%s" "$answer" | tr "[:upper:]" "[:lower:]")
-case "$answer_lower" in
-  y|yes) ;;
-  *) echo "Nothing changed."; exit 0 ;;
-esac
+if ! confirm "Install and test it?"; then
+  echo "Nothing changed."
+  exit 0
+fi
 
 if [ ! -x "$runtime_home/.local/bin/llama" ]; then
   echo "Installing Llama.cpp as slopnet…"
