@@ -10,7 +10,7 @@ username="$3"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.2"
+slopnet_release="v0.9.3"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 repo_url="https://github.com/jpheerlyn-dev/slopnet.git"
 
@@ -49,8 +49,21 @@ ssh -o LogLevel=ERROR -i "$key_path" -p "$port" "$username@$host" true
 
 say "Your protected connection is ready."
 say "Step 3 of 3 — prepare the VPS"
-say "SlopNet will update its own workspace and then ask separately before it changes anything on the VPS. If you did not sign in as root, your VPS may ask for your sudo password now."
-read -r -p "Prepare the VPS now? [y/N] " ready
+# Everything that changes, said once, here — the only place in this flow with
+# a terminal the person actually opened. Setup used to repeat six variations
+# of this question over the SSH connection, where an unanswered one stops the
+# run with nothing on screen.
+say "This is everything SlopNet changes on your VPS:"
+printf '%s\n' \
+  "  - creates a locked account called slopnet, with a private home folder" \
+  "  - installs SlopNet into /opt/slopnet and gives that account ownership of it" \
+  "  - installs bubblewrap, so coding agents run boxed in rather than loose" \
+  "  - installs the coding app's command-line tool, ready to sign in later" \
+  "" \
+  "It does not touch root SSH access, password SSH access, firewall rules or ports." \
+  "It does not sign you in to anything, and it does not download the guide yet."
+say "If you did not sign in as root, your VPS may ask for your sudo password now."
+read -r -p "Make those changes? [y/N] " ready
 case "$(printf %s "$ready" | tr "[:upper:]" "[:lower:]")" in
   y|yes) ;;
   *) say "Nothing changed on your VPS."; exit 0 ;;
@@ -108,7 +121,7 @@ if ! checkout_error=$(sgit -C /opt/slopnet checkout --quiet "$slopnet_release" 2
   echo "$checkout_error"
   exit 1
 fi
-./slopnet setup --vps'
+./slopnet setup --vps --approved'
 
 encoded_setup=$(printf '%s' "$remote_setup" | base64)
 if [ "$username" = "root" ]; then

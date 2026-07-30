@@ -677,8 +677,23 @@ def ask_operator(question, options, multi=False):
         print("Type the number(s) you want, like: 1" + (" or 1,2" if multi else ""))
 
 
+# Set once from the command line, and only by the Mac app, which has already
+# listed every change and taken an answer for them.
+#
+# Setup asked six more yes/no questions after that, inside a terminal the
+# person did not open. Each one blocked on stdin, and when there was no
+# interactive input behind it the whole run simply stopped with nothing on
+# screen — the "it gets stuck" that no amount of waiting fixes. One informed
+# answer up front, then setup gets on with it.
+ASSUME_APPROVED = False
+
+
 def ask_yes_no(question):
     """Ask for an explicit affirmative answer before changing a VPS."""
+    if ASSUME_APPROVED:
+        # Still shown, so the transcript records what was agreed to and when.
+        print(f"\n{question} [y/N] y   (approved in SlopNet before setup started)")
+        return True
     while True:
         try:
             raw = input(f"\n{question} [y/N] ").strip().lower()
@@ -1659,6 +1674,9 @@ def main():
                         "(server preparation already done)")
     p.add_argument("--vps-account-ready", action="store_true",
                    help=argparse.SUPPRESS)
+    p.add_argument("--approved", action="store_true",
+                   help="the changes were listed and agreed to in SlopNet "
+                        "already; do not ask again")
 
     p = sub.add_parser("plan", help="turn an idea into WAVES.md")
     p.add_argument("idea")
@@ -1674,6 +1692,9 @@ def main():
                    help="pass one wave number to the runner")
 
     args = parser.parse_args()
+    if getattr(args, "approved", False):
+        global ASSUME_APPROVED
+        ASSUME_APPROVED = True
     if not args.command:
         print_welcome()
         return
