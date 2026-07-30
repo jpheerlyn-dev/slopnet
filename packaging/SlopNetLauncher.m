@@ -61,6 +61,22 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
 - (void)didChangeText { [super didChangeText]; [self setNeedsDisplay:YES]; }
 @end
 
+// One box, one button, no modes. What a message means depends on where the
+// conversation has got to, not on a control the person had to set first.
+//
+// Granite is meant to be the thing that decides when to build. It cannot yet:
+// native tool calling on the local model is explicitly unproved (see
+// register/PENDING_OPERATOR.md), and a 3B model that "usually" emits a
+// function call would start builds nobody asked for. So SlopNet notices a
+// build-shaped request itself and offers, in the same stream, clearly as
+// SlopNet. The person still approves in plain words. When tool calling is
+// proved, this is where Granite takes over.
+typedef NS_ENUM(NSInteger, SlopNetTurn) {
+    SlopNetTurnTalking = 0,     // ordinary conversation with the guide
+    SlopNetTurnOfferedBuild,    // SlopNet asked whether to build; awaiting yes
+    SlopNetTurnNeedsName,       // they said yes; asking what to call it
+};
+
 @interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate,
                                           SlopNetSettingsDelegate, SlopNetWizardDelegate,
                                           NSTextViewDelegate>
@@ -81,9 +97,7 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
 
 // main
 @property(nonatomic, strong) SlopNetConsole *console;
-@property(nonatomic, strong) NSTextField *projectName;
-@property(nonatomic, strong) NSPopUpButton *modePicker;
-@property(nonatomic, strong) NSPopUpButton *modelPicker;
+@property(nonatomic, strong) NSTextField *modelLabel;
 @property(nonatomic, strong) SlopNetEntryView *entry;
 @property(nonatomic, strong) NSScrollView *entryScroller;
 @property(nonatomic, strong) NSLayoutConstraint *entryHeight;
@@ -107,6 +121,13 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
 @property(nonatomic, copy) NSString *activeProjectName;
 @property(nonatomic, copy) NSString *plannedProjectName;
 @property(nonatomic, copy) NSString *localModelName;
+@property(nonatomic, assign) SlopNetTurn turn;
+/// What they asked to have built, held while the offer and the name are
+/// agreed, so nobody has to type their request twice.
+@property(nonatomic, copy) NSString *pendingRequest;
+/// Raised after the guide finishes answering, so its reply comes first and
+/// SlopNet's offer follows it rather than interrupting.
+@property(nonatomic, assign) BOOL offerBuildWhenReplyEnds;
 @end
 
 @implementation SlopNetAppDelegate
@@ -313,27 +334,21 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
     self.console.delegate = self;
     self.console.translatesAutoresizingMaskIntoConstraints = NO;
 
-    // The chat bar. What it does depends on what is happening: answer the
-    // running program's question, or describe the thing you want built.
-    // It starts comfortably large, grows with a long request, then scrolls
-    // rather than stealing the entire console.
-    self.projectName = [self field:@"project name" value:nil];
-    [self.projectName.widthAnchor constraintEqualToConstant:130].active = YES;
-
-    self.modePicker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [self.modePicker addItemWithTitle:@"Chat"];
-    [self.modePicker addItemWithTitle:@"Build"];
-    self.modePicker.target = self;
-    self.modePicker.action = @selector(modeChanged:);
-    self.modePicker.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.modePicker.widthAnchor constraintEqualToConstant:76].active = YES;
-
-    self.modelPicker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    self.modelPicker.target = self;
-    self.modelPicker.action = @selector(modelChanged:);
-    self.modelPicker.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.modelPicker.widthAnchor constraintEqualToConstant:180].active = YES;
-    [self refreshModelPicker];
+    // One box and one button. There is no mode to choose and no separate
+    // name field: a person types what they want in their own words, and
+    // where the conversation has got to decides what that means.
+    //
+    // The model is shown, not chosen. It was a pop-up whose only other item
+    // opened Settings — a menu pretending to be a control. Which guide is
+    // answering matters in a conversation; being asked to pick one does not.
+    self.modelLabel = [NSTextField labelWithString:@""];
+    self.modelLabel.font = [NSFont systemFontOfSize:11];
+    self.modelLabel.textColor = [NSColor secondaryLabelColor];
+    self.modelLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    self.modelLabel.maximumNumberOfLines = 1;
+    self.modelLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.modelLabel.widthAnchor constraintLessThanOrEqualToConstant:220].active = YES;
+    [self refreshModelLabel];
     self.entry = [[SlopNetEntryView alloc] initWithFrame:NSZeroRect];
     self.entry.delegate = self;
     self.entry.richText = NO;
@@ -360,33 +375,47 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
     self.entryHeight.active = YES;
     [self.entryScroller setContentHuggingPriority:NSLayoutPriorityDefaultLow
                            forOrientation:NSLayoutConstraintOrientationHorizontal];
+    // One label, always. It used to say Build it / Answer / Make a plan /
+    // Set up / Ask / Set up guide / Start approved build depending on hidden
+    // state — seven identities for one control, and no way to predict which
+    // one you had. Send always means: give this to SlopNet.
     self.sendButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    self.sendButton.title = @"Build it";
+    self.sendButton.title = @"Send";
     self.sendButton.bezelStyle = NSBezelStyleRounded;
     self.sendButton.target = self;
     self.sendButton.action = @selector(sendPressed:);
+    [self.sendButton.widthAnchor constraintGreaterThanOrEqualToConstant:76].active = YES;
 
     NSStackView *chatBar = [NSStackView stackViewWithViews:@[
-        self.modePicker, self.modelPicker, self.projectName, self.entryScroller, self.sendButton]];
+        self.entryScroller, self.sendButton]];
     chatBar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     chatBar.alignment = NSLayoutAttributeTop;
     chatBar.spacing = 8;
     chatBar.translatesAutoresizingMaskIntoConstraints = NO;
 
+    // Which guide is answering sits above the box, out of the way of the
+    // one thing there is to press.
+    NSStackView *composer = [NSStackView stackViewWithViews:@[self.modelLabel, chatBar]];
+    composer.orientation = NSUserInterfaceLayoutOrientationVertical;
+    composer.alignment = NSLayoutAttributeLeading;
+    composer.spacing = 4;
+    composer.translatesAutoresizingMaskIntoConstraints = NO;
+    [chatBar.widthAnchor constraintEqualToAnchor:composer.widthAnchor].active = YES;
+
     // Plain constraints rather than a stack here: two children, and the
     // console must take every spare pixel at any window size.
     NSView *main = [[NSView alloc] initWithFrame:NSZeroRect];
     [main addSubview:self.console];
-    [main addSubview:chatBar];
+    [main addSubview:composer];
     [NSLayoutConstraint activateConstraints:@[
         [self.console.topAnchor constraintEqualToAnchor:main.topAnchor constant:16],
         [self.console.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
         [self.console.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-16],
 
-        [chatBar.topAnchor constraintEqualToAnchor:self.console.bottomAnchor constant:10],
-        [chatBar.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
-        [chatBar.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-16],
-        [chatBar.bottomAnchor constraintEqualToAnchor:main.bottomAnchor constant:-16],
+        [composer.topAnchor constraintEqualToAnchor:self.console.bottomAnchor constant:10],
+        [composer.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
+        [composer.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-16],
+        [composer.bottomAnchor constraintEqualToAnchor:main.bottomAnchor constant:-16],
     ]];
     return main;
 }
@@ -398,11 +427,8 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
            self.host.length > 0;
 }
 
-- (BOOL)isChatMode { return self.modePicker.indexOfSelectedItem == 0; }
-
 - (void)refreshState {
     BOOL ready = [self isReady];
-    BOOL chat = [self isChatMode];
     BOOL guide = [self guideReady];
     if (ready && guide) {
         self.statusDot.textColor = [NSColor systemGreenColor];
@@ -414,40 +440,58 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
         self.statusDot.textColor = [NSColor systemGrayColor];
         self.statusText.stringValue = @"No server yet";
     }
-    self.modePicker.enabled = ready && !self.busy;
-    self.modelPicker.hidden = !ready || !chat;
-    self.modelPicker.enabled = ready && !self.busy && chat;
-    self.projectName.hidden = !ready || chat;
+    self.modelLabel.hidden = !ready || !guide;
+
+    // The button never changes. Only the hint inside the empty box changes,
+    // and it describes what will happen rather than naming a mode.
+    self.entry.editable = YES;
     if (self.busy) {
-        self.entry.prompt = @"Type your answer here, then press Return (for example: y)";
-        self.sendButton.title = @"Answer";
-        self.entry.editable = YES;
-    } else if (ready && chat && !guide) {
-        // Chat has nothing to answer with until the guide has passed its
-        // proof. Say which step is missing instead of failing on the server.
-        self.entry.prompt = @"Install the private guide first — press Setup guide, bottom left";
-        self.sendButton.title = @"Set up guide";
+        self.entry.prompt = @"It is asking you something — type your answer and press Return";
+    } else if (!ready) {
+        self.entry.prompt = @"Press Send to connect your server — the guide walks you through it";
         self.entry.editable = NO;
-    } else if (ready && chat) {
-        self.entry.prompt = @"Ask the local guide about setup or how to prepare a request…";
-        self.sendButton.title = @"Ask";
-        self.entry.editable = YES;
-    } else if (ready && self.plannedProjectName.length > 0) {
-        self.entry.prompt = @"Read the plan above. Start only when you are ready for coding agents.";
-        self.sendButton.title = @"Start approved build";
+    } else if (!guide) {
+        self.entry.prompt = @"Press Send to install your private guide — nothing downloads until you agree";
         self.entry.editable = NO;
-    } else if (ready) {
-        self.entry.prompt =
-            @"Describe what you want built… SlopNet will make a plan, then stop.";
-        self.sendButton.title = @"Make a plan";
-        self.entry.editable = YES;
+    } else if (self.plannedProjectName.length > 0) {
+        self.entry.prompt = @"Read the plan above. Say yes to start building it, or keep talking.";
+    } else if (self.turn == SlopNetTurnOfferedBuild) {
+        self.entry.prompt = @"Say yes to build it, or carry on talking";
+    } else if (self.turn == SlopNetTurnNeedsName) {
+        self.entry.prompt = @"A short name for it — lowercase letters, numbers and hyphens";
     } else {
-        self.entry.prompt = @"Press Set up to connect your server — the guide walks through it";
-        self.sendButton.title = @"Set up";
-        self.entry.editable = NO;
+        self.entry.prompt = @"Ask anything, or say what you want built…";
     }
     [self resizeEntry];
     [self rebuildHistory];
+}
+
+/// Does this read like "make me something", rather than a question?
+///
+/// A heuristic, and it fails safely in both directions: a miss just means
+/// the person says "build it" themselves, and a false positive costs one
+/// line they can ignore by carrying on talking. It never starts anything —
+/// the offer it raises still has to be accepted.
+- (BOOL)soundsLikeARequestToBuild:(NSString *)text {
+    NSString *lower = text.lowercaseString;
+    if (lower.length < 8) return NO;
+    for (NSString *opener in @[@"build ", @"make ", @"create ", @"write ", @"code ",
+                               @"build me", @"make me", @"can you build",
+                               @"can you make", @"i want a", @"i need a",
+                               @"i'd like a", @"id like a"]) {
+        if ([lower hasPrefix:opener] ||
+            [lower rangeOfString:[@" " stringByAppendingString:opener]].location != NSNotFound) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+- (BOOL)meansYes:(NSString *)text {
+    NSString *word = [text.lowercaseString stringByTrimmingCharactersInSet:
+        [NSCharacterSet characterSetWithCharactersInString:@" .!\t\n"]];
+    return [@[@"y", @"yes", @"yeah", @"yep", @"yup", @"ok", @"okay", @"sure",
+              @"go", @"go on", @"do it", @"please do", @"build it"] containsObject:word];
 }
 
 - (void)setBusy:(BOOL)busy {
@@ -517,11 +561,12 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
     self.conversationURL = nil;
     self.plannedProjectName = nil;
     self.activeProjectName = nil;
-    [self.modePicker selectItemAtIndex:0];
-    self.projectName.stringValue = @"";
+    self.turn = SlopNetTurnTalking;
+    self.pendingRequest = nil;
+    self.offerBuildWhenReplyEnds = NO;
     self.entry.string = @"";
     [self.console note:
-        @"\nNew chat. Ask the local guide about setup, or choose Build when you are ready to make a plan."];
+        @"\nNew conversation. Ask your guide anything, or say what you want built."];
     [self showReadyBlock];
     [self.window makeFirstResponder:self.entry];
     [self resizeEntry];
@@ -533,8 +578,7 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
     if (text.length == 0) return;
     self.conversationURL = url;
     self.plannedProjectName = nil;
-    [self.modePicker selectItemAtIndex:1];
-    self.projectName.stringValue = [self conversationTitle:url];
+    self.turn = SlopNetTurnTalking;
     NSRange marker = [text rangeOfString:@"## Request\n\n" options:NSBackwardsSearch];
     if (marker.location != NSNotFound) {
         NSUInteger start = NSMaxRange(marker);
@@ -604,9 +648,10 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
 
     if ([self isReady]) {
         [self.console note:[NSString stringWithFormat:
-            @"Your server (%@) is set up and ready.\n"
-            @"Chat uses only your private local model. Choose Build only when you want a paid coding app to make a plan. "
-            @"Your local request notes appear on the left.", self.host]];
+            @"Your server (%@) is ready.\n"
+            @"Just talk to your guide below. Ask it anything, or say what you want built "
+            @"and it will offer to build it. Nothing costs money until you say yes.",
+            self.host]];
     } else {
         [self.console note:@"Welcome. The setup guide is opening now.\n"
                            @"First connect your server; then SlopNet can install and prove its private local guide."];
@@ -793,7 +838,6 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
 
 - (void)wizardStartChat:(SlopNetWizard *)wizard {
     [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kWizardKey];
-    [self.modePicker selectItemAtIndex:0];          // Chat
     [self refreshState];
     [self.console note:[SlopNetBrand headerANSI:@"Ready" width:[self panelWidth]]];
     [self.console note:@"Ask the private guide anything about setup. It answers on your "
@@ -846,42 +890,32 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
     self.entryScroller.hasVerticalScroller = textHeight > maximum;
 }
 
-- (void)modeChanged:(id)sender {
-    self.plannedProjectName = nil;
-    [self refreshState];
-    [self.window makeFirstResponder:self.entry];
-}
-
-- (void)refreshModelPicker {
-    if (self.modelPicker == nil) return;
+- (void)refreshModelLabel {
+    if (self.modelLabel == nil) return;
     NSString *provider = [SlopNetBrand providerForLocalModel:self.localModelName];
     NSString *badge = provider ? [SlopNetBrand markForProvider:provider] : nil;
-    NSString *title = self.localModelName.length > 0
-        ? [NSString stringWithFormat:@"%@ — local", self.localModelName]
-        : @"Local model — set up in Settings";
-    if (badge != nil) title = [NSString stringWithFormat:@"%@ %@", badge, title];
-    [self.modelPicker removeAllItems];
-    [self.modelPicker addItemWithTitle:title];
-    // Menus draw in the menu font, which has no badge glyphs; give the badge
-    // characters the console face so the real logo shows in the picker.
+    // The recognised name, not the Hugging Face identifier. Two auditors
+    // flagged "ibm-granite/granite-4.1-3b-GGUF:Q4_K_M" as exactly the kind of
+    // jargon that tells a beginner this software is not for them. The full
+    // identifier still lives in Settings, where somebody looking for it will
+    // know what it means.
+    NSString *name = provider ? [SlopNetBrand displayNameForProvider:provider] : @"Your guide";
+    NSString *text = [NSString stringWithFormat:@"%@  %@ — private, on your server",
+                      badge ?: @"", name];
     if (badge != nil && [SlopNetBrand colorFontActive]) {
-        NSMenuItem *item = [self.modelPicker itemAtIndex:0];
+        // The badge needs the colour face; the name stays in the system font
+        // so the line still reads as part of the app.
         NSMutableAttributedString *styled = [[NSMutableAttributedString alloc]
-            initWithString:title
-                attributes:@{NSFontAttributeName: [NSFont menuFontOfSize:0]}];
+            initWithString:text
+                attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
+                             NSForegroundColorAttributeName: [NSColor secondaryLabelColor]}];
         [styled addAttribute:NSFontAttributeName
-                       value:[SlopNetBrand consoleFontOfSize:13]
+                       value:[SlopNetBrand consoleFontOfSize:12]
                        range:NSMakeRange(0, badge.length)];
-        item.attributedTitle = styled;
+        self.modelLabel.attributedStringValue = styled;
+    } else {
+        self.modelLabel.stringValue = text;
     }
-    [self.modelPicker addItemWithTitle:@"Choose local model in Settings…"];
-    [self.modelPicker selectItemAtIndex:0];
-}
-
-- (void)modelChanged:(id)sender {
-    if (self.modelPicker.indexOfSelectedItem != 1) return;
-    [self.modelPicker selectItemAtIndex:0];
-    [self openSettings:nil];
 }
 
 - (void)textDidChange:(NSNotification *)notification { [self resizeEntry]; }
@@ -975,7 +1009,7 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
     self.username = @"root";
     self.port = @"22";
     self.localModelName = nil;
-    [self refreshModelPicker];
+    [self refreshModelLabel];
     [self.console note:@"\nForgotten on this Mac. Your server itself is untouched, and "
                        @"no password was ever stored."];
     [self refreshState];
@@ -1025,7 +1059,7 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
 - (void)refreshLocalModelName {
     if (![self isReady] || self.host.length == 0) {
         self.localModelName = nil;
-        [self refreshModelPicker];
+        [self refreshModelLabel];
         return;
     }
     // A quiet read-only check. It never starts a model, calls a coding CLI,
@@ -1063,14 +1097,14 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
             } else {
                 strongSelf.localModelName = nil;
             }
-            [strongSelf refreshModelPicker];
+            [strongSelf refreshModelLabel];
             [strongSelf refreshState];
         });
     };
     NSError *error = nil;
     if (![task launchAndReturnError:&error]) {
         self.localModelName = nil;
-        [self refreshModelPicker];
+        [self refreshModelLabel];
     }
 }
 
@@ -1108,46 +1142,51 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
     }
     NSString *idea = [self.entry.string stringByTrimmingCharactersInSet:
         [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if ([self isChatMode]) {
-        if (![self guideReady]) {
-            [self.console note:@"\nChat needs the private local guide on your server. "
-                               @"The setup guide installs it — nothing is downloaded until "
-                               @"you approve it."];
-            [self openWizardAtStep:SlopNetWizardStepGuide];
-            return;
-        }
-        if (idea.length == 0) {
-            [self.console note:@"\nAsk the local guide a question first."];
-            return;
-        }
-        NSString *script = [self helper:@"slopnet-vps-chat"];
-        if (script == nil) {
-            [self.console note:@"The private-chat helper is missing from this app. Build it again."];
-            return;
-        }
-        NSString *chatProvider =
-            [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
-        [self.console note:[SlopNetBrand headerANSI:@"Private local-model chat"
-                                              width:[self panelWidth]]];
-        [self.console note:[SlopNetBrand panelANSIForProvider:chatProvider
-                                                       title:nil
-                                                      detail:@[idea]
-                                                      action:@"think"
-                                                       frame:0
-                                                       width:[self panelWidth]]];
-        [self.console note:
-            @"This reply uses only the selected local model on your VPS. "
-             "It cannot start a plan, coding agent, or build."];
-        self.entry.string = @"";
-        [self resizeEntry];
-        [self beginActivity:@"think" caption:@"The local guide is thinking…"];
-        [self setBusy:YES];
-        if (![self.console runExecutable:@"/bin/bash"
-                               arguments:@[script, self.host, self.port, self.username, idea]]) {
-            [self setBusy:NO];
-        }
+    if (![self guideReady]) {
+        [self.console note:@"\nYour private guide is not installed yet. That is the thing "
+                           @"that answers you, so the setup guide is opening — nothing is "
+                           @"downloaded until you agree to it."];
+        [self openWizardAtStep:SlopNetWizardStepGuide];
         return;
     }
+    if (idea.length == 0) return;
+
+    // They were asked whether to build the last thing they described.
+    if (self.turn == SlopNetTurnOfferedBuild) {
+        self.entry.string = @"";
+        [self resizeEntry];
+        if ([self meansYes:idea]) {
+            self.turn = SlopNetTurnNeedsName;
+            [self.console note:[SlopNetBrand headerANSI:@"Naming it" width:[self panelWidth]]];
+            [self.console note:@"What should I call it? A short name, lowercase letters, "
+                               @"numbers and hyphens — photo-sheet, say."];
+            [self refreshState];
+            return;
+        }
+        // Anything that is not a yes is just more conversation.
+        self.turn = SlopNetTurnTalking;
+        self.pendingRequest = nil;
+        [self askTheGuide:idea];
+        return;
+    }
+
+    // They said yes and are naming it.
+    if (self.turn == SlopNetTurnNeedsName) {
+        NSString *name = idea.lowercaseString;
+        if (![self matches:name pattern:@"^[a-z0-9][a-z0-9-]{0,62}$"]) {
+            [self.console note:@"\nThat name will not work. Lowercase letters, numbers and "
+                               @"hyphens only, starting with a letter or number — like "
+                               @"photo-sheet. What should I call it?"];
+            self.entry.string = @"";
+            [self resizeEntry];
+            return;
+        }
+        self.entry.string = @"";
+        [self resizeEntry];
+        [self startPlanFor:name request:self.pendingRequest ?: @""];
+        return;
+    }
+
     if (self.plannedProjectName.length > 0) {
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"Start coding agents?";
@@ -1178,43 +1217,67 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
         }
         return;
     }
-    NSString *name = [self.projectName.stringValue stringByTrimmingCharactersInSet:
-        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (![self matches:name pattern:@"^[a-z0-9][a-z0-9-]{0,62}$"]) {
-        [self.console note:@"\nGive the project a short name in the small box: lowercase "
-                           @"letters, numbers and hyphens, like photo-sheet."];
-        [self.window makeFirstResponder:self.projectName];
-        return;
-    }
-    if (idea.length == 0) {
-        [self.console note:@"\nSay what you want built, in one sentence."];
-        return;
-    }
-    NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"Make a plan, then stop?";
-    alert.informativeText = [NSString stringWithFormat:
-        @"SlopNet will ask the proved coding app to make a plan for %@ on your VPS. This uses that coding subscription, but does not start coding agents or change project files. You will read the plan and explicitly approve any build afterwards.",
-        name];
-    [alert addButtonWithTitle:@"Make plan"];
-    [alert addButtonWithTitle:@"Keep editing"];
-    if ([alert runModal] != NSAlertFirstButtonReturn) return;
-    NSString *script = [self helper:@"slopnet-vps-project"];
+    // Ordinary conversation. If it sounded like a request to have something
+    // made, SlopNet says so once the guide has finished answering — the
+    // reply comes first, then the offer.
+    self.pendingRequest = [self soundsLikeARequestToBuild:idea] ? idea : nil;
+    self.offerBuildWhenReplyEnds = (self.pendingRequest != nil);
+    [self askTheGuide:idea];
+}
+
+/// One finite reply from the private guide on the server. It has no tools,
+/// cannot reach a coding app, and cannot start a build.
+- (void)askTheGuide:(NSString *)question {
+    NSString *script = [self helper:@"slopnet-vps-chat"];
     if (script == nil) {
-        [self.console note:@"The project helper is missing from this app. Build it again."];
+        [self.console note:@"The part of SlopNet that talks to your guide is missing from "
+                           @"this copy of the app. Download SlopNet again."];
         return;
     }
-    [self rememberRequest:idea project:name];
-    [self.console note:[SlopNetBrand headerANSI:@"Making a plan" width:[self panelWidth]]];
-    [self.console note:[NSString stringWithFormat:@"%@ — %@", name, idea]];
-    self.activeProjectName = name;
-    self.planningRunning = YES;
+    NSString *provider =
+        [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
+    [self.console note:[SlopNetBrand panelANSIForProvider:provider
+                                                   title:nil
+                                                  detail:@[question]
+                                                  action:@"think"
+                                                   frame:0
+                                                   width:[self panelWidth]]];
     self.entry.string = @"";
     [self resizeEntry];
-    [self beginActivity:@"think" caption:@"Planning…"];
+    [self beginActivity:@"think" caption:@"Your guide is thinking…"];
+    [self setBusy:YES];
+    if (![self.console runExecutable:@"/bin/bash"
+                           arguments:@[script, self.host, self.port, self.username, question]]) {
+        [self setBusy:NO];
+    }
+}
+
+/// Ask the paid coding app for a plan, and stop there. Still two separate
+/// agreements before any agent runs: this one, and the approval of the plan
+/// it writes.
+- (void)startPlanFor:(NSString *)name request:(NSString *)request {
+    NSString *script = [self helper:@"slopnet-vps-project"];
+    if (script == nil) {
+        [self.console note:@"The part of SlopNet that makes a plan is missing from this "
+                           @"copy of the app. Download SlopNet again."];
+        return;
+    }
+    self.turn = SlopNetTurnTalking;
+    self.pendingRequest = nil;
+    [self rememberRequest:request project:name];
+    [self.console note:[SlopNetBrand headerANSI:@"Writing a plan" width:[self panelWidth]]];
+    [self.console note:[NSString stringWithFormat:
+        @"%@ — %@\n\nThis asks the paid coding app on your server for a plan and then "
+        @"stops. It writes no project files and starts no coding agents. You will read "
+        @"the plan and decide separately.", name, request]];
+    self.activeProjectName = name;
+    self.planningRunning = YES;
+    [self beginActivity:@"think" caption:@"Writing a plan…"];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port,
-                                       self.username, name, idea]]) {
+                                       self.username, name, request]]) {
+        self.planningRunning = NO;
         [self setBusy:NO];
     }
 }
@@ -1271,8 +1334,21 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
         [self.console note:@"Nothing was left half-done. Read the last few lines above, "
                            @"fix what they mention, and try again."];
     }
-    // Back to the branded ready view, with a fresh animation token.
-    [self showReadyBlock];
+    // The guide has answered. If what they asked for sounded like something
+    // to have made, offer now — after the reply, not on top of it.
+    if (self.offerBuildWhenReplyEnds && self.pendingRequest.length > 0 && status == 0) {
+        self.offerBuildWhenReplyEnds = NO;
+        self.turn = SlopNetTurnOfferedBuild;
+        [self.console note:[SlopNetBrand headerANSI:@"SlopNet" width:[self panelWidth]]];
+        [self.console note:@"I can build that on your server if you want. A paid coding app "
+                           @"writes a plan first and stops, so you get to read it before "
+                           @"anything is coded.\n\nSay yes and I will ask what to call it. "
+                           @"Or carry on talking and I will leave it."];
+    } else {
+        self.offerBuildWhenReplyEnds = NO;
+        // Back to the branded ready view, with a fresh animation token.
+        [self showReadyBlock];
+    }
     [self.window makeFirstResponder:self.entry];
 }
 
