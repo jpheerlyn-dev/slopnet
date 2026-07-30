@@ -47,6 +47,7 @@ paths=$(
       tests/redteam.sh \
       tests/crew_unit_probe.py \
       tests/console_colour_probe.m \
+      tests/console_prompt_probe.m \
       tests/settings_resize_probe.m \
       tests/wizard_step_probe.m \
       update-manifest.sh \

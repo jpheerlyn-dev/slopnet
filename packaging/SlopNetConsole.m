@@ -55,6 +55,8 @@
 /// that stays valid while the buffer scrolls, so an animation can redraw its
 /// own line without counting on it staying put.
 @property(nonatomic, assign) NSInteger droppedLines;
+/// The last thing we told the delegate the program was waiting for.
+@property(nonatomic, assign) SlopNetPrompt waitingFor;
 @end
 
 /// Keep the console light even during a long build.
@@ -472,6 +474,39 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     }
     self.needsRedraw = YES;
     [self redraw];
+    [self noticeWhatItIsWaitingFor];
+}
+
+/// Read the line the program stopped on and work out what it wants.
+///
+/// A program waiting at a prompt has printed the question and no newline, so
+/// the tail of the current line is the question. This is a small, deliberate
+/// set of shapes — the ones SlopNet's own scripts and ssh/sudo actually use.
+/// Anything unrecognised stays ordinary typing, which is the safe direction:
+/// the worst case is the console behaves exactly as it did before.
+- (void)noticeWhatItIsWaitingFor {
+    SlopNetPrompt found = SlopNetPromptNone;
+    NSString *line = @"";
+    if (self.running) {
+        line = [[self currentLine].string
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        NSString *lower = line.lowercaseString;
+        if ([lower hasSuffix:@"password:"] || [lower hasSuffix:@"passphrase:"] ||
+            [lower hasSuffix:@"password"] ||
+            ([lower containsString:@"password for"] && [lower hasSuffix:@":"]) ||
+            ([lower containsString:@"passphrase for"] && [lower hasSuffix:@":"])) {
+            found = SlopNetPromptPassword;
+        } else if ([lower hasSuffix:@"[y/n]"] || [lower hasSuffix:@"[y/n]?"] ||
+                   [lower hasSuffix:@"(y/n)"] || [lower hasSuffix:@"(yes/no)"] ||
+                   [lower hasSuffix:@"[yes/no]"]) {
+            found = SlopNetPromptConfirm;
+        }
+    }
+    if (found == self.waitingFor) return;
+    self.waitingFor = found;
+    if ([self.delegate respondsToSelector:@selector(console:asksFor:question:)]) {
+        [self.delegate console:self asksFor:found question:line];
+    }
 }
 
 - (void)note:(NSString *)text {
@@ -688,6 +723,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     // A program that dies mid-colour must not tint everything printed after
     // it; the pen goes back to the field's own ink.
     [self.ink reset];
+    [self noticeWhatItIsWaitingFor];
 
     if (status == 0) {
         [self setStatusText:@"Finished successfully." glyph:nil tint:nil];
@@ -718,6 +754,13 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
         bytes += wrote;
         remaining -= (size_t)wrote;
     }
+}
+
+- (void)sendSecret:(NSString *)secret {
+    // Deliberately the same wire as sendLine:. The difference that matters is
+    // at the other end — this came from a masked field, is not echoed by the
+    // terminal, and no copy is kept here.
+    [self sendLine:secret ?: @""];
 }
 
 - (void)stopPressed:(id)sender { [self stop]; }

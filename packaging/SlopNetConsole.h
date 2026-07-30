@@ -19,9 +19,23 @@
 
 @class SlopNetConsole;
 
+/// What the running program is waiting for, as far as the console can tell
+/// from what it just printed. Used to put a real control in front of the
+/// person instead of asking them to type blind into a terminal.
+typedef NS_ENUM(NSInteger, SlopNetPrompt) {
+    SlopNetPromptNone = 0,   ///< nothing waiting, or ordinary typing
+    SlopNetPromptPassword,   ///< a password or passphrase, which must not echo
+    SlopNetPromptConfirm,    ///< a yes/no question
+};
+
 @protocol SlopNetConsoleDelegate <NSObject>
 @optional
 - (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status;
+/// The running program started, or stopped, waiting for something specific.
+/// `question` is the line it is waiting on, for showing above the control.
+- (void)console:(SlopNetConsole *)console
+       asksFor:(SlopNetPrompt)prompt
+      question:(NSString *)question;
 @end
 
 @interface SlopNetConsole : NSView
@@ -41,6 +55,11 @@
 
 /// Write one line (plus Return) to the running program, as if typed.
 - (void)sendLine:(NSString *)line;
+
+/// Write a secret the person typed into a real password field. It goes
+/// straight to the program and is never put in the console buffer, never
+/// logged, and never kept after this call.
+- (void)sendSecret:(NSString *)secret;
 
 /// Ask the running program to stop, then kill it if it ignores that.
 - (void)stop;

@@ -102,6 +102,16 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, strong) NSScrollView *entryScroller;
 @property(nonatomic, strong) NSLayoutConstraint *entryHeight;
 @property(nonatomic, strong) NSButton *sendButton;
+// Shown in place of the typing box when the running program wants something
+// specific: a password gets a real masked field, a yes/no gets two buttons.
+// Typing a password blind into a terminal is the moment a non-expert decides
+// the app has frozen.
+@property(nonatomic, strong) NSStackView *promptBar;
+@property(nonatomic, strong) NSTextField *promptLabel;
+@property(nonatomic, strong) NSSecureTextField *secretField;
+@property(nonatomic, strong) NSButton *secretSend;
+@property(nonatomic, strong) NSButton *approveButton;
+@property(nonatomic, strong) NSButton *declineButton;
 @property(nonatomic, strong) NSURL *conversationURL;
 
 // The animated action glyph. One timer drives whichever surface is live:
@@ -157,6 +167,17 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     button.contentTintColor = [NSColor labelColor];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     [button.heightAnchor constraintEqualToConstant:28].active = YES;
+    return button;
+}
+
+- (NSButton *)promptButton:(NSString *)title action:(SEL)action {
+    NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
+    button.title = title;
+    button.bezelStyle = NSBezelStyleRounded;
+    button.target = self;
+    button.action = action;
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    [button.widthAnchor constraintGreaterThanOrEqualToConstant:76].active = YES;
     return button;
 }
 
@@ -236,6 +257,16 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         if ([NSProcessInfo.processInfo.environment[@"SLOPNET_DEBUG_VISUALS"]
                 isEqualToString:@"1"]) {
             [self showProviders:nil];
+        }
+        // SLOPNET_DEBUG_PROMPT=password|confirm runs a harmless local command
+        // that asks for one, so the control that replaces the typing box can
+        // be seen without a server. It touches nothing and answers nothing.
+        NSString *demo = NSProcessInfo.processInfo.environment[@"SLOPNET_DEBUG_PROMPT"];
+        if ([demo isEqualToString:@"password"] || [demo isEqualToString:@"confirm"]) {
+            NSString *script = [demo isEqualToString:@"password"]
+                ? @"printf 'someone@your-server\\047s password: '; read -r x; echo"
+                : @"printf 'Install the private guide and test it? [y/N] '; read -r x; echo";
+            [self.console runExecutable:@"/bin/bash" arguments:@[@"-c", script]];
         }
     });
 
@@ -395,7 +426,38 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
     // Which guide is answering sits above the box, out of the way of the
     // one thing there is to press.
-    NSStackView *composer = [NSStackView stackViewWithViews:@[self.modelLabel, chatBar]];
+    // The control that replaces the typing box when the server asks for
+    // something specific. Built once, hidden until it is needed.
+    self.promptLabel = [self label:@"" size:12 grey:NO];
+    self.promptLabel.translatesAutoresizingMaskIntoConstraints = NO;
+
+    self.secretField = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
+    self.secretField.placeholderString = @"Your server password";
+    self.secretField.translatesAutoresizingMaskIntoConstraints = NO;
+    self.secretField.target = self;
+    self.secretField.action = @selector(secretEntered:);
+    [self.secretField.heightAnchor constraintEqualToConstant:24].active = YES;
+
+    self.secretSend = [self promptButton:@"Send password" action:@selector(secretEntered:)];
+    self.approveButton = [self promptButton:@"Yes" action:@selector(approvePressed:)];
+    self.declineButton = [self promptButton:@"No" action:@selector(declinePressed:)];
+
+    NSStackView *promptControls = [NSStackView stackViewWithViews:@[
+        self.secretField, self.secretSend, self.approveButton, self.declineButton]];
+    promptControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    promptControls.alignment = NSLayoutAttributeCenterY;
+    promptControls.spacing = 8;
+
+    self.promptBar = [NSStackView stackViewWithViews:@[self.promptLabel, promptControls]];
+    self.promptBar.orientation = NSUserInterfaceLayoutOrientationVertical;
+    self.promptBar.alignment = NSLayoutAttributeLeading;
+    self.promptBar.spacing = 6;
+    self.promptBar.translatesAutoresizingMaskIntoConstraints = NO;
+    self.promptBar.hidden = YES;
+    [promptControls.widthAnchor constraintEqualToAnchor:self.promptBar.widthAnchor].active = YES;
+
+    NSStackView *composer = [NSStackView stackViewWithViews:@[self.modelLabel, self.promptBar,
+                                                             chatBar]];
     composer.orientation = NSUserInterfaceLayoutOrientationVertical;
     composer.alignment = NSLayoutAttributeLeading;
     composer.spacing = 4;
@@ -1281,6 +1343,57 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         [self setBusy:NO];
     }
 }
+
+#pragma mark - when the server asks for something specific
+
+/// Put a real control in front of the person for the two moments that
+/// frighten people: a password, and a yes/no they cannot undo.
+- (void)console:(SlopNetConsole *)console
+        asksFor:(SlopNetPrompt)prompt
+       question:(NSString *)question {
+    BOOL asking = (prompt != SlopNetPromptNone);
+    self.promptBar.hidden = !asking;
+    self.entryScroller.hidden = asking;
+    self.sendButton.hidden = asking;
+
+    self.secretField.hidden = (prompt != SlopNetPromptPassword);
+    self.secretSend.hidden = (prompt != SlopNetPromptPassword);
+    self.approveButton.hidden = (prompt != SlopNetPromptConfirm);
+    self.declineButton.hidden = (prompt != SlopNetPromptConfirm);
+
+    if (prompt == SlopNetPromptPassword) {
+        self.promptLabel.stringValue =
+            @"Your server is asking for its password. It goes straight there and is "
+            @"never saved on this Mac.";
+        self.promptLabel.textColor = [NSColor labelColor];
+        self.secretField.stringValue = @"";
+        [self.window makeFirstResponder:self.secretField];
+    } else if (prompt == SlopNetPromptConfirm) {
+        // The program's own question, minus the [y/N] it ends with — the
+        // buttons say that part now.
+        NSString *asked = question ?: @"";
+        NSRange bracket = [asked rangeOfString:@"[" options:NSBackwardsSearch];
+        if (bracket.location != NSNotFound) asked = [asked substringToIndex:bracket.location];
+        asked = [asked stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        self.promptLabel.stringValue = asked.length > 0 ? asked : @"It is asking you to confirm.";
+        self.promptLabel.textColor = [NSColor labelColor];
+        [self.window makeFirstResponder:self.approveButton];
+    } else {
+        [self.window makeFirstResponder:self.entry];
+    }
+}
+
+- (void)secretEntered:(id)sender {
+    NSString *secret = self.secretField.stringValue;
+    if (secret.length == 0) return;
+    self.secretField.stringValue = @"";     // no copy stays in the field
+    [self.console sendSecret:secret];
+}
+
+- (void)approvePressed:(id)sender { [self.console sendLine:@"y"]; }
+
+- (void)declinePressed:(id)sender { [self.console sendLine:@"n"]; }
 
 #pragma mark - console callbacks
 
