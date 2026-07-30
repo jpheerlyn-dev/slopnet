@@ -6,6 +6,37 @@
 #import <signal.h>
 #import <unistd.h>
 
+/// The colours and weights currently in force — one terminal "pen". A run of
+/// text is stored with the pen that drew it, which is what lets a brand-filled
+/// panel keep its own background while the rest of the line stays on the field.
+@interface SlopNetInk : NSObject <NSCopying>
+@property(nonatomic, strong) NSColor *foreground;   // nil == the default ink
+@property(nonatomic, strong) NSColor *background;   // nil == the console field
+@property(nonatomic, assign) BOOL bold;
+@property(nonatomic, assign) BOOL dim;
+@property(nonatomic, assign) BOOL reverse;
+- (void)reset;
+@end
+
+@implementation SlopNetInk
+- (void)reset {
+    _foreground = nil;
+    _background = nil;
+    _bold = NO;
+    _dim = NO;
+    _reverse = NO;
+}
+- (id)copyWithZone:(NSZone *)zone {
+    SlopNetInk *copy = [[SlopNetInk allocWithZone:zone] init];
+    copy.foreground = _foreground;
+    copy.background = _background;
+    copy.bold = _bold;
+    copy.dim = _dim;
+    copy.reverse = _reverse;
+    return copy;
+}
+@end
+
 @interface SlopNetConsole ()
 @property(nonatomic, strong) NSTextView *output;
 @property(nonatomic, strong) NSScrollView *scroller;
@@ -14,14 +45,104 @@
 @property(nonatomic, assign) int master;          // our end of the PTY
 @property(nonatomic, assign) pid_t child;
 @property(nonatomic, strong) dispatch_source_t reader;
-@property(nonatomic, strong) NSMutableArray<NSMutableString *> *lines;
+@property(nonatomic, strong) NSMutableArray<NSMutableAttributedString *> *lines;
 @property(nonatomic, assign) NSUInteger row;      // cursor line
 @property(nonatomic, assign) NSUInteger column;   // cursor column
 @property(nonatomic, assign) BOOL needsRedraw;
+@property(nonatomic, strong) SlopNetInk *ink;     // the live pen
+@property(nonatomic, strong) NSFont *boldFont;
+/// Lines already dropped off the top. Added to a row index this gives a token
+/// that stays valid while the buffer scrolls, so an animation can redraw its
+/// own line without counting on it staying put.
+@property(nonatomic, assign) NSInteger droppedLines;
 @end
 
 /// Keep the console light even during a long build.
 static const NSUInteger kMaxLines = 4000;
+
+#pragma mark - ANSI colour
+
+/// The xterm 256-colour palette: 16 named colours, a 6x6x6 cube, then greys.
+static NSColor *SlopNetAnsiColor(NSInteger index) {
+    static const uint8_t basic[16][3] = {
+        {0x00, 0x00, 0x00}, {0xcd, 0x00, 0x00}, {0x00, 0xcd, 0x00}, {0xcd, 0xcd, 0x00},
+        {0x00, 0x00, 0xee}, {0xcd, 0x00, 0xcd}, {0x00, 0xcd, 0xcd}, {0xe5, 0xe5, 0xe5},
+        {0x7f, 0x7f, 0x7f}, {0xff, 0x00, 0x00}, {0x00, 0xff, 0x00}, {0xff, 0xff, 0x00},
+        {0x5c, 0x5c, 0xff}, {0xff, 0x00, 0xff}, {0x00, 0xff, 0xff}, {0xff, 0xff, 0xff},
+    };
+    static const uint8_t level[6] = {0, 95, 135, 175, 215, 255};
+    if (index < 0 || index > 255) return nil;
+    if (index < 16) {
+        return [NSColor colorWithSRGBRed:basic[index][0] / 255.0
+                                   green:basic[index][1] / 255.0
+                                    blue:basic[index][2] / 255.0 alpha:1.0];
+    }
+    if (index < 232) {
+        NSInteger n = index - 16;
+        return [NSColor colorWithSRGBRed:level[(n / 36) % 6] / 255.0
+                                   green:level[(n / 6) % 6] / 255.0
+                                    blue:level[n % 6] / 255.0 alpha:1.0];
+    }
+    CGFloat grey = (8 + (index - 232) * 10) / 255.0;
+    return [NSColor colorWithSRGBRed:grey green:grey blue:grey alpha:1.0];
+}
+
+static NSColor *SlopNetTrueColor(NSInteger r, NSInteger g, NSInteger b) {
+    return [NSColor colorWithSRGBRed:MAX(0, MIN(255, r)) / 255.0
+                               green:MAX(0, MIN(255, g)) / 255.0
+                                blue:MAX(0, MIN(255, b)) / 255.0 alpha:1.0];
+}
+
+/// Apply one SGR sequence's parameters to a pen. Everything StormCode output
+/// actually emits is here: reset, bold, dim, reverse, the 8+8 named colours,
+/// 256-colour (38;5;N) and 24-bit truecolor (38;2;r;g;b), for text and field.
+static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
+    NSArray<NSString *> *parts = parameters.length
+        ? [parameters componentsSeparatedByString:@";"] : @[@"0"];
+    for (NSUInteger i = 0; i < parts.count; i++) {
+        // A colon-separated sub-parameter list (ITU T.416 style) carries the
+        // same numbers; take the leading one so 38:2:… behaves like 38;2;….
+        NSInteger code = [[[parts[i] componentsSeparatedByString:@":"] firstObject] integerValue];
+        switch (code) {
+            case 0:  [ink reset]; break;
+            case 1:  ink.bold = YES; break;
+            case 2:  ink.dim = YES; break;
+            case 7:  ink.reverse = YES; break;
+            case 22: ink.bold = NO; ink.dim = NO; break;
+            case 27: ink.reverse = NO; break;
+            case 39: ink.foreground = nil; break;
+            case 49: ink.background = nil; break;
+            case 38:
+            case 48: {
+                NSColor *picked = nil;
+                NSUInteger consumed = 0;
+                if (i + 1 < parts.count) {
+                    NSInteger mode = [parts[i + 1] integerValue];
+                    if (mode == 5 && i + 2 < parts.count) {
+                        picked = SlopNetAnsiColor([parts[i + 2] integerValue]);
+                        consumed = 2;
+                    } else if (mode == 2 && i + 4 < parts.count) {
+                        picked = SlopNetTrueColor([parts[i + 2] integerValue],
+                                                  [parts[i + 3] integerValue],
+                                                  [parts[i + 4] integerValue]);
+                        consumed = 4;
+                    }
+                }
+                if (picked != nil) {
+                    if (code == 38) ink.foreground = picked; else ink.background = picked;
+                }
+                i += consumed;
+                break;
+            }
+            default:
+                if (code >= 30 && code <= 37)        ink.foreground = SlopNetAnsiColor(code - 30);
+                else if (code >= 90 && code <= 97)   ink.foreground = SlopNetAnsiColor(code - 90 + 8);
+                else if (code >= 40 && code <= 47)   ink.background = SlopNetAnsiColor(code - 40);
+                else if (code >= 100 && code <= 107) ink.background = SlopNetAnsiColor(code - 100 + 8);
+                break;                               // italics, underline: not drawn
+        }
+    }
+}
 
 @implementation SlopNetConsole
 
@@ -30,28 +151,38 @@ static const NSUInteger kMaxLines = 4000;
     if (!self) return nil;
     _master = -1;
     _child = -1;
-    _lines = [NSMutableArray arrayWithObject:[NSMutableString string]];
+    _lines = [NSMutableArray arrayWithObject:[[NSMutableAttributedString alloc] init]];
     _row = 0;
     _column = 0;
+    _ink = [[SlopNetInk alloc] init];
+    _droppedLines = 0;
 
     _output = [[NSTextView alloc] initWithFrame:NSZeroRect];
     _output.editable = NO;
     _output.selectable = YES;
-    _output.richText = NO;
+    // Rich text is what carries per-run colour. Without it every attribute
+    // collapses to one font and one colour, which is what flattened the
+    // StormCode panels in the first pass.
+    _output.richText = YES;
     _output.drawsBackground = YES;
-    _output.backgroundColor = [NSColor textBackgroundColor];
+    // The jet-black field the whole StormCode palette is designed against.
+    _output.backgroundColor = [SlopNetBrand voidColor];
     // The bundled colour face renders provider badges as real full-colour
     // logos; if it fails to register this is the system monospaced font and
     // callers print plain Unicode marks instead (see SlopNetBrand).
     _output.font = [SlopNetBrand consoleFontOfSize:11.5];
-    _output.textColor = [NSColor textColor];
+    _boldFont = [[NSFontManager sharedFontManager] convertFont:_output.font
+                                                   toHaveTrait:NSBoldFontMask];
+    _output.textColor = [SlopNetBrand inkColor];
     _output.automaticQuoteSubstitutionEnabled = NO;
     _output.textContainerInset = NSMakeSize(8, 8);
 
     _scroller = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     _scroller.hasVerticalScroller = YES;
     _scroller.autohidesScrollers = NO;
-    _scroller.borderType = NSBezelBorder;
+    _scroller.borderType = NSNoBorder;
+    _scroller.drawsBackground = YES;
+    _scroller.backgroundColor = [SlopNetBrand voidColor];
     _scroller.documentView = _output;
     _scroller.translatesAutoresizingMaskIntoConstraints = NO;
     _output.minSize = NSMakeSize(0, 0);
@@ -61,6 +192,12 @@ static const NSUInteger kMaxLines = 4000;
     _output.autoresizingMask = NSViewWidthSizable;
     _output.textContainer.widthTracksTextView = YES;
     [self addSubview:_scroller];
+
+    // A crimson hairline around the field: the same frame the StormCode
+    // panels draw, so the console reads as one bordered surface.
+    _scroller.wantsLayer = YES;
+    _scroller.layer.borderWidth = 1.0;
+    _scroller.layer.borderColor = [SlopNetBrand crimsonColor].CGColor;
 
     _status = [NSTextField labelWithString:@"Nothing running."];
     _status.font = [NSFont systemFontOfSize:11];
@@ -95,47 +232,122 @@ static const NSUInteger kMaxLines = 4000;
 
 - (BOOL)running { return self.child > 0; }
 
+#pragma mark - measuring the field
+
+- (CGFloat)characterWidth {
+    NSFont *font = self.output.font ?: [NSFont monospacedSystemFontOfSize:11.5
+                                                                   weight:NSFontWeightRegular];
+    CGFloat advance = [@" " sizeWithAttributes:@{NSFontAttributeName: font}].width;
+    return advance > 0.5 ? advance : 7.0;
+}
+
+- (NSUInteger)columns {
+    CGFloat usable = self.scroller.contentSize.width - self.output.textContainerInset.width * 2 - 4;
+    if (usable < 40) usable = 40;
+    NSUInteger columns = (NSUInteger)floor(usable / [self characterWidth]);
+    // Keep panels inside sane bounds however the window is dragged.
+    return MAX((NSUInteger)40, MIN(columns, (NSUInteger)220));
+}
+
+- (NSUInteger)visibleRows {
+    NSFont *font = self.output.font;
+    CGFloat lineHeight = [@"M" sizeWithAttributes:@{NSFontAttributeName: font}].height;
+    if (lineHeight < 4) lineHeight = 14;
+    NSUInteger rows = (NSUInteger)floor(self.scroller.contentSize.height / lineHeight);
+    return MAX((NSUInteger)10, MIN(rows, (NSUInteger)200));
+}
+
+/// Tell a running program the window changed size, the way a terminal does.
+/// Without this a program keeps wrapping to the size it was told at startup.
+- (void)resizeChildTerminal {
+    if (self.master < 0) return;
+    struct winsize size = {0};
+    size.ws_col = (unsigned short)self.columns;
+    size.ws_row = (unsigned short)self.visibleRows;
+    if (ioctl(self.master, TIOCSWINSZ, &size) == 0 && self.child > 0) {
+        kill(self.child, SIGWINCH);
+    }
+}
+
+- (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
+    [super resizeSubviewsWithOldSize:oldSize];
+    [self resizeChildTerminal];
+}
+
 #pragma mark - showing text
+
+- (NSDictionary *)attributesForInk:(SlopNetInk *)ink {
+    NSColor *foreground = ink.foreground ?: [SlopNetBrand inkColor];
+    NSColor *background = ink.background;
+    if (ink.reverse) {
+        NSColor *field = background ?: [SlopNetBrand voidColor];
+        background = foreground;
+        foreground = field;
+    }
+    if (ink.dim) {
+        foreground = [foreground blendedColorWithFraction:0.45
+                                                  ofColor:background ?: [SlopNetBrand voidColor]]
+            ?: foreground;
+    }
+    NSMutableDictionary *attributes = [NSMutableDictionary dictionaryWithCapacity:3];
+    attributes[NSFontAttributeName] = (ink.bold && self.boldFont) ? self.boldFont : self.output.font;
+    attributes[NSForegroundColorAttributeName] = foreground;
+    if (background != nil) attributes[NSBackgroundColorAttributeName] = background;
+    return attributes;
+}
+
+- (NSDictionary *)fieldAttributes {
+    return @{ NSFontAttributeName: self.output.font,
+              NSForegroundColorAttributeName: [SlopNetBrand inkColor] };
+}
 
 /// Push the line buffer into the view. Called after each chunk, not per
 /// character, so a chatty program cannot make the window crawl.
 - (void)redraw {
     if (!self.needsRedraw) return;
     self.needsRedraw = NO;
-    NSString *joined = [self.lines componentsJoinedByString:@"\n"];
-    NSDictionary *attributes = @{
-        NSFontAttributeName: self.output.font,
-        NSForegroundColorAttributeName: [NSColor textColor],
-    };
-    NSRange visible = [self.output visibleRect].size.height > 0
-        ? [self.output selectedRange] : NSMakeRange(0, 0);
-    (void)visible;
-    [self.output.textStorage setAttributedString:
-        [[NSAttributedString alloc] initWithString:joined attributes:attributes]];
-    [self.output scrollRangeToVisible:
-        NSMakeRange(self.output.textStorage.length, 0)];
+    NSMutableAttributedString *joined = [[NSMutableAttributedString alloc] init];
+    NSAttributedString *newline =
+        [[NSAttributedString alloc] initWithString:@"\n" attributes:[self fieldAttributes]];
+    [joined beginEditing];
+    for (NSUInteger index = 0; index < self.lines.count; index++) {
+        if (index > 0) [joined appendAttributedString:newline];
+        [joined appendAttributedString:self.lines[index]];
+    }
+    [joined endEditing];
+    [self.output.textStorage setAttributedString:joined];
+    [self.output scrollRangeToVisible:NSMakeRange(self.output.textStorage.length, 0)];
 }
 
-- (NSMutableString *)currentLine {
+- (NSMutableAttributedString *)currentLine {
     while (self.lines.count <= self.row) {
-        [self.lines addObject:[NSMutableString string]];
+        [self.lines addObject:[[NSMutableAttributedString alloc] init]];
     }
     return self.lines[self.row];
 }
 
 /// Write text at the cursor, overwriting what is already there — this is
-/// what makes a progress line update in place instead of repeating.
+/// what makes a progress line update in place instead of repeating. The
+/// replaced span takes the current pen; untouched spans keep theirs.
 - (void)putText:(NSString *)text {
-    NSMutableString *line = [self currentLine];
-    while (line.length < self.column) [line appendString:@" "];
+    if (text.length == 0) return;
+    NSMutableAttributedString *line = [self currentLine];
+    if (line.length < self.column) {
+        NSString *gap = [@"" stringByPaddingToLength:(self.column - line.length)
+                                          withString:@" " startingAtIndex:0];
+        [line appendAttributedString:
+            [[NSAttributedString alloc] initWithString:gap attributes:[self fieldAttributes]]];
+    }
+    NSAttributedString *piece =
+        [[NSAttributedString alloc] initWithString:text
+                                        attributes:[self attributesForInk:self.ink]];
     NSUInteger end = self.column + text.length;
     if (end <= line.length) {
         [line replaceCharactersInRange:NSMakeRange(self.column, text.length)
-                            withString:text];
+                  withAttributedString:piece];
     } else {
-        [line deleteCharactersInRange:
-            NSMakeRange(self.column, line.length - self.column)];
-        [line appendString:text];
+        [line deleteCharactersInRange:NSMakeRange(self.column, line.length - self.column)];
+        [line appendAttributedString:piece];
     }
     self.column = end;
 }
@@ -148,11 +360,12 @@ static const NSUInteger kMaxLines = 4000;
         NSUInteger drop = self.lines.count - kMaxLines;
         [self.lines removeObjectsInRange:NSMakeRange(0, drop)];
         self.row = self.row > drop ? self.row - drop : 0;
+        self.droppedLines += (NSInteger)drop;
     }
 }
 
-/// A deliberately small terminal: enough to render progress lines, menus
-/// and prompts correctly. It is not a full terminal emulator — a
+/// A deliberately small terminal: enough to render progress lines, menus,
+/// prompts and colour correctly. It is not a full terminal emulator — a
 /// full-screen program (a file manager, an editor) needs more than this.
 - (void)consume:(NSString *)raw {
     NSUInteger i = 0, n = raw.length;
@@ -163,20 +376,34 @@ static const NSUInteger kMaxLines = 4000;
             i++;
             if (i < n && [raw characterAtIndex:i] == '[') {
                 i++;
-                NSMutableString *digits = [NSMutableString string];
+                // A private-mode prefix (?, >, <, =) marks a sequence that
+                // changes terminal modes rather than drawing: cursor
+                // visibility, mouse reporting, bracketed paste. Consume it
+                // whole. Reading its digits as text is what put stray "25l"
+                // in the output when a program hid its cursor.
+                unichar prefix = 0;
+                if (i < n) {
+                    unichar p = [raw characterAtIndex:i];
+                    if (p == '?' || p == '>' || p == '<' || p == '=') { prefix = p; i++; }
+                }
+                NSMutableString *parameters = [NSMutableString string];
                 unichar final = 0;
                 while (i < n) {
                     unichar f = [raw characterAtIndex:i];
                     i++;
-                    if ((f >= '0' && f <= '9') || f == ';') {
-                        [digits appendFormat:@"%C", f];
+                    if ((f >= '0' && f <= '9') || f == ';' || f == ':') {
+                        [parameters appendFormat:@"%C", f];
                         continue;
                     }
                     final = f;
                     break;
                 }
-                NSInteger value = digits.length ? [digits intValue] : 1;
+                if (prefix != 0) continue;
+                NSInteger value = parameters.length ? [parameters intValue] : 1;
                 switch (final) {
+                    case 'm':                              // colours and weight
+                        SlopNetApplySGR(self.ink, parameters);
+                        break;
                     case 'A':                              // cursor up
                         self.row = (self.row >= (NSUInteger)value) ? self.row - value : 0;
                         break;
@@ -196,7 +423,7 @@ static const NSUInteger kMaxLines = 4000;
                         self.row = 0; self.column = 0;
                         break;
                     case 'K': {                            // erase in line
-                        NSMutableString *line = [self currentLine];
+                        NSMutableAttributedString *line = [self currentLine];
                         if (self.column < line.length) {
                             [line deleteCharactersInRange:
                                 NSMakeRange(self.column, line.length - self.column)];
@@ -204,13 +431,13 @@ static const NSUInteger kMaxLines = 4000;
                         break;
                     }
                     case 'J':                              // erase screen
-                        if (value == 2 || digits.length == 0) {
+                        if (value == 2 || parameters.length == 0) {
                             [self.lines removeAllObjects];
-                            [self.lines addObject:[NSMutableString string]];
+                            [self.lines addObject:[[NSMutableAttributedString alloc] init]];
                             self.row = 0; self.column = 0;
                         }
                         break;
-                    default: break;                        // colours etc: ignore
+                    default: break;
                 }
             } else if (i < n && [raw characterAtIndex:i] == ']') {
                 while (i < n && [raw characterAtIndex:i] != 0x07) i++;   // title
@@ -251,15 +478,118 @@ static const NSUInteger kMaxLines = 4000;
     [self consume:[NSString stringWithFormat:@"%@\n", text]];
 }
 
+#pragma mark - lines that can be redrawn (how a glyph animates)
+
+/// Render a block of ANSI text into finished lines, with its own pen. Used
+/// for panels, which are colour and newlines only — cursor motion inside a
+/// replaceable block is not supported, because the block has no cursor.
+- (NSArray<NSMutableAttributedString *> *)renderBlock:(NSString *)text {
+    NSMutableArray<NSMutableAttributedString *> *rendered = [NSMutableArray array];
+    // Its own pen, so a panel cannot leak colour into the live stream (or
+    // inherit half a state from whatever the last program was printing).
+    SlopNetInk *pen = [[SlopNetInk alloc] init];
+    for (NSString *raw in [text componentsSeparatedByString:@"\n"]) {
+        NSMutableAttributedString *line = [[NSMutableAttributedString alloc] init];
+        NSUInteger i = 0, n = raw.length;
+        while (i < n) {
+            unichar c = [raw characterAtIndex:i];
+            if (c == 0x1B) {
+                i++;
+                if (i < n && [raw characterAtIndex:i] == '[') {
+                    i++;
+                    NSMutableString *parameters = [NSMutableString string];
+                    unichar final = 0;
+                    while (i < n) {
+                        unichar f = [raw characterAtIndex:i];
+                        i++;
+                        if ((f >= '0' && f <= '9') || f == ';' || f == ':') {
+                            [parameters appendFormat:@"%C", f];
+                            continue;
+                        }
+                        final = f;
+                        break;
+                    }
+                    if (final == 'm') SlopNetApplySGR(pen, parameters);
+                }
+                continue;
+            }
+            NSUInteger start = i;
+            while (i < n && [raw characterAtIndex:i] != 0x1B) i++;
+            if (i > start) {
+                [line appendAttributedString:[[NSAttributedString alloc]
+                    initWithString:[raw substringWithRange:NSMakeRange(start, i - start)]
+                        attributes:[self attributesForInk:pen]]];
+            }
+        }
+        [rendered addObject:line];
+    }
+    return rendered;
+}
+
+- (NSInteger)noteReplaceable:(NSString *)text {
+    NSArray<NSMutableAttributedString *> *block = [self renderBlock:text];
+    // Start on a fresh line so the block owns whole rows; the token names
+    // the first of them.
+    if ([self currentLine].length > 0) [self newline];
+    NSInteger token = self.droppedLines + (NSInteger)self.row;
+    for (NSUInteger index = 0; index < block.count; index++) {
+        [self currentLine];
+        self.lines[self.row] = block[index];
+        [self newline];
+    }
+    self.needsRedraw = YES;
+    [self redraw];
+    return token;
+}
+
+- (BOOL)replaceLinesFromToken:(NSInteger)token with:(NSString *)text {
+    NSInteger start = token - self.droppedLines;
+    if (start < 0) return NO;                       // scrolled out of the buffer
+    NSArray<NSMutableAttributedString *> *block = [self renderBlock:text];
+    if ((NSUInteger)start + block.count > self.lines.count) return NO;
+    for (NSUInteger index = 0; index < block.count; index++) {
+        self.lines[(NSUInteger)start + index] = block[index];
+    }
+    self.needsRedraw = YES;
+    [self redraw];
+    return YES;
+}
+
 - (void)clear {
     [self.lines removeAllObjects];
-    [self.lines addObject:[NSMutableString string]];
+    [self.lines addObject:[[NSMutableAttributedString alloc] init]];
     self.row = 0;
     self.column = 0;
+    [self.ink reset];
+    // Every outstanding animation token now points at nothing. Moving the
+    // origin past them makes replaceLinesFromToken: answer NO, which is how
+    // an animation learns to stop.
+    self.droppedLines += (NSInteger)kMaxLines;
     self.needsRedraw = YES;
     [self redraw];
 }
 
+#pragma mark - the status line
+
+- (void)setStatusText:(NSString *)text glyph:(NSString *)glyph tint:(NSColor *)tint {
+    NSString *safeText = text ?: @"";
+    if (glyph.length == 0) {
+        self.status.stringValue = safeText;
+        self.status.textColor = tint ?: [NSColor secondaryLabelColor];
+        return;
+    }
+    NSMutableAttributedString *line = [[NSMutableAttributedString alloc] init];
+    // The badge needs the colour face; the words stay in the system font so
+    // the status line still looks like part of the app.
+    [line appendAttributedString:[[NSAttributedString alloc]
+        initWithString:[glyph stringByAppendingString:@"  "]
+            attributes:@{NSFontAttributeName: [SlopNetBrand consoleFontOfSize:12]}]];
+    [line appendAttributedString:[[NSAttributedString alloc]
+        initWithString:safeText
+            attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
+                         NSForegroundColorAttributeName: tint ?: [NSColor secondaryLabelColor]}]];
+    self.status.attributedStringValue = line;
+}
 
 #pragma mark - running
 
@@ -274,9 +604,11 @@ static const NSUInteger kMaxLines = 4000;
         return NO;
     }
 
+    // Tell the child the real width of the field, so its own panels and
+    // progress lines wrap where the window actually ends.
     struct winsize size = {0};
-    size.ws_col = 100;
-    size.ws_row = 30;
+    size.ws_col = (unsigned short)self.columns;
+    size.ws_row = (unsigned short)self.visibleRows;
 
     int master = -1;
     pid_t pid = forkpty(&master, NULL, NULL, &size);
@@ -295,6 +627,7 @@ static const NSUInteger kMaxLines = 4000;
         }
         argv[all.count] = NULL;
         setenv("TERM", "xterm-256color", 1);
+        setenv("COLORTERM", "truecolor", 1);
         setenv("SLOPNET_IN_APP", "1", 1);
         execv(path.UTF8String, argv);
         _exit(127);                    // only reached if execv failed
@@ -303,8 +636,9 @@ static const NSUInteger kMaxLines = 4000;
     self.master = master;
     self.child = pid;
     self.stopButton.enabled = YES;
-    self.status.stringValue = [NSString stringWithFormat:@"Running %@ …",
-                               path.lastPathComponent];
+    [self setStatusText:[NSString stringWithFormat:@"Running %@ …", path.lastPathComponent]
+                  glyph:nil
+                   tint:nil];
 
     __weak typeof(self) weakSelf = self;
     dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
@@ -351,16 +685,21 @@ static const NSUInteger kMaxLines = 4000;
     if (self.master >= 0) { close(self.master); self.master = -1; }
     self.child = -1;
     self.stopButton.enabled = NO;
+    // A program that dies mid-colour must not tint everything printed after
+    // it; the pen goes back to the field's own ink.
+    [self.ink reset];
 
     if (status == 0) {
-        self.status.stringValue = @"Finished successfully.";
+        [self setStatusText:@"Finished successfully." glyph:nil tint:nil];
         [self note:@"\n— finished —"];
     } else if (status < 0) {
-        self.status.stringValue = @"Stopped.";
+        [self setStatusText:@"Stopped." glyph:nil tint:nil];
         [self note:@"\n— stopped —"];
     } else {
-        self.status.stringValue = [NSString stringWithFormat:
-            @"Stopped with a problem (code %d). The last lines above say why.", status];
+        [self setStatusText:[NSString stringWithFormat:
+            @"Stopped with a problem (code %d). The last lines above say why.", status]
+                      glyph:nil
+                       tint:nil];
         [self note:[NSString stringWithFormat:@"\n— stopped, code %d —", status]];
     }
     if ([self.delegate respondsToSelector:@selector(console:finishedWithStatus:)]) {

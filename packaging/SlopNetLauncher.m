@@ -79,6 +79,15 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 @property(nonatomic, strong) NSButton *sendButton;
 @property(nonatomic, strong) NSURL *conversationURL;
 
+// The animated action glyph. One timer drives whichever surface is live:
+// the status line under the console while a program runs, or the action row
+// of the ready block while nothing does.
+@property(nonatomic, strong) NSTimer *actionTimer;
+@property(nonatomic, assign) NSUInteger actionTick;
+@property(nonatomic, copy) NSString *actionConcept;
+@property(nonatomic, copy) NSString *actionCaption;
+@property(nonatomic, assign) NSInteger readyBlockToken;
+
 @property(nonatomic, assign) BOOL busy;
 @property(nonatomic, assign) BOOL setupRunning;
 @property(nonatomic, assign) BOOL localHelperRunning;
@@ -184,6 +193,20 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     [self.window makeFirstResponder:self.entry];
     [NSApp activateIgnoringOtherApps:YES];
 
+    // After the window exists: the ready block measures the console to fit
+    // its panels, and there is nothing to measure until layout has run.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self showReadyBlock];
+        // SLOPNET_DEBUG_VISUALS=1 opens on the same view the Providers button
+        // shows: every mapped mark, plus a 24-bit colour check. It is how the
+        // visual proofs in the register are captured, and the quickest way to
+        // see whether the badge font and colour survived a build.
+        if ([NSProcessInfo.processInfo.environment[@"SLOPNET_DEBUG_VISUALS"]
+                isEqualToString:@"1"]) {
+            [self showProviders:nil];
+        }
+    });
+
     // First-run is an in-app guide, not a buried hint. It starts before any
     // provider login, planning, or model conversation can be reached.
     if (![self isReady]) {
@@ -224,6 +247,8 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 
     self.settingsToggle = [self sidebarButton:@"⚙   Settings"
                                        action:@selector(openSettings:)];
+    NSButton *providersButton = [self sidebarButton:@"◫   Providers"
+                                            action:@selector(showProviders:)];
 
     NSStackView *sidebar = [NSStackView stackViewWithViews:@[
         title, status,
@@ -232,6 +257,7 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         historyTitle, self.historyStack,
         spacer,
         [self separator],
+        providersButton,
         self.settingsToggle,
         [self label:[NSString stringWithFormat:@"v%@", version] size:10 grey:YES]]];
     sidebar.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -454,8 +480,9 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     [self.modePicker selectItemAtIndex:0];
     self.projectName.stringValue = @"";
     self.entry.string = @"";
-    [self.console note:[NSString stringWithFormat:
-        @"\nNew chat. Ask the local guide about setup, or choose Build when you are ready to make a plan."]];
+    [self.console note:
+        @"\nNew chat. Ask the local guide about setup, or choose Build when you are ready to make a plan."];
+    [self showReadyBlock];
     [self.window makeFirstResponder:self.entry];
     [self resizeEntry];
 }
@@ -544,19 +571,122 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         [self.console note:@"Welcome. The setup guide is opening now.\n"
                            @"First connect your server; then SlopNet can install and prove its private local guide."];
     }
-    [self.console note:[self providerMarkStrip]];
 }
 
-/// One decorative line: every provider mark this build knows, in glyph
-/// order — the FULL set, deliberately not the short demo roster. With the
-/// bundled colour font these are the real logos; without it, plain marks.
-- (NSString *)providerMarkStrip {
-    NSMutableString *strip = [NSMutableString string];
-    for (NSString *pid in [SlopNetBrand allProviders]) {
-        if (strip.length > 0) [strip appendString:@" "];
-        [strip appendString:[SlopNetBrand markForProvider:pid]];
+#pragma mark - the ready block (what the console shows when nothing is running)
+
+/// How wide the panels may be: narrower than the console, so they read as
+/// blocks on the field rather than full-width bars.
+- (NSUInteger)panelWidth {
+    NSUInteger columns = self.console.columns;
+    return MAX((NSUInteger)44, MIN(columns - 2, (NSUInteger)66));
+}
+
+/// The coding apps from tools.json, as provider ids. Only real, listed
+/// tools — nothing invented, and unmapped ids are simply left out.
+- (NSArray<NSString *> *)codingToolProviders {
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"tools" ofType:@"json"];
+    NSData *data = path ? [NSData dataWithContentsOfFile:path] : nil;
+    NSDictionary *root = data
+        ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    NSArray *tools = [root isKindOfClass:NSDictionary.class] ? root[@"tools"] : nil;
+    NSMutableArray<NSString *> *providers = [NSMutableArray array];
+    for (NSDictionary *tool in tools) {
+        if (![tool isKindOfClass:NSDictionary.class]) continue;
+        NSString *provider = [SlopNetBrand providerForTool:tool[@"id"]];
+        if (provider != nil && ![providers containsObject:provider]) {
+            [providers addObject:provider];
+        }
     }
-    return [NSString stringWithFormat:@"\n%@", strip];
+    return providers;
+}
+
+/// The StormCode-style status block: a crimson header, a filled panel for
+/// the private local model with an animated action glyph, and a row of the
+/// coding apps on their own brand surfaces. Compact on purpose — the full
+/// 38-logo sheet lives behind the Providers button, not the front door.
+- (NSString *)readyBlockANSI {
+    NSUInteger width = [self panelWidth];
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    [parts addObject:[SlopNetBrand headerANSI:@"SlopNet" width:width]];
+
+    NSString *model = self.localModelName;
+    NSString *provider = [SlopNetBrand providerForLocalModel:model] ?: @"ibm_granite";
+    BOOL known = model.length > 0;
+    NSArray<NSString *> *detail = known
+        ? @[model, @"private · no API key · no open port"]
+        : @[@"not set up yet — open Settings", @"Chat needs the private local guide"];
+    [parts addObject:[SlopNetBrand panelANSIForProvider:provider
+                                                 title:known ? @"Granite — local guide"
+                                                             : @"Granite — local guide (not set up)"
+                                                detail:detail
+                                                action:self.actionConcept
+                                                 frame:self.actionTick
+                                                 width:width]];
+
+    NSArray<NSString *> *tools = [self codingToolProviders];
+    if (tools.count > 0) {
+        [parts addObject:[SlopNetBrand headerANSI:@"Coding apps" width:width]];
+        [parts addObject:[SlopNetBrand panelStripANSIForProviders:tools width:width]];
+    }
+    return [parts componentsJoinedByString:@"\n"];
+}
+
+- (void)showReadyBlock {
+    self.actionConcept = @"think";
+    self.actionTick = 0;
+    self.readyBlockToken = [self.console noteReplaceable:[self readyBlockANSI]];
+    [self startActionAnimation];
+}
+
+#pragma mark - the animated action glyph
+
+- (void)startActionAnimation {
+    [self.actionTimer invalidate];
+    // ~8 fps, the rate scripts/show_frames.py plays these at. The block holds
+    // the delegate weakly: a repeating timer retains its block, so a strong
+    // self here would keep the window alive after it closed.
+    __weak typeof(self) weakSelf = self;
+    self.actionTimer = [NSTimer scheduledTimerWithTimeInterval:0.125
+                                                       repeats:YES
+                                                         block:^(NSTimer *timer) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil) { [timer invalidate]; return; }
+        [strongSelf tickActionAnimation:timer];
+    }];
+}
+
+- (void)tickActionAnimation:(NSTimer *)timer {
+    self.actionTick++;
+    if (self.busy) {
+        // A run owns the screen: the glyph lives in the status line, which
+        // never scrolls and never fights the program's cursor.
+        NSString *glyph = [SlopNetBrand actionGlyph:self.actionConcept ?: @"think"
+                                              frame:self.actionTick
+                                              cells:2];
+        [self.console setStatusText:self.actionCaption ?: @"Working…"
+                              glyph:glyph
+                               tint:[SlopNetBrand crimsonColor]];
+        return;
+    }
+    // Idle: redraw the ready block's own lines in place. Once they scroll out
+    // of the buffer the console says so, and the animation stops rather than
+    // redrawing rows that now belong to something else.
+    if (self.readyBlockToken < 0) { [timer invalidate]; self.actionTimer = nil; return; }
+    if (![self.console replaceLinesFromToken:self.readyBlockToken with:[self readyBlockANSI]]) {
+        self.readyBlockToken = -1;
+        [timer invalidate];
+        self.actionTimer = nil;
+    }
+}
+
+/// Name what is happening while a program runs, and animate it.
+- (void)beginActivity:(NSString *)concept caption:(NSString *)caption {
+    self.actionConcept = concept;
+    self.actionCaption = caption;
+    self.actionTick = 0;
+    self.readyBlockToken = -1;      // the ready block is history now
+    [self startActionAnimation];
 }
 
 #pragma mark - actions
@@ -592,7 +722,23 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         @"A small Linux machine is plenty to start with."];
 }
 
-- (void)clearConsole:(id)sender { [self.console clear]; }
+- (void)clearConsole:(id)sender {
+    [self.console clear];
+    [self showReadyBlock];
+}
+
+/// The whole mapped provider set, on demand. Deliberately not the default
+/// view: the operator asked for the demos' visual system, not a collage of
+/// every logo on every launch.
+- (void)showProviders:(id)sender {
+    NSUInteger width = self.console.columns - 2;
+    [self.console note:[SlopNetBrand providerSheetANSIWithWidth:width]];
+    [self.console note:[SlopNetBrand colorFontActive]
+        ? @"Colour badge font active — these are the real marks."
+        : @"Colour badge font not active — these are portable Unicode marks."];
+    [self.console note:[SlopNetBrand colourCheckANSIWithWidth:width]];
+    self.readyBlockToken = -1;
+}
 
 - (void)resizeEntry {
     if (self.entry == nil || self.entryHeight == nil) return;
@@ -689,8 +835,10 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         [self.console note:@"The server setup helper is missing from this app. Build it again."];
         return;
     }
-    [self.console note:@"\n=== Preparing your server ==="];
+    [self.console note:[SlopNetBrand headerANSI:@"Preparing your server"
+                                          width:[self panelWidth]]];
     self.setupRunning = YES;
+    [self beginActivity:@"search" caption:@"Checking your server…"];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port, self.username]]) {
@@ -702,7 +850,8 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 - (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
            title:(NSString *)title {
     if (self.busy || ![self connectionValid]) return;
-    [self.console note:[NSString stringWithFormat:@"\n=== %@ ===", title]];
+    [self.console note:[SlopNetBrand headerANSI:title width:[self panelWidth]]];
+    [self beginActivity:@"search" caption:title];
     [self setBusy:YES];
     NSString *target = [NSString stringWithFormat:@"%@@%@", self.username, self.host];
     // A real terminal on the far end, so a sudo password prompt works.
@@ -741,15 +890,22 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         return;
     }
     NSString *helperProvider = [SlopNetBrand providerForLocalModel:model];
-    NSString *helperBadge = helperProvider
-        ? [[SlopNetBrand markForProvider:helperProvider] stringByAppendingString:@" "]
-        : @"";
-    [self.console note:[NSString stringWithFormat:
-        @"\n=== %@Preparing local helper: %@ ===\n"
-         "This happens only on your server. It will show the real capacity before "
+    [self.console note:[SlopNetBrand headerANSI:@"Preparing the local guide"
+                                          width:[self panelWidth]]];
+    if (helperProvider != nil) {
+        [self.console note:[SlopNetBrand panelANSIForProvider:helperProvider
+                                                       title:nil
+                                                      detail:@[model]
+                                                      action:nil
+                                                       frame:0
+                                                       width:[self panelWidth]]];
+    }
+    [self.console note:
+        @"This happens only on your server. It will show the real capacity before "
          "it downloads anything, keeps this small helper to a 4K context and a "
-         "15-minute test, and never opens a model port.", helperBadge, model]];
+         "15-minute test, and never opens a model port."];
     self.localHelperRunning = YES;
+    [self beginActivity:@"db-research" caption:@"Preparing the local guide…"];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port, self.username, model]]) {
@@ -805,7 +961,9 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 
 - (void)checkConnection:(id)sender {
     if (self.busy || ![self connectionValid]) return;
-    [self.console note:@"\n=== Checking the connection ==="];
+    [self.console note:[SlopNetBrand headerANSI:@"Checking the connection"
+                                          width:[self panelWidth]]];
+    [self beginActivity:@"search" caption:@"Reaching your server…"];
     [self setBusy:YES];
     NSString *target = [NSString stringWithFormat:@"%@@%@", self.username, self.host];
     if (![self.console runExecutable:@"/usr/bin/ssh"
@@ -845,16 +1003,22 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
             [self.console note:@"The private-chat helper is missing from this app. Build it again."];
             return;
         }
-        NSString *chatProvider = [SlopNetBrand providerForLocalModel:self.localModelName];
-        NSString *chatBadge = chatProvider
-            ? [[SlopNetBrand markForProvider:chatProvider] stringByAppendingString:@" "]
-            : @"";
-        [self.console note:[NSString stringWithFormat:
-            @"\n=== %@Private local-model chat ===\n"
-             "This reply uses only the selected local model on your VPS. "
-             "It cannot start a plan, coding agent, or build.", chatBadge]];
+        NSString *chatProvider =
+            [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
+        [self.console note:[SlopNetBrand headerANSI:@"Private local-model chat"
+                                              width:[self panelWidth]]];
+        [self.console note:[SlopNetBrand panelANSIForProvider:chatProvider
+                                                       title:nil
+                                                      detail:@[idea]
+                                                      action:@"think"
+                                                       frame:0
+                                                       width:[self panelWidth]]];
+        [self.console note:
+            @"This reply uses only the selected local model on your VPS. "
+             "It cannot start a plan, coding agent, or build."];
         self.entry.string = @"";
         [self resizeEntry];
+        [self beginActivity:@"think" caption:@"The local guide is thinking…"];
         [self setBusy:YES];
         if (![self.console runExecutable:@"/bin/bash"
                                arguments:@[script, self.host, self.port, self.username, idea]]) {
@@ -876,11 +1040,13 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
             [self.console note:@"The approved-build helper is missing from this app. Build it again."];
             return;
         }
+        [self.console note:[SlopNetBrand headerANSI:@"Starting approved build"
+                                              width:[self panelWidth]]];
         [self.console note:[NSString stringWithFormat:
-            @"\n=== Starting approved build: %@ ===\nYou explicitly approved this coding run.",
-            self.plannedProjectName]];
+            @"%@ — you explicitly approved this coding run.", self.plannedProjectName]];
         self.approvedBuildRunning = YES;
         self.activeProjectName = self.plannedProjectName;
+        [self beginActivity:@"write" caption:@"Coding agents are working…"];
         [self setBusy:YES];
         if (![self.console runExecutable:@"/bin/bash"
                                arguments:@[script, self.host, self.port, self.username,
@@ -916,11 +1082,13 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         return;
     }
     [self rememberRequest:idea project:name];
-    [self.console note:[NSString stringWithFormat:@"\n=== %@ — %@ ===", name, idea]];
+    [self.console note:[SlopNetBrand headerANSI:@"Making a plan" width:[self panelWidth]]];
+    [self.console note:[NSString stringWithFormat:@"%@ — %@", name, idea]];
     self.activeProjectName = name;
     self.planningRunning = YES;
     self.entry.string = @"";
     [self resizeEntry];
+    [self beginActivity:@"think" caption:@"Planning…"];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port,
@@ -971,6 +1139,8 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         [self.console note:@"Nothing was left half-done. Read the last few lines above, "
                            @"fix what they mention, and try again."];
     }
+    // Back to the branded ready view, with a fresh animation token.
+    [self showReadyBlock];
     [self.window makeFirstResponder:self.entry];
 }
 

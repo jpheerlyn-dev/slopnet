@@ -10,59 +10,144 @@ static NSString *const kColorFontFile = @"Menlo-StormCode-Color";
 static NSString *const kColorFontPSName = @"Menlo-RegularStormCodeColor";
 
 // Each provider: id, recognised display name, base PUA codepoint in the
-// colour font, and a plain-Unicode fallback mark. Codepoints are append-only
-// and never renumbered (they are baked into built fonts). The colour font
-// also carries a two-cell-wide twin of every badge at codepoint + 0x200;
-// the app uses that one, because a single Menlo cell is far too narrow for
-// a logo at text size.
+// colour font, a plain-Unicode fallback mark, and the brand's own colours.
+// Codepoints are append-only and never renumbered (they are baked into built
+// fonts). The colour font also carries a two-cell-wide twin of every badge at
+// codepoint + 0x200; the app uses that one, because a single Menlo cell is
+// far too narrow for a logo at text size.
+//
+// panel/text/mark/tint come from runtime-modules/app.py's BRAND table:
+//   panel — the surface the brand presents itself on
+//   text  — readable text inside that surface
+//   mark  — the logo's own colour when it differs from the text (nil = text)
+//   tint  — a label colour tuned to be readable on the BLACK chrome, which is
+//           not the same problem as text-on-panel and so not the same value
+//
+// IMPORTANT: `panel` must stay in step with the bg each badge bitmap was
+// rasterised against in scripts/build_colorfont.py, because that colour is
+// baked into the PNG. Changing one without rebuilding the font puts a badge
+// on a mismatched square.
 typedef struct {
     __unsafe_unretained NSString *pid;
     __unsafe_unretained NSString *display;
     unichar codepoint;
     __unsafe_unretained NSString *mark;
+    uint32_t panel;
+    uint32_t text;
+    uint32_t markInk;      // 0 == use text
+    uint32_t tint;
 } SlopNetBrandEntry;
 
 static const SlopNetBrandEntry kBrands[] = {
-    { @"anthropic",   @"Claude",       0xE000, @"✳" },
-    { @"google",      @"Gemini",       0xE001, @"✦" },  // no multicolour wordmark: operator decision 2026-07-30
-    { @"openai",      @"ChatGPT",      0xE002, @"❋" },
-    { @"xai",         @"Grok",         0xE003, @"⦸" },
-    { @"moonshot",    @"Moonshot",     0xE004, @"☾" },
-    { @"zai",         @"GLM",          0xE005, @"⧫" },
-    { @"minimax",     @"MiniMax",      0xE006, @"⬢" },
-    { @"mistral",     @"Mistral",      0xE007, @"▤" },
-    { @"alibaba",     @"Qwen",         0xE008, @"◈" },
-    { @"aihorde",     @"AI Horde",     0xE009, @"⚔" },
-    { @"cerebras",    @"Cerebras",     0xE00A, @"⬣" },
-    { @"cohere",      @"Cohere",       0xE00B, @"◐" },
-    { @"deepseek",    @"DeepSeek",     0xE00C, @"▲" },
-    { @"huggingface", @"Hugging Face", 0xE00E, @"☻" },
-    { @"ibm",         @"IBM",          0xE00F, @"☰" },
-    { @"internlm",    @"InternLM",     0xE010, @"◧" },
-    { @"meta",        @"Meta",         0xE011, @"∞" },
-    { @"microsoft",   @"Microsoft",    0xE012, @"⊞" },
-    { @"nous",        @"Nous",         0xE013, @"✧" },
-    { @"nvidia",      @"NVIDIA",       0xE014, @"◤" },
-    { @"ollama",      @"Ollama",       0xE015, @"◍" },
-    { @"openrouter",  @"OpenRouter",   0xE016, @"⋈" },
-    { @"perplexity",  @"Perplexity",   0xE017, @"⌕" },
-    { @"tencent",     @"Tencent",      0xE018, @"◑" },
-    { @"together",    @"Together",     0xE019, @"⧉" },
-    { @"venice",      @"Venice",       0xE01A, @"⚿" },
-    { @"stormcode",   @"StormCode",    0xE01B, @"🌀" },
-    { @"cognition",   @"Devin",        0xE01C, @"⬡" },
-    { @"xiaomi",      @"Xiaomi",       0xE01E, @"▣" },
-    { @"inclusionai", @"InclusionAI",  0xE01F, @"◉" },
-    { @"nova",        @"Nova",         0xE020, @"✶" },
-    { @"poolside",    @"Poolside",     0xE021, @"≋" },
-    { @"scale",       @"Scale",        0xE022, @"▰" },
-    { @"stepfun",     @"StepFun",      0xE023, @"▦" },
-    { @"jina",        @"Jina",         0xE024, @"⊙" },
-    { @"rivescript",  @"RiveScript",   0xE025, @"❖" },
-    { @"searxng",     @"SearXNG",      0xE026, @"⊚" },
-    { @"ibm_granite", @"Granite",      0xE027, @"❐" },  // SlopNet's local default model
+    { @"anthropic",   @"Claude",       0xE000, @"✳", 0xB15C40, 0xFFFFFF, 0,        0xD97757 },
+    // Gemini keeps its single mark and a plain panel: no multicolour
+    // per-letter Google wordmark (operator decision, 2026-07-30).
+    { @"google",      @"Gemini",       0xE001, @"✦", 0xFFFFFF, 0x202124, 0,        0x4285F4 },
+    { @"openai",      @"ChatGPT",      0xE002, @"❋", 0x343541, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF },
+    { @"xai",         @"Grok",         0xE003, @"⦸", 0x000000, 0xFFFFFF, 0,        0xBDBDBD },
+    { @"moonshot",    @"Moonshot",     0xE004, @"☾", 0x1D1D1F, 0xFFFFFF, 0,        0xE2E3EA },
+    { @"zai",         @"GLM",          0xE005, @"⧫", 0x141618, 0xFFFFFF, 0,        0x8DB3FF },
+    { @"minimax",     @"MiniMax",      0xE006, @"⬢", 0x181E25, 0xFFFFFF, 0,        0xE34872 },
+    { @"mistral",     @"Mistral",      0xE007, @"▤", 0xFFFFFF, 0xB53600, 0,        0xFFAF01 },
+    { @"alibaba",     @"Qwen",         0xE008, @"◈", 0x082DFF, 0xFFFFFF, 0xFFFFFF, 0x8DB3FF },
+    { @"aihorde",     @"AI Horde",     0xE009, @"⚔", 0xFFAA00, 0x000000, 0,        0x56B4F8 },
+    { @"cerebras",    @"Cerebras",     0xE00A, @"⬣", 0xF7F5F2, 0x000000, 0,        0xF15A29 },
+    { @"cohere",      @"Cohere",       0xE00B, @"◐", 0xF0EBE1, 0x1D4045, 0,        0x7FD1B9 },
+    { @"deepseek",    @"DeepSeek",     0xE00C, @"▲", 0x212327, 0xFFFFFF, 0,        0x6E88FF },
+    { @"huggingface", @"Hugging Face", 0xE00E, @"☻", 0x0B0F19, 0xFFFFFF, 0,        0xFFD21E },
+    { @"ibm",         @"IBM",          0xE00F, @"☰", 0x1F70C1, 0xFFFFFF, 0,        0x75B9FF },
+    { @"internlm",    @"InternLM",     0xE010, @"◧", 0x858599, 0x000000, 0x000000, 0x858599 },
+    { @"meta",        @"Meta",         0xE011, @"∞", 0x111112, 0xFFFFFF, 0,        0x2997FF },
+    { @"microsoft",   @"Microsoft",    0xE012, @"⊞", 0xFFFFFF, 0x242424, 0,        0xF25022 },
+    { @"nous",        @"Nous",         0xE013, @"✧", 0x000000, 0xFFFFFF, 0,        0xD8D4CF },
+    { @"nvidia",      @"NVIDIA",       0xE014, @"◤", 0x76B900, 0x000000, 0,        0x8FD400 },
+    { @"ollama",      @"Ollama",       0xE015, @"◍", 0xFFFFFF, 0x000000, 0,        0xE0DDD4 },
+    { @"openrouter",  @"OpenRouter",   0xE016, @"⋈", 0xC8FF00, 0x000000, 0,        0xC8FF00 },
+    { @"perplexity",  @"Perplexity",   0xE017, @"⌕", 0x010E17, 0xFFFFFF, 0,        0x22B8CD },
+    { @"tencent",     @"Tencent",      0xE018, @"◑", 0xEAF3FA, 0x003A8C, 0,        0x4D8FFF },
+    { @"together",    @"Together",     0xE019, @"⧉", 0x151532, 0xFFFFFF, 0,        0xFC6B3C },
+    { @"venice",      @"Venice",       0xE01A, @"⚿", 0xF7F5ED, 0x0E2942, 0,        0x3C8FDD },
+    { @"stormcode",   @"StormCode",    0xE01B, @"🌀", 0x000000, 0xFF003C, 0,        0xFF003C },
+    { @"cognition",   @"Devin",        0xE01C, @"⬡", 0x001423, 0xFFFFFF, 0,        0x68D5DD },
+    { @"xiaomi",      @"Xiaomi",       0xE01E, @"▣", 0xFF6900, 0x000000, 0,        0xFF6900 },
+    { @"inclusionai", @"InclusionAI",  0xE01F, @"◉", 0x6D3BD1, 0xFFFFFF, 0,        0xB794F4 },
+    { @"nova",        @"Nova",         0xE020, @"✶", 0x000000, 0xFFFFFF, 0,        0xE433FF },
+    { @"poolside",    @"Poolside",     0xE021, @"≋", 0x22C7D9, 0x211B55, 0,        0x7B73FF },
+    { @"scale",       @"Scale",        0xE022, @"▰", 0x000000, 0xFFFFFF, 0,        0xB39DDB },
+    { @"stepfun",     @"StepFun",      0xE023, @"▦", 0xFFFFFF, 0x000000, 0,        0xE8E5DF },
+    { @"jina",        @"Jina",         0xE024, @"⊙", 0xFFFFFF, 0x009191, 0,        0x00C2C2 },
+    { @"rivescript",  @"RiveScript",   0xE025, @"❖", 0x960100, 0xFFFFFF, 0,        0xE0594A },
+    { @"searxng",     @"SearXNG",      0xE026, @"⊚", 0xFFFFFF, 0x3050FF, 0,        0x7B8FFF },
+    // SlopNet's local default model. The cubes carry their own green
+    // gradient (#006116 → #00AB23) and are drawn on a black field, so the
+    // panel is black with white text and the gradient's bright end as the
+    // tint — the same shape as xai, nous and stormcode, which also present
+    // on black. Panel black is what build_colorfont.py baked behind the
+    // badge; the green is the artwork's own.
+    { @"ibm_granite", @"Granite",      0xE027, @"❐", 0x000000, 0xFFFFFF, 0,        0x00AB23 },
 };
 static const NSUInteger kBrandCount = sizeof(kBrands) / sizeof(kBrands[0]);
+
+// Action glyph frames, from runtime-modules/action_frames.py (generated by
+// scripts/build_action_frames.py). A concept maps to consecutive codepoints
+// in frame order; the base codepoints carry no glyph, so a frame is only
+// ever drawn through its N-cell twin at base + N*0x100.
+typedef struct {
+    __unsafe_unretained NSString *concept;
+    unichar first;
+    uint8_t frames;
+} SlopNetActionEntry;
+
+static const SlopNetActionEntry kActions[] = {
+    { @"search",        0xE900, 12 },
+    { @"db-research",   0xE90C, 6  },
+    { @"net-research",  0xE912, 1  },
+    { @"deep-research", 0xE913, 1  },
+    { @"rag",           0xE914, 1  },
+    { @"rerank",        0xE915, 1  },
+    { @"read",          0xE916, 6  },
+    { @"write",         0xE91C, 22 },
+    { @"think",         0xE932, 5  },
+    { @"message",       0xE937, 1  },
+    { @"user-message",  0xE938, 1  },
+    { @"user-press",    0xE939, 3  },
+    { @"instruction",   0xE93C, 1  },
+    { @"template",      0xE93D, 9  },
+};
+static const NSUInteger kActionCount = sizeof(kActions) / sizeof(kActions[0]);
+
+/// Both modes cost the same columns, so a panel's edges line up whether or
+/// not the colour font loaded: a badge glyph advances two cells on its own,
+/// and a fallback mark is one character plus a space.
+static const NSUInteger kMarkColumns = 2;
+
+static NSColor *SlopNetColorFromHex(uint32_t hex) {
+    return [NSColor colorWithSRGBRed:((hex >> 16) & 0xFF) / 255.0
+                               green:((hex >> 8) & 0xFF) / 255.0
+                                blue:(hex & 0xFF) / 255.0
+                               alpha:1.0];
+}
+
+#pragma mark - ANSI helpers
+
+static NSString *const kReset = @"\033[0m";
+
+static NSString *SlopNetSGRForColor(NSColor *color, BOOL isBackground) {
+    NSColor *srgb = [color colorUsingColorSpace:[NSColorSpace sRGBColorSpace]] ?: color;
+    return [NSString stringWithFormat:@"\033[%d;2;%d;%d;%dm", isBackground ? 48 : 38,
+            (int)lround(srgb.redComponent * 255),
+            (int)lround(srgb.greenComponent * 255),
+            (int)lround(srgb.blueComponent * 255)];
+}
+
+static NSString *SlopNetInkSGR(NSColor *color) { return SlopNetSGRForColor(color, NO); }
+static NSString *SlopNetFieldSGR(NSColor *color) { return SlopNetSGRForColor(color, YES); }
+
+static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
+    if (times <= 0) return @"";
+    return [@"" stringByPaddingToLength:(NSUInteger)times * unit.length
+                            withString:unit startingAtIndex:0];
+}
 
 @implementation SlopNetBrand
 
@@ -71,6 +156,41 @@ static const NSUInteger kBrandCount = sizeof(kBrands) / sizeof(kBrands[0]);
         if ([kBrands[i].pid isEqualToString:providerId]) return &kBrands[i];
     }
     return NULL;
+}
+
++ (const SlopNetActionEntry *)entryForAction:(NSString *)concept {
+    for (NSUInteger i = 0; i < kActionCount; i++) {
+        if ([kActions[i].concept isEqualToString:concept]) return &kActions[i];
+    }
+    return NULL;
+}
+
+#pragma mark - the StormCode palette
+
++ (NSColor *)voidColor    { return SlopNetColorFromHex(0x000000); }
++ (NSColor *)crimsonColor { return SlopNetColorFromHex(0xFF003C); }
++ (NSColor *)inkColor     { return SlopNetColorFromHex(0xE8E8E8); }
++ (NSColor *)ghostColor   { return SlopNetColorFromHex(0x666666); }
+
++ (NSColor *)backgroundColorForProvider:(NSString *)providerId {
+    const SlopNetBrandEntry *entry = [self entryForProvider:providerId ?: @""];
+    return entry ? SlopNetColorFromHex(entry->panel) : [self voidColor];
+}
+
++ (NSColor *)foregroundColorForProvider:(NSString *)providerId {
+    const SlopNetBrandEntry *entry = [self entryForProvider:providerId ?: @""];
+    return entry ? SlopNetColorFromHex(entry->text) : [self crimsonColor];
+}
+
++ (NSColor *)markColorForProvider:(NSString *)providerId {
+    const SlopNetBrandEntry *entry = [self entryForProvider:providerId ?: @""];
+    if (entry == NULL) return [self crimsonColor];
+    return SlopNetColorFromHex(entry->markInk ?: entry->text);
+}
+
++ (NSColor *)tintColorForProvider:(NSString *)providerId {
+    const SlopNetBrandEntry *entry = [self entryForProvider:providerId ?: @""];
+    return entry ? SlopNetColorFromHex(entry->tint) : [self ghostColor];
 }
 
 + (BOOL)colorFontActive {
@@ -149,6 +269,243 @@ static const NSUInteger kBrandCount = sizeof(kBrands) / sizeof(kBrands[0]);
     // Hugging Face identifiers carry the org up front: "ibm-granite/…".
     if ([model hasPrefix:@"ibm-granite/"]) return @"ibm_granite";
     return nil;
+}
+
+#pragma mark - action glyphs
+
++ (NSArray<NSString *> *)actionConcepts {
+    NSMutableArray<NSString *> *all = [NSMutableArray arrayWithCapacity:kActionCount];
+    for (NSUInteger i = 0; i < kActionCount; i++) [all addObject:kActions[i].concept];
+    return all;
+}
+
++ (NSUInteger)frameCountForAction:(NSString *)concept {
+    const SlopNetActionEntry *entry = [self entryForAction:concept ?: @""];
+    if (entry == NULL) return 0;
+    return [self colorFontActive] ? entry->frames : 1;
+}
+
++ (NSString *)actionGlyph:(NSString *)concept frame:(NSUInteger)index cells:(NSUInteger)cells {
+    NSUInteger width = MAX((NSUInteger)2, MIN(cells, (NSUInteger)3));
+    const SlopNetActionEntry *entry = [self entryForAction:concept ?: @""];
+    if (entry != NULL && [self colorFontActive]) {
+        // Only the N-cell twins carry artwork (build_action_frames.py builds
+        // widths 2 and 3); the base codepoint is deliberately blank.
+        unichar glyph = (unichar)(entry->first + (index % entry->frames) + width * 0x100);
+        return [NSString stringWithCharacters:&glyph length:1];
+    }
+    // No colour font, or a concept nobody has drawn: a plain spinner in the
+    // same number of columns, so nothing shifts and nothing shows as tofu.
+    static NSString *const turning[] = { @"◐", @"◓", @"◑", @"◒" };
+    NSString *fallback = entry != NULL ? turning[index % 4] : @"·";
+    return [fallback stringByPaddingToLength:fallback.length + (width - 1)
+                                  withString:@" " startingAtIndex:0];
+}
+
+#pragma mark - panels (the StormCode blocks)
+
+/// The badge for a panel row, always kMarkColumns wide in either mode.
++ (NSString *)paddedMarkForProvider:(NSString *)providerId {
+    NSString *mark = [self markForProvider:providerId];
+    if ([self colorFontActive]) return mark;      // the glyph advances 2 cells itself
+    return [mark stringByAppendingString:@" "];
+}
+
++ (NSString *)headerANSI:(NSString *)title width:(NSUInteger)width {
+    NSUInteger inner = MAX((NSUInteger)20, width);
+    NSString *field = SlopNetFieldSGR([self voidColor]);
+    NSString *frame = SlopNetInkSGR([self crimsonColor]);
+    NSString *label = [NSString stringWithFormat:@"══ %@ ", title.uppercaseString];
+    NSInteger fill = (NSInteger)inner - (NSInteger)label.length;
+    return [NSString stringWithFormat:@"%@%@\033[1m%@\033[22m%@%@",
+            field, frame, label, SlopNetRepeat(@"═", fill), kReset];
+}
+
+/// One row of a panel: crimson edges, brand fill between them, padded so
+/// every row is exactly `width` columns. A row sets its colours at the start
+/// of each run and resets once at the very end — never mid-line, which in a
+/// real terminal would hand the field back to the user's own profile.
++ (NSString *)panelRowWithWidth:(NSUInteger)width
+                          panel:(NSColor *)panel
+                           text:(NSColor *)text
+                           body:(NSString *)body
+                        columns:(NSUInteger)columns {
+    NSInteger pad = (NSInteger)width - 2 - (NSInteger)columns;
+    return [NSString stringWithFormat:@"%@%@│%@%@%@%@%@%@│%@",
+            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self crimsonColor]),
+            SlopNetFieldSGR(panel), SlopNetInkSGR(text), body, SlopNetRepeat(@" ", pad),
+            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self crimsonColor]),
+            kReset];
+}
+
++ (NSString *)panelRuleWithWidth:(NSUInteger)width
+                            left:(NSString *)left
+                           right:(NSString *)right
+                           label:(NSString *)label {
+    NSString *field = SlopNetFieldSGR([self voidColor]);
+    NSString *frame = SlopNetInkSGR([self crimsonColor]);
+    NSString *head = label.length > 0
+        ? [NSString stringWithFormat:@"─ \033[1m%@\033[22m ", label] : @"";
+    NSUInteger headColumns = label.length > 0 ? label.length + 3 : 0;
+    NSInteger dashes = (NSInteger)width - 2 - (NSInteger)headColumns;
+    return [NSString stringWithFormat:@"%@%@%@%@%@%@%@",
+            field, frame, left, head, SlopNetRepeat(@"─", dashes), right, kReset];
+}
+
++ (NSString *)panelANSIForProvider:(NSString *)providerId
+                             title:(NSString *)title
+                            detail:(NSArray<NSString *> *)detail
+                            action:(NSString *)action
+                             frame:(NSUInteger)frame
+                             width:(NSUInteger)width {
+    // Floor of 16: enough for the badge, a space and a short name. A lane in
+    // a panel strip is narrower than a full-width panel, and clamping it up
+    // would push the strip past the width its caller measured.
+    NSUInteger panelWidth = MAX((NSUInteger)16, width);
+    NSUInteger room = panelWidth - 2;
+    NSColor *panel = [self backgroundColorForProvider:providerId];
+    NSColor *text = [self foregroundColorForProvider:providerId];
+    NSString *name = title.length > 0 ? title : [self displayNameForProvider:providerId];
+
+    NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐" label:@""]];
+
+    // Header row: the badge, then the recognised name.
+    NSUInteger nameRoom = room > kMarkColumns + 3 ? room - kMarkColumns - 3 : 1;
+    NSString *shownName = name.length > nameRoom ? [name substringToIndex:nameRoom] : name;
+    NSString *header = [NSString stringWithFormat:@" %@ %@",
+                        [self paddedMarkForProvider:providerId], shownName];
+    [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:text
+                                       body:header
+                                    columns:2 + kMarkColumns + shownName.length]];
+
+    if (action.length > 0 && [self frameCountForAction:action] > 0) {
+        // The action row is the panel's live pulse: the glyph animates, and
+        // its label takes the brand's tint so the row reads as an accent
+        // rather than another line of body text.
+        NSString *glyph = [self actionGlyph:action frame:frame cells:2];
+        NSString *label = [[action substringToIndex:1].uppercaseString
+            stringByAppendingString:[action substringFromIndex:1]];
+        NSString *body = [NSString stringWithFormat:@" %@ %@%@",
+                          glyph, SlopNetInkSGR([self tintColorForProvider:providerId]), label];
+        [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:text
+                                           body:body
+                                        columns:2 + 2 + label.length]];
+    }
+
+    for (NSString *line in detail) {
+        NSString *shown = line.length > room - 2 ? [line substringToIndex:room - 2] : line;
+        [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:text
+                                           body:[NSString stringWithFormat:@" %@", shown]
+                                        columns:1 + shown.length]];
+    }
+
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘" label:@""]];
+    return [rows componentsJoinedByString:@"\n"];
+}
+
++ (NSString *)brandSheetANSIForProviders:(NSArray<NSString *> *)providers
+                                   label:(NSString *)label
+                                   width:(NSUInteger)width {
+    NSUInteger cell = 18;                      // badge + a short name
+    NSUInteger perRow = MAX((NSUInteger)1, (width - 2) / cell);
+    NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    [rows addObject:[self panelRuleWithWidth:width left:@"┌" right:@"┐" label:label]];
+    for (NSUInteger start = 0; start < providers.count; start += perRow) {
+        NSMutableString *body = [NSMutableString string];
+        NSUInteger columns = 0;
+        for (NSUInteger i = start; i < MIN(start + perRow, providers.count); i++) {
+            NSString *pid = providers[i];
+            NSUInteger nameRoom = cell - kMarkColumns - 2;
+            NSString *name = [self displayNameForProvider:pid];
+            if (name.length > nameRoom) name = [name substringToIndex:nameRoom];
+            NSString *segment = [NSString stringWithFormat:@" %@ %@",
+                                 [self paddedMarkForProvider:pid], name];
+            NSUInteger used = 2 + kMarkColumns + name.length;
+            [body appendFormat:@"%@%@%@%@%@",
+                SlopNetFieldSGR([self backgroundColorForProvider:pid]),
+                SlopNetInkSGR([self foregroundColorForProvider:pid]),
+                segment, SlopNetRepeat(@" ", (NSInteger)cell - (NSInteger)used),
+                SlopNetFieldSGR([self voidColor])];
+            columns += cell;
+        }
+        [rows addObject:[NSString stringWithFormat:@"%@%@│%@%@%@%@│%@",
+            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self crimsonColor]),
+            body, SlopNetRepeat(@" ", (NSInteger)width - 2 - (NSInteger)columns),
+            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self crimsonColor]), kReset]];
+    }
+    [rows addObject:[self panelRuleWithWidth:width left:@"└" right:@"┘" label:@""]];
+    return [rows componentsJoinedByString:@"\n"];
+}
+
++ (NSString *)providerSheetANSIWithWidth:(NSUInteger)width {
+    return [self brandSheetANSIForProviders:[self allProviders]
+                                      label:@"PROVIDERS"
+                                      width:width];
+}
+
++ (NSString *)panelStripANSIForProviders:(NSArray<NSString *> *)providers
+                                   width:(NSUInteger)width {
+    if (providers.count == 0) return @"";
+    // Three lanes at most: past that the names stop fitting and the row turns
+    // into a stack of abbreviations. Lanes share the width exactly, with the
+    // remainder spread over the leftmost ones, so the strip ends where the
+    // panels above it do.
+    NSUInteger perRow = MIN((NSUInteger)3, MAX((NSUInteger)1, (width + 1) / 21));
+    NSUInteger span = width - (perRow - 1);
+    NSUInteger base = span / perRow, remainder = span % perRow;
+    NSMutableArray<NSString *> *blocks = [NSMutableArray array];
+    for (NSUInteger start = 0; start < providers.count; start += perRow) {
+        NSMutableArray<NSArray<NSString *> *> *panels = [NSMutableArray array];
+        NSUInteger widest = 0;
+        for (NSUInteger i = start; i < MIN(start + perRow, providers.count); i++) {
+            NSUInteger lane = base + ((i - start) < remainder ? 1 : 0);
+            widest = MAX(widest, lane);
+            NSString *panel = [self panelANSIForProvider:providers[i]
+                                                  title:nil
+                                                 detail:nil
+                                                 action:nil
+                                                  frame:0
+                                                  width:lane];
+            [panels addObject:[panel componentsSeparatedByString:@"\n"]];
+        }
+        // Every panel row is exactly `lane` columns and resets its own
+        // colours at the end, so laying them side by side is plain
+        // concatenation — the property demo_agency relies on too.
+        NSUInteger height = 0;
+        for (NSArray<NSString *> *panel in panels) height = MAX(height, panel.count);
+        NSMutableArray<NSString *> *rows = [NSMutableArray array];
+        for (NSUInteger line = 0; line < height; line++) {
+            NSMutableArray<NSString *> *pieces = [NSMutableArray array];
+            for (NSArray<NSString *> *panel in panels) {
+                [pieces addObject:line < panel.count ? panel[line]
+                                                     : SlopNetRepeat(@" ", (NSInteger)widest)];
+            }
+            [rows addObject:[pieces componentsJoinedByString:@" "]];
+        }
+        [blocks addObject:[rows componentsJoinedByString:@"\n"]];
+    }
+    return [blocks componentsJoinedByString:@"\n"];
+}
+
++ (NSString *)colourCheckANSIWithWidth:(NSUInteger)width {
+    NSUInteger cells = MAX((NSUInteger)16, MIN(width, (NSUInteger)64));
+    NSMutableString *ramp = [NSMutableString string];
+    NSMutableString *text = [NSMutableString string];
+    for (NSUInteger i = 0; i < cells; i++) {
+        double position = (double)i / (double)MAX((NSUInteger)1, cells - 1);
+        // A sweep from the crimson chrome colour to the Granite green, so both
+        // ends are colours this app actually uses.
+        NSInteger r = (NSInteger)lround(255 * (1.0 - position));
+        NSInteger g = (NSInteger)lround(0 + 171 * position);
+        NSInteger b = (NSInteger)lround(60 * (1.0 - position) + 35 * position);
+        [ramp appendFormat:@"\033[48;2;%ld;%ld;%ldm ", (long)r, (long)g, (long)b];
+        [text appendFormat:@"\033[38;2;%ld;%ld;%ldm▀", (long)r, (long)g, (long)b];
+    }
+    return [NSString stringWithFormat:@"%@%@\n%@%@\n%@%@24-bit colour check: "
+            @"a smooth sweep above means the console carries truecolor.%@",
+            ramp, kReset, text, kReset,
+            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self ghostColor]), kReset];
 }
 
 @end
