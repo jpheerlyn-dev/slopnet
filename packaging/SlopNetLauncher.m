@@ -289,7 +289,7 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     // Treat a pixel as "paper white" if it's bright and nearly neutral.
     BOOL *visited = calloc((size_t)px * (size_t)px, sizeof(BOOL));
     NSInteger *stack = malloc(sizeof(NSInteger) * (size_t)px * (size_t)px);
-    NSInteger sp = 0;
+    __block NSInteger sp = 0;
     if (visited == NULL || stack == NULL) {
         free(visited); free(stack);
         CGImageRef cgFail = CGBitmapContextCreateImage(ctx);
