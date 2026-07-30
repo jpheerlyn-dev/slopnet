@@ -28,6 +28,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -648,6 +649,50 @@ def classify_failure(output, returncode=None, http_code=None):
     return "failed"
 
 
+def _cage(cmd, workdir):
+    """Run an agent so the operating system decides what it may write to.
+
+    Three of the four coding tools are invoked with their permission prompts
+    turned off — `--dangerously-skip-permissions`, `--yolo`,
+    `--permission-mode bypassPermissions` — and none of those three takes a
+    workspace argument. Only codex constrains itself, with
+    `--sandbox workspace-write`. So for the others nothing but the tool's own
+    goodwill kept a write inside the project, and the checks cannot see a file
+    written outside the worktree because they only read the staged diff.
+
+    Where Bubblewrap is available (SlopNet installs and proves it during VPS
+    setup) the whole filesystem is mounted read-only and only the task's own
+    worktree and a private /tmp are writable. The tool's flags stop mattering:
+    a write outside the project fails at the kernel, not at a prompt.
+
+    Where it is not available — a Mac, or a server without bwrap — the command
+    is returned unchanged. That is honest rather than silent: `slopnet run`
+    refuses an unsandboxed unattended run separately, in run().
+    """
+    bwrap = shutil.which("bwrap")
+    if not bwrap or os.name != "posix" or sys.platform == "darwin":
+        return cmd
+    work = os.path.abspath(str(workdir))
+    return " ".join([
+        shlex.quote(bwrap),
+        "--ro-bind", "/", "/",
+        "--dev", "/dev",
+        "--proc", "/proc",
+        "--tmpfs", "/tmp",
+        # The one writable place: this task's throwaway worktree.
+        "--bind", shlex.quote(work), shlex.quote(work),
+        "--chdir", shlex.quote(work),
+        "--unshare-all", "--share-net",
+        "--die-with-parent",
+        "sh", "-c", shlex.quote(cmd),
+    ])
+
+
+def sandbox_available():
+    """Whether this machine can cage an agent (see _cage)."""
+    return bool(shutil.which("bwrap")) and sys.platform != "darwin"
+
+
 def _resolve_worker_env(worker):
     """Build a subprocess env for env-cli. Secrets stay in memory only."""
     if not worker.get("env"):
@@ -750,6 +795,7 @@ def _run_cli(worker, prompt, cwd, timeout, cancel_event=None):
             )
     else:
         cmd = worker["command"].replace("{prompt}", shlex.quote(prompt))
+    cmd = _cage(cmd, cwd)
     try:
         # env-cli / hosted brain: env vars for this one invocation only.
         # Never exported to the shell, never written to disk, never printed.
@@ -1372,6 +1418,25 @@ def run(root, say, only_wave=None, emit=None):
         )
     waves = parse_waves(waves_path.read_text(encoding="utf-8"))
     refuse_fake_gate(crew.get("test_command", ""))
+
+    # Nobody is watching an unattended run, so the machine has to be the thing
+    # that keeps an agent inside the project. Every tool except codex is
+    # invoked with its permission prompts switched off and no workspace
+    # argument, so without a sandbox the only limit is the tool's own good
+    # behaviour. Refuse rather than hope.
+    unsandboxed = [w["name"] for w in crew.get("fleet", [])
+                   if "--sandbox" not in (w.get("command") or "")]
+    if unsandboxed and not sandbox_available():
+        crew_fail(
+            "This machine cannot keep a coding agent inside your project: "
+            + ", ".join(sorted(set(unsandboxed))) + " would run unrestricted.",
+            "These tools are started with their permission prompts turned off, "
+            "so only the operating system can stop one writing outside the "
+            "project — and the checks only ever see the project itself.",
+            "Run the build on a server prepared by SlopNet, where Bubblewrap "
+            "is installed and proved, or use a coding app that sandboxes "
+            "itself",
+        )
 
     code, dirty = _git(["status", "--porcelain"], root)
     if dirty.strip():

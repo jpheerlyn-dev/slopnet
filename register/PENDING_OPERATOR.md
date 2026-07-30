@@ -1,9 +1,5 @@
 ## Open
 
-- [2026-07-30, claude] Three of the four coding tools run with permissions fully bypassed and no workspace constraint: `claude` (`--dangerously-skip-permissions`), `gemini` (`--yolo`) and `grok` (`--permission-mode bypassPermissions`). Only `codex` carries `--sandbox workspace-write`. The engine now refuses plans that name or describe work outside the project, but that is defence in depth, not containment: nothing stops those three writing outside the project if they decide to, and the checks only ever see the staged worktree. Decide whether SlopNet may use a non-sandboxed tool for an unattended build at all, or whether autonomous runs require a sandboxed tool. Do not treat the plan-side refusals as a substitute for that decision.
-
-- [2026-07-30, claude, via gpt-5.6 audit] `packaging/slopnet-vps-onboard.sh` fetches the mutable upstream default branch and then runs its setup as root. `--ff-only` constrains history shape, it does not pin or verify what arrives. Before strangers use this, pin the bootstrap to a tagged release or verify a signature. Not changed unilaterally because it needs a release process to pin to.
-
 - [2026-07-29, Codex] The v0.9 Mac app cleanly separates local Granite chat, paid planning, and an explicit approved-build control, but a newly named VPS project still has no proven project-specific walls/runtime. Its plan is saved as a clean Git base; the approved-build helper refuses before any agent starts when that runtime is absent. Do not claim end-to-end multi-agent building from the Mac app until a small project template/runtime has passed a real VPS plan-and-run proof.
 
 - [2026-07-29, Codex] Local-model benchmark conclusion needs a later, model-specific tool-call adapter proof: the corrected bounded VPS benchmark measured Granite 4.1 3B at 14.9 tokens/sec / 3.9 GiB peak RSS and SmolLM3 3B at 15.2 tokens/sec / 3.6 GiB. Its first action-shape scorer was invalid because llama.cpp echoed the prompt; a later bare-prompt Granite run started but did not promptly finish a function-shaped answer. Ministral 3B and Qwen3 4B did not complete this generic CLI harness and were manually stopped. Do not offer them as SlopNet presets or claim native tool calling until each has a dedicated chat template, parser, timeout test, and real action-denial proof.
@@ -49,6 +45,10 @@
 - [2026-07-29, Codex] Live local-helper proof is pending: v0.6 builds an opt-in Llama.cpp/IBM Granite path, detects existing runtime state, asks twice before a model download, and requires a harmless `READY` reply before configuration. It has not yet been installed against a VPS from the released app. Do not claim its download or model inference is proved until that visible run is recorded.
 
 ## Ruled
+
+- [2026-07-30, claude] Settled rather than escalated: coding agents now run under Bubblewrap with only their own worktree writable, so the three tools that bypass their permission prompts can no longer write outside the project regardless of their flags. Where no sandbox is available an unattended run is refused. Not yet proved on a live server.
+
+- [2026-07-30, claude] Settled rather than escalated: the VPS bootstrap now checks out a pinned release instead of the moving default branch, and refuses rather than falling back. A signed release is the next step up from this; pinning removes the accidental-drift risk today.
 
 - [2026-07-29, Codex] Resolved with a real VPS proof: the first Granite attempt hit a global OOM at 23.09 GiB RSS on a 23 GiB, no-swap host. v0.7 forced the optional helper to `-c 4096 -b 512 -ub 256 --no-warmup` with a timeout. Its cached, offline live command then returned `READY` with `MODEL_PROOF_EXIT=0`; no listening port was started. The model is CPU-only on this VPS and generated at about 0.6 tokens/sec, so retain its deliberately narrow request-draft role.
 
