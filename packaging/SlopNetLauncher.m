@@ -1583,12 +1583,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     }
     NSString *provider =
         [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
-    [self.console note:[SlopNetBrand panelANSIForProvider:provider
-                                                   title:nil
-                                                  detail:@[question]
-                                                  action:@"think"
-                                                   frame:0
-                                                   width:[self panelWidth]]];
+    // The person's line, then the guide's name, then its reply streams in
+    // underneath. The question used to be wrapped in a Granite panel with a
+    // thinking glyph, so the screen showed Granite's mark above words Granite
+    // had not written.
+    [self.console note:[SlopNetBrand youSaidANSI:question width:[self panelWidth]]];
+    [self.console note:[SlopNetBrand guideRepliesANSIForProvider:provider
+                                                            name:@"Granite"]];
     self.entry.string = @"";
     [self resizeEntry];
     [self beginActivity:@"think" caption:@"Your guide is thinking…"];
@@ -1827,8 +1828,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                            @"Or carry on talking and I will leave it."];
     } else {
         self.offerBuildWhenReplyEnds = NO;
-        // Back to the branded ready view, with a fresh animation token.
-        [self showReadyBlock];
+        // Deliberately no ready block here. Redrawing the whole board after
+        // every reply pushed the same header, guide panel and five coding-app
+        // tiles into the transcript once per message — so a short exchange
+        // read as screens of repeated furniture with a sentence buried in it.
+        // The board is a greeting, not a footer.
     }
     [self.window makeFirstResponder:self.entry];
 }

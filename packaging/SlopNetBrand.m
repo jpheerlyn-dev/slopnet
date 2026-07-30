@@ -311,14 +311,63 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     return [mark stringByAppendingString:@" "];
 }
 
+/// The striped IBM wordmark face lives at U+E800, in the order A-Z, a-z, 0-9.
+/// Exactly 62 glyphs, which is what the bundled font carries — punctuation was
+/// never built, so it is deliberately left in the base face.
+static NSString *const kStripedAlphabet =
+    @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+static const unichar kStripedBase = 0xE800;
+
++ (NSString *)stripedText:(NSString *)text {
+    if (text.length == 0) return @"";
+    // Without the bundled face every one of these codepoints draws as a tofu
+    // box, which is worse than the plain word it replaced. Plain text is the
+    // fallback, exactly as it is for the provider marks.
+    if (![self colorFontActive]) return text;
+    NSMutableString *out = [NSMutableString stringWithCapacity:text.length];
+    for (NSUInteger i = 0; i < text.length; i++) {
+        unichar c = [text characterAtIndex:i];
+        NSRange found = [kStripedAlphabet rangeOfString:
+            [NSString stringWithCharacters:&c length:1]];
+        if (found.location == NSNotFound) {
+            [out appendFormat:@"%C", c];
+        } else {
+            [out appendFormat:@"%C", (unichar)(kStripedBase + found.location)];
+        }
+    }
+    return out;
+}
+
 + (NSString *)headerANSI:(NSString *)title width:(NSUInteger)width {
     NSUInteger inner = MAX((NSUInteger)20, width);
     NSString *field = SlopNetFieldSGR([self voidColor]);
     NSString *frame = SlopNetInkSGR([self crimsonColor]);
-    NSString *label = [NSString stringWithFormat:@"══ %@ ", title.uppercaseString];
+    // Drawn in the striped face. It is the one piece of the StormCode identity
+    // that was bundled and never used — every heading was plain monospace.
+    NSString *shown = [self stripedText:title.uppercaseString];
+    NSString *label = [NSString stringWithFormat:@"══ %@ ", shown];
     NSInteger fill = (NSInteger)inner - (NSInteger)label.length;
     return [NSString stringWithFormat:@"%@%@\033[1m%@\033[22m%@%@",
             field, frame, label, SlopNetRepeat(@"═", fill), kReset];
+}
+
++ (NSString *)youSaidANSI:(NSString *)text width:(NSUInteger)width {
+    (void)width;
+    // The person's own words, marked but not boxed. They used to be wrapped in
+    // a Granite-branded panel carrying a thinking glyph, so the screen said
+    // "Granite" directly above something Granite had not said.
+    NSString *rule = SlopNetInkSGR([self crimsonColor]);
+    NSString *ink = SlopNetInkSGR([self inkColor]);
+    NSString *quiet = SlopNetInkSGR([self ghostColor]);
+    return [NSString stringWithFormat:@"\n%@▌ %@you%@\n%@▌ %@%@%@",
+            rule, quiet, kReset, rule, ink, text, kReset];
+}
+
++ (NSString *)guideRepliesANSIForProvider:(NSString *)providerId name:(NSString *)name {
+    NSString *mark = [self markForProvider:providerId] ?: @"◆";
+    NSColor *tint = [self tintColorForProvider:providerId] ?: [self crimsonColor];
+    return [NSString stringWithFormat:@"\n%@%@ %@%@",
+            SlopNetInkSGR(tint), mark, [self stripedText:name], kReset];
 }
 
 /// One row of a panel: crimson edges, brand fill between them, padded so

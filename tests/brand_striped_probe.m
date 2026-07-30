@@ -1,0 +1,87 @@
+// brand_striped_probe.m — the striped IBM face, and the conversation lines.
+//
+// The striped wordmark face was bundled in the colour font from the start and
+// went unused: every heading drew in plain monospace. Two things have to hold
+// for it to be safe to draw with.
+//
+// One, the glyphs must exist. A missing codepoint renders as a tofu box, which
+// is worse than the word it replaced.
+//
+// Two, every striped glyph must carry the base monospace advance. Headings are
+// padded to a width by counting characters, so a glyph even slightly wider
+// would push the trailing rule off the end of every header in the app.
+//
+//   clang -fobjc-arc -framework AppKit -framework CoreText -I packaging \
+//     tests/brand_striped_probe.m packaging/SlopNetBrand.m -o /tmp/striped \
+//     && /tmp/striped
+#import <Cocoa/Cocoa.h>
+#import <CoreText/CoreText.h>
+#import "SlopNetBrand.h"
+
+static int failures = 0;
+static void check(BOOL ok, const char *what) {
+    fprintf(stderr, "%s %s\n", ok ? "ok  " : "FAIL", what);
+    if (!ok) failures++;
+}
+
+int main(void) {
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+
+        // Without the bundled face, striped text must come back untouched.
+        // This process has no app bundle, so that is the path under test here.
+        check([[SlopNetBrand stripedText:@"SLOPNET"] isEqualToString:@"SLOPNET"],
+              "no colour font means plain text, never tofu");
+
+        // Now the font itself, loaded straight from the repository.
+        NSURL *url = [NSURL fileURLWithPath:
+            @"packaging/terminal-visuals/packaging-fonts/Menlo-StormCode-Color.ttf"];
+        CFErrorRef error = NULL;
+        CTFontManagerRegisterFontsForURL((__bridge CFURLRef)url,
+                                         kCTFontManagerScopeProcess, &error);
+        if (error != NULL) CFRelease(error);
+        CTFontRef font = CTFontCreateWithName(CFSTR("Menlo-RegularStormCodeColor"), 24, NULL);
+        NSString *name = CFBridgingRelease(CTFontCopyPostScriptName(font));
+        check([name containsString:@"Storm"], "the bundled face loads");
+
+        UniChar base = 'M';
+        CGGlyph baseGlyph;
+        CGSize baseAdvance;
+        CTFontGetGlyphsForCharacters(font, &base, &baseGlyph, 1);
+        CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal,
+                                   &baseGlyph, &baseAdvance, 1);
+
+        NSUInteger missing = 0, offGrid = 0;
+        for (int i = 0; i < 62; i++) {              // A-Z, a-z, 0-9
+            UniChar c = (UniChar)(0xE800 + i);
+            CGGlyph glyph;
+            CGSize advance;
+            if (!CTFontGetGlyphsForCharacters(font, &c, &glyph, 1) || glyph == 0) {
+                missing++;
+                continue;
+            }
+            CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal,
+                                       &glyph, &advance, 1);
+            if (fabs(advance.width - baseAdvance.width) > 0.01) offGrid++;
+        }
+        check(missing == 0, "all 62 striped letters and digits are in the font");
+        check(offGrid == 0, "every striped glyph keeps the monospace advance");
+
+        // The conversation lines: the person's words must not be dressed as
+        // the guide's. This is what a Granite-branded panel around the typed
+        // question used to do.
+        NSString *mine = [SlopNetBrand youSaidANSI:@"hello?" width:60];
+        check([mine containsString:@"you"], "the person's line is labelled as theirs");
+        check([mine containsString:@"hello?"], "and carries what they typed");
+        check(![mine containsString:@"Granite"],
+              "the guide's name is not printed above words it did not write");
+
+        NSString *theirs = [SlopNetBrand guideRepliesANSIForProvider:@"ibm_granite"
+                                                                name:@"Granite"];
+        check([theirs containsString:@"Granite"], "the reply is attributed to the guide");
+
+        fprintf(stderr, failures == 0 ? "\nSTRIPED PROBE DONE — all ok\n"
+                                      : "\nSTRIPED PROBE DONE — %d failed\n", failures);
+    }
+    return failures == 0 ? 0 : 1;
+}

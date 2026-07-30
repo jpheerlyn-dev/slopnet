@@ -90,6 +90,16 @@
 /// SlopNet's own voice: a crimson section header on the void field, drawn
 /// as ANSI so it goes through the console's colour path.
 + (NSString *)headerANSI:(NSString *)title width:(NSUInteger)width;
+/// ASCII letters and digits remapped onto the striped IBM face bundled at
+/// U+E800. Anything else — spaces, punctuation, accents — passes through, so a
+/// heading keeps its shape. One striped glyph is one cell, like the base face.
++ (NSString *)stripedText:(NSString *)text;
+/// One turn of the conversation, drawn as the person's line and nothing else.
++ (NSString *)youSaidANSI:(NSString *)text width:(NSUInteger)width;
+/// The guide's name on its own line, with its mark, ready for the reply to
+/// stream underneath in ordinary ink.
++ (NSString *)guideRepliesANSIForProvider:(NSString *)providerId
+                                     name:(NSString *)name;
 
 /// A provider's panel: a crimson frame around a brand-filled block whose
 /// first row carries the badge and the display name. `detail` lines are

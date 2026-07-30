@@ -47,7 +47,13 @@ Current state: the model is already a constant (`kDefaultGuideModel`) and is
 shown rather than typed, but it is shown *as that string*. The friction is that
 it is displayed at all, not that it must be entered.
 
-## 4. Scaffolding for the Granite translator
+## 4. Scaffolding for the Granite translator — WITHDRAWN
+
+The operator has since ruled this out: "Do NOT do any split screen layouts —
+keep the chat UI with left side panel — the chat terminal IS the hacker
+terminal." The single-window design stands. Kept below only so the conflict is
+not rediscovered and re-argued later.
+
 
 Wanted: a split pane or overlay — terminal on one side, plain-English
 translation streaming alongside.
