@@ -231,7 +231,10 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 #pragma mark - dock icon (hue + chroma)
 
 /// Load the installed app icon once. Prefer the bundle .icns; fall back to
-/// whatever macOS already put on the Dock tile.
+/// whatever macOS already put on the Dock tile. Then punch the white page
+/// background to transparent — SlopNet-Logo.png is an opaque white rectangle
+/// with art in the middle; the static Dock mask hid that, but a live
+/// applicationIconImage shows the corners unless we clear them.
 - (NSImage *)loadBaseDockIcon {
     NSImage *fromBundle = [NSImage imageNamed:@"AppIcon"];
     if (fromBundle == nil) {
@@ -239,7 +242,101 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         if (url != nil) fromBundle = [[NSImage alloc] initWithContentsOfURL:url];
     }
     if (fromBundle == nil) fromBundle = [[NSApp applicationIconImage] copy];
-    return fromBundle;
+    if (fromBundle == nil) return nil;
+    return [self iconByMakingWhiteBackgroundTransparent:fromBundle];
+}
+
+/// Flood-fill near-white pixels reachable from the edges to alpha 0.
+/// Leaves non-white logo ink alone, including light greys inside the mark.
+- (NSImage *)iconByMakingWhiteBackgroundTransparent:(NSImage *)source {
+    if (source == nil) return nil;
+    const NSInteger px = 256;
+    const CGFloat edge = 256.0;
+    size_t bpr = (size_t)px * 4;
+    uint8_t *buf = calloc(1, bpr * (size_t)px);
+    if (buf == NULL) return source;
+
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef ctx = CGBitmapContextCreate(
+        buf, (size_t)px, (size_t)px, 8, bpr, space,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    if (ctx == NULL) {
+        CGColorSpaceRelease(space);
+        free(buf);
+        return source;
+    }
+    CGContextClearRect(ctx, CGRectMake(0, 0, edge, edge));
+
+    NSSize srcSize = source.size;
+    if (srcSize.width < 1 || srcSize.height < 1) srcSize = NSMakeSize(edge, edge);
+    CGFloat scale = MIN(edge / srcSize.width, edge / srcSize.height);
+    CGSize drawSize = CGSizeMake(srcSize.width * scale, srcSize.height * scale);
+    CGRect drawRect = CGRectMake((edge - drawSize.width) * 0.5,
+                                 (edge - drawSize.height) * 0.5,
+                                 drawSize.width, drawSize.height);
+    NSGraphicsContext *previous = [NSGraphicsContext currentContext];
+    [NSGraphicsContext setCurrentContext:
+        [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO]];
+    [source drawInRect:NSRectFromCGRect(drawRect)
+              fromRect:NSZeroRect
+             operation:NSCompositingOperationSourceOver
+              fraction:1.0
+        respectFlipped:NO
+                 hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+    [NSGraphicsContext setCurrentContext:previous];
+
+    // BGRA/RGBA bytes: R,G,B,A with premultiplied last in our format.
+    // Treat a pixel as "paper white" if it's bright and nearly neutral.
+    BOOL *visited = calloc((size_t)px * (size_t)px, sizeof(BOOL));
+    NSInteger *stack = malloc(sizeof(NSInteger) * (size_t)px * (size_t)px);
+    NSInteger sp = 0;
+    if (visited == NULL || stack == NULL) {
+        free(visited); free(stack);
+        CGImageRef cgFail = CGBitmapContextCreateImage(ctx);
+        CGContextRelease(ctx); CGColorSpaceRelease(space); free(buf);
+        if (!cgFail) return source;
+        NSImage *img = [[NSImage alloc] initWithCGImage:cgFail size:NSMakeSize(edge, edge)];
+        CGImageRelease(cgFail);
+        return img;
+    }
+
+    void (^push)(NSInteger, NSInteger) = ^(NSInteger x, NSInteger y) {
+        if (x < 0 || y < 0 || x >= px || y >= px) return;
+        NSInteger i = y * px + x;
+        if (visited[i]) return;
+        uint8_t *p = buf + (size_t)i * 4;
+        uint8_t r = p[0], g = p[1], b = p[2], a = p[3];
+        if (a < 8) { visited[i] = YES; return; } // already clear
+        // Near-white paper (logo corners measure ~254–255).
+        int maxc = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        int minc = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        if (maxc < 245 || (maxc - minc) > 18) return; // not white-ish
+        visited[i] = YES;
+        stack[sp++] = i;
+    };
+
+    // Seed from all four edges so the page background is fully reachable.
+    for (NSInteger x = 0; x < px; x++) { push(x, 0); push(x, px - 1); }
+    for (NSInteger y = 0; y < px; y++) { push(0, y); push(px - 1, y); }
+
+    while (sp > 0) {
+        NSInteger i = stack[--sp];
+        uint8_t *p = buf + (size_t)i * 4;
+        p[0] = p[1] = p[2] = p[3] = 0; // transparent
+        NSInteger x = i % px, y = i / px;
+        push(x + 1, y); push(x - 1, y); push(x, y + 1); push(x, y - 1);
+    }
+    free(visited);
+    free(stack);
+
+    CGImageRef cg = CGBitmapContextCreateImage(ctx);
+    CGContextRelease(ctx);
+    CGColorSpaceRelease(space);
+    free(buf);
+    if (cg == NULL) return source;
+    NSImage *out = [[NSImage alloc] initWithCGImage:cg size:NSMakeSize(edge, edge)];
+    CGImageRelease(cg);
+    return out;
 }
 
 - (void)startDockIconAnimation {
@@ -298,48 +395,61 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 - (NSImage *)imageByShiftingHue:(CGFloat)hueRadians
                      saturation:(CGFloat)saturation
                        ofImage:(NSImage *)source {
-    if (source == nil) return nil;
+    if (source == nil || self.dockIconContext == nil) return nil;
 
-    // Work at a fixed Dock-friendly size so each tick is cheap and sharp.
+    // Fixed Dock-friendly size. Must keep a real alpha channel: white/opaque
+    // corners are the usual failure mode when transparency is lost.
     const CGFloat edge = 256.0;
-    NSRect dest = NSMakeRect(0, 0, edge, edge);
+    const NSInteger px = 256;
+    size_t bytesPerRow = (size_t)px * 4;
+    size_t total = bytesPerRow * (size_t)px;
+    void *buffer = calloc(1, total);
+    if (buffer == NULL) return nil;
 
-    NSBitmapImageRep *bitmap =
-        [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
-                                                pixelsWide:(NSInteger)edge
-                                                pixelsHigh:(NSInteger)edge
-                                             bitsPerSample:8
-                                           samplesPerPixel:4
-                                                  hasAlpha:YES
-                                                  isPlanar:NO
-                                            colorSpaceName:NSCalibratedRGBColorSpace
-                                               bytesPerRow:0
-                                              bitsPerPixel:0];
-    if (bitmap == nil) return nil;
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef ctx = CGBitmapContextCreate(
+        buffer, (size_t)px, (size_t)px, 8, bytesPerRow, space,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    if (ctx == NULL) {
+        CGColorSpaceRelease(space);
+        free(buffer);
+        return nil;
+    }
 
-    NSGraphicsContext *previous = [NSGraphicsContext currentContext];
-    NSGraphicsContext *gfx = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
-    [NSGraphicsContext setCurrentContext:gfx];
-    [[NSColor clearColor] set];
-    NSRectFill(dest);
-    // Draw the source icon into the square, preserving aspect (letterbox).
+    // Fully transparent canvas (not white).
+    CGContextSetBlendMode(ctx, kCGBlendModeCopy);
+    CGContextClearRect(ctx, CGRectMake(0, 0, edge, edge));
+    CGContextSetBlendMode(ctx, kCGBlendModeNormal);
+
+    // Draw the source icon, aspect-fit, preserving its alpha.
     NSSize srcSize = source.size;
     if (srcSize.width < 1 || srcSize.height < 1) srcSize = NSMakeSize(edge, edge);
     CGFloat scale = MIN(edge / srcSize.width, edge / srcSize.height);
-    NSSize drawSize = NSMakeSize(srcSize.width * scale, srcSize.height * scale);
-    NSRect drawRect = NSMakeRect((edge - drawSize.width) * 0.5,
+    CGSize drawSize = CGSizeMake(srcSize.width * scale, srcSize.height * scale);
+    CGRect drawRect = CGRectMake((edge - drawSize.width) * 0.5,
                                  (edge - drawSize.height) * 0.5,
                                  drawSize.width, drawSize.height);
-    [source drawInRect:drawRect
+
+    NSGraphicsContext *previous = [NSGraphicsContext currentContext];
+    NSGraphicsContext *gfx =
+        [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO];
+    [NSGraphicsContext setCurrentContext:gfx];
+    [source drawInRect:NSRectFromCGRect(drawRect)
               fromRect:NSZeroRect
              operation:NSCompositingOperationSourceOver
               fraction:1.0
-        respectFlipped:YES
+        respectFlipped:NO
                  hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
-    [gfx flushGraphics];
     [NSGraphicsContext setCurrentContext:previous];
 
-    CIImage *input = [[CIImage alloc] initWithBitmapImageRep:bitmap];
+    CGImageRef sourceCG = CGBitmapContextCreateImage(ctx);
+    CGContextRelease(ctx);
+    CGColorSpaceRelease(space);
+    free(buffer);
+    if (sourceCG == NULL) return nil;
+
+    CIImage *input = [[CIImage alloc] initWithCGImage:sourceCG];
+    CGImageRelease(sourceCG);
     if (input == nil) return nil;
 
     CIFilter *sat = [CIFilter filterWithName:@"CIColorControls"];
@@ -353,11 +463,32 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     CIFilter *hue = [CIFilter filterWithName:@"CIHueAdjust"];
     [hue setValue:afterSat forKey:kCIInputImageKey];
     [hue setValue:@(hueRadians) forKey:kCIInputAngleKey];
-    CIImage *output = hue.outputImage;
-    if (output == nil) return nil;
+    CIImage *shifted = hue.outputImage;
+    if (shifted == nil) return nil;
 
-    CGImageRef cg = [self.dockIconContext createCGImage:output fromRect:output.extent];
+    // Keep shifted colours, masked by the original alpha so transparent
+    // corners stay invisible even if a filter dirtied A=0 pixels.
+    CIFilter *sourceIn = [CIFilter filterWithName:@"CISourceInCompositing"];
+    [sourceIn setValue:shifted forKey:kCIInputImageKey];
+    [sourceIn setValue:input forKey:kCIInputBackgroundImageKey];
+    CIImage *output = sourceIn.outputImage ?: shifted;
+
+    CGRect extent = input.extent;
+    if (CGRectIsInfinite(extent) || CGRectIsEmpty(extent)) {
+        extent = CGRectMake(0, 0, edge, edge);
+    }
+
+    CGColorSpaceRef outSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGImageRef cg = [self.dockIconContext createCGImage:output
+                                               fromRect:extent
+                                                 format:kCIFormatRGBA8
+                                             colorSpace:outSpace];
+    CGColorSpaceRelease(outSpace);
+    if (cg == NULL) {
+        cg = [self.dockIconContext createCGImage:output fromRect:extent];
+    }
     if (cg == NULL) return nil;
+
     NSImage *result = [[NSImage alloc] initWithCGImage:cg size:NSMakeSize(edge, edge)];
     CGImageRelease(cg);
     return result;
