@@ -31,6 +31,8 @@ paths=$(
       packaging/SlopNetLauncher.m \
       packaging/SlopNetSettings.h \
       packaging/SlopNetSettings.m \
+      packaging/SlopNetWizard.h \
+      packaging/SlopNetWizard.m \
       packaging/build_app.sh \
       packaging/make_icon.py \
       packaging/slopnet-vps-onboard.sh \
@@ -42,6 +44,7 @@ paths=$(
       tests/redteam.sh \
       tests/console_colour_probe.m \
       tests/settings_resize_probe.m \
+      tests/wizard_step_probe.m \
       update-manifest.sh \
       .github/workflows/slopnet.yml \
       .github/workflows/watchman.yml \

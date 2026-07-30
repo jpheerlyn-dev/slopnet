@@ -19,11 +19,20 @@
 #import "SlopNetBrand.h"
 #import "SlopNetConsole.h"
 #import "SlopNetSettings.h"
+#import "SlopNetWizard.h"
 
 static NSString *const kHostKey     = @"SlopNetVPSHost";
 static NSString *const kUserKey     = @"SlopNetVPSUser";
 static NSString *const kPortKey     = @"SlopNetVPSPort";
 static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cleanly
+// The private local guide passed its own READY proof on the server. Set only
+// from a real outcome: a clean local-helper run, or reading the model back out
+// of the server's runtime account. Never cleared by a failed network check,
+// because "the server did not answer just now" is not evidence it is gone.
+static NSString *const kGuideKey    = @"SlopNetGuideReady";
+// The person has seen the last screen of the wizard, so it stops opening
+// itself. The Setup guide button in the sidebar reopens it any time.
+static NSString *const kWizardKey   = @"SlopNetWizardDone";
 
 // NSTextView has no native placeholder on the oldest macOS version SlopNet
 // supports. Keep the tiny drawing behaviour here instead of putting a fake
@@ -53,7 +62,8 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 @end
 
 @interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate,
-                                          SlopNetSettingsDelegate, NSTextViewDelegate>
+                                          SlopNetSettingsDelegate, SlopNetWizardDelegate,
+                                          NSTextViewDelegate>
 @property(nonatomic, strong) NSWindow *window;
 
 // sidebar
@@ -67,6 +77,7 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 @property(nonatomic, copy) NSString *username;
 @property(nonatomic, copy) NSString *port;
 @property(nonatomic, strong) SlopNetSettings *settings;
+@property(nonatomic, strong) SlopNetWizard *wizard;
 
 // main
 @property(nonatomic, strong) SlopNetConsole *console;
@@ -207,13 +218,28 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         }
     });
 
-    // First-run is an in-app guide, not a buried hint. It starts before any
-    // provider login, planning, or model conversation can be reached.
-    if (![self isReady]) {
-        dispatch_async(dispatch_get_main_queue(), ^{ [self openSettings:nil]; });
-    } else {
-        [self refreshLocalModelName];
+    // First run is a wizard, not an empty console with a hint. It opens
+    // before any provider login, planning, or model conversation can be
+    // reached, and it resumes at the first thing that has not passed yet.
+    if (![self setupComplete]) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self openWizardAtResumeStep]; });
     }
+    if ([self isReady]) [self refreshLocalModelName];
+}
+
+/// Everything the wizard covers has passed, and the person has seen the last
+/// screen. Until then the wizard opens itself on launch.
+- (BOOL)setupComplete {
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    return [self isReady] && [self guideReady] && [store boolForKey:kWizardKey];
+}
+
+- (BOOL)guideReady {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:kGuideKey];
+}
+
+- (void)setGuideReady:(BOOL)ready {
+    [[NSUserDefaults standardUserDefaults] setBool:ready forKey:kGuideKey];
 }
 
 - (NSView *)buildSidebar {
@@ -249,6 +275,9 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
                                        action:@selector(openSettings:)];
     NSButton *providersButton = [self sidebarButton:@"◫   Providers"
                                             action:@selector(showProviders:)];
+    // Setup is discoverable from the main window, not only from Settings.
+    NSButton *wizardButton = [self sidebarButton:@"◷   Setup guide"
+                                         action:@selector(openWizard:)];
 
     NSStackView *sidebar = [NSStackView stackViewWithViews:@[
         title, status,
@@ -257,6 +286,7 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         historyTitle, self.historyStack,
         spacer,
         [self separator],
+        wizardButton,
         providersButton,
         self.settingsToggle,
         [self label:[NSString stringWithFormat:@"v%@", version] size:10 grey:YES]]];
@@ -373,9 +403,13 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 - (void)refreshState {
     BOOL ready = [self isReady];
     BOOL chat = [self isChatMode];
-    if (ready) {
+    BOOL guide = [self guideReady];
+    if (ready && guide) {
         self.statusDot.textColor = [NSColor systemGreenColor];
         self.statusText.stringValue = [NSString stringWithFormat:@"Ready — %@", self.host];
+    } else if (ready) {
+        self.statusDot.textColor = [NSColor systemOrangeColor];
+        self.statusText.stringValue = @"Server ready — guide not installed";
     } else {
         self.statusDot.textColor = [NSColor systemGrayColor];
         self.statusText.stringValue = @"No server yet";
@@ -388,6 +422,12 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         self.entry.prompt = @"Type your answer here, then press Return (for example: y)";
         self.sendButton.title = @"Answer";
         self.entry.editable = YES;
+    } else if (ready && chat && !guide) {
+        // Chat has nothing to answer with until the guide has passed its
+        // proof. Say which step is missing instead of failing on the server.
+        self.entry.prompt = @"Install the private guide first — press Setup guide, bottom left";
+        self.sendButton.title = @"Set up guide";
+        self.entry.editable = NO;
     } else if (ready && chat) {
         self.entry.prompt = @"Ask the local guide about setup or how to prepare a request…";
         self.sendButton.title = @"Ask";
@@ -402,9 +442,9 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         self.sendButton.title = @"Make a plan";
         self.entry.editable = YES;
     } else {
-        self.entry.prompt = @"Open Settings to connect a server first";
+        self.entry.prompt = @"Press Set up to connect your server — the guide walks through it";
         self.sendButton.title = @"Set up";
-        self.entry.editable = YES;
+        self.entry.editable = NO;
     }
     [self resizeEntry];
     [self rebuildHistory];
@@ -696,19 +736,76 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
                                                      port:self.port
                                                      user:self.username
                                                 connected:[self isReady]];
-    self.settings.window.title = [self isReady] ? @"Settings" : @"Set up SlopNet — step 1 of 2";
+    self.settings.window.title = @"Settings";
     self.settings.delegate = self;
     [self.settings presentFrom:self.window];
 }
 
-- (void)openLocalGuideSettings {
-    self.settings = [[SlopNetSettings alloc] initWithHost:self.host
-                                                     port:self.port
-                                                     user:self.username
-                                                connected:YES];
-    self.settings.window.title = @"Set up SlopNet — step 2 of 2";
-    self.settings.delegate = self;
-    [self.settings presentFrom:self.window];
+#pragma mark - the setup wizard
+
+- (void)openWizardAtStep:(SlopNetWizardStep)step {
+    if (self.wizard != nil && self.wizard.window.sheetParent != nil) {
+        [self.wizard showStep:step];
+        return;
+    }
+    self.wizard = [[SlopNetWizard alloc] initWithHost:self.host
+                                                 port:self.port
+                                                 user:self.username
+                                          serverReady:[self isReady]
+                                           guideReady:[self guideReady]];
+    self.wizard.delegate = self;
+    [self.wizard showStep:step];
+    [self.wizard presentFrom:self.window];
+}
+
+- (void)openWizardAtResumeStep {
+    [self openWizardAtStep:[SlopNetWizard resumeStepForServerReady:[self isReady]
+                                                       guideReady:[self guideReady]]];
+}
+
+- (void)openWizard:(id)sender { [self openWizardAtResumeStep]; }
+
+- (void)wizard:(SlopNetWizard *)wizard rememberHost:(NSString *)host
+          port:(NSString *)port user:(NSString *)user {
+    self.host = host;
+    self.port = port.length ? port : @"22";
+    self.username = user.length ? user : @"root";
+    [self remember];
+    [self refreshState];
+}
+
+- (void)wizard:(SlopNetWizard *)wizard
+ connectToHost:(NSString *)host
+          port:(NSString *)port
+          user:(NSString *)user {
+    // The same path Settings uses: whoever asked steps aside and the console
+    // runs it, because this is where the server's password prompt appears.
+    [self prepareServerHost:host port:port user:user];
+}
+
+- (void)wizard:(SlopNetWizard *)wizard installGuideModel:(NSString *)model {
+    [self installGuideModel:model];
+}
+
+- (void)wizardOpenSettings:(SlopNetWizard *)wizard {
+    dispatch_async(dispatch_get_main_queue(), ^{ [self openSettings:nil]; });
+}
+
+- (void)wizardStartChat:(SlopNetWizard *)wizard {
+    [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kWizardKey];
+    [self.modePicker selectItemAtIndex:0];          // Chat
+    [self refreshState];
+    [self.console note:[SlopNetBrand headerANSI:@"Ready" width:[self panelWidth]]];
+    [self.console note:@"Ask the private guide anything about setup. It answers on your "
+                       @"server, costs nothing, and cannot start a build."];
+    [self showReadyBlock];
+    [self.window makeFirstResponder:self.entry];
+}
+
+- (void)wizardDidFinish:(SlopNetWizard *)wizard {
+    [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kWizardKey];
+    [self refreshState];
+    [self.window makeFirstResponder:self.entry];
 }
 
 - (void)openServerHelp:(id)sender {
@@ -825,6 +922,10 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 
 - (void)settings:(SlopNetSettings *)settings
    connectToHost:(NSString *)host port:(NSString *)port user:(NSString *)user {
+    [self prepareServerHost:host port:port user:user];
+}
+
+- (void)prepareServerHost:(NSString *)host port:(NSString *)port user:(NSString *)user {
     self.host = host;
     self.port = port.length ? port : @"22";
     self.username = user.length ? user : @"root";
@@ -865,12 +966,16 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 
 - (void)settingsDidForget:(SlopNetSettings *)settings {
     NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey]) {
+    // Forgetting the server forgets what was proved ON that server too, so the
+    // wizard starts again rather than claiming a guide that belonged elsewhere.
+    for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey, kGuideKey, kWizardKey]) {
         [store removeObjectForKey:key];
     }
     self.host = @"";
     self.username = @"root";
     self.port = @"22";
+    self.localModelName = nil;
+    [self refreshModelPicker];
     [self.console note:@"\nForgotten on this Mac. Your server itself is untouched, and "
                        @"no password was ever stored."];
     [self refreshState];
@@ -883,6 +988,10 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 - (void)settingsShowServerHelp:(SlopNetSettings *)settings { [self openServerHelp:nil]; }
 
 - (void)settings:(SlopNetSettings *)settings setupLocalHelperModel:(NSString *)model {
+    [self installGuideModel:model];
+}
+
+- (void)installGuideModel:(NSString *)model {
     if (self.busy || ![self connectionValid]) return;
     NSString *script = [self helper:@"slopnet-vps-local-helper"];
     if (script == nil) {
@@ -946,10 +1055,16 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
             if (finished.terminationStatus == 0 &&
                 [strongSelf matches:model pattern:@"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$"]) {
                 strongSelf.localModelName = model;
+                // Positive evidence from the server itself: that file exists
+                // only after the model passed its proof. A failed read is NOT
+                // treated as evidence the guide is gone — the network is the
+                // likelier explanation, and nagging would be wrong.
+                [strongSelf setGuideReady:YES];
             } else {
                 strongSelf.localModelName = nil;
             }
             [strongSelf refreshModelPicker];
+            [strongSelf refreshState];
         });
     };
     NSError *error = nil;
@@ -987,13 +1102,20 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         return;
     }
     if (![self isReady]) {
-        [self.console note:@"\nConnect a server first — press Settings, bottom left."];
-        [self openSettings:nil];
+        [self.console note:@"\nConnect a server first — the setup guide walks you through it."];
+        [self openWizardAtResumeStep];
         return;
     }
     NSString *idea = [self.entry.string stringByTrimmingCharactersInSet:
         [NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if ([self isChatMode]) {
+        if (![self guideReady]) {
+            [self.console note:@"\nChat needs the private local guide on your server. "
+                               @"The setup guide installs it — nothing is downloaded until "
+                               @"you approve it."];
+            [self openWizardAtStep:SlopNetWizardStepGuide];
+            return;
+        }
         if (idea.length == 0) {
             [self.console note:@"\nAsk the local guide a question first."];
             return;
@@ -1107,17 +1229,27 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         self.setupRunning = NO;
         if (status == 0) {
             [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kReadyKey];
-            [self.console note:@"Your server is ready. Step 2 is to install and prove the private local guide. "
+            [self.console note:@"Your server is ready. Next: install the private local guide. "
                                @"It does not use your coding subscription."];
             [self refreshLocalModelName];
-            dispatch_async(dispatch_get_main_queue(), ^{ [self openLocalGuideSettings]; });
+            // Straight on to the next wizard step, rather than leaving someone
+            // to find the guide in Settings.
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self openWizardAtStep:SlopNetWizardStepGuide];
+            });
         }
     }
     if (self.localHelperRunning) {
         self.localHelperRunning = NO;
         if (status == 0) {
-            [self.console note:@"The private local guide is ready. Choose Chat to ask it about setup, or Build when you want a separate coding plan."];
+            // The script writes its config only after the model has answered
+            // its READY proof, so a clean exit here means the guide is proved.
+            [self setGuideReady:YES];
+            [self.console note:@"The private local guide passed its proof. Chat is now open."];
             [self refreshLocalModelName];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self openWizardAtStep:SlopNetWizardStepReady];
+            });
         }
     }
     if (self.planningRunning) {

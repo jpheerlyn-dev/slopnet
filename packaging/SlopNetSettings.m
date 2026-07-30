@@ -187,16 +187,18 @@
     done.keyEquivalent = @"\r";
     [done.widthAnchor constraintGreaterThanOrEqualToConstant:90].active = YES;
 
-    NSString *serverTitle = self.connected ? @"Your server" : @"Step 1 of 2 — connect your VPS";
+    // The numbered path lives in the setup guide (SlopNetWizard) now, so these
+    // headings no longer claim to be steps 1 and 2 of anything — two competing
+    // numbering schemes is exactly the confusion the wizard exists to remove.
+    // Everything here still works on its own for someone who prefers panels.
+    NSString *serverTitle = @"Your server";
     NSString *serverHelp = self.connected
         ? @"Any computer you can reach over SSH: a rented server, a dedicated machine, a home server, or a Raspberry Pi. Your password is never stored — it goes straight from the console to your server."
-        : @"Start here. Enter the address, login name, and port from your VPS provider. SlopNet will show every change in its own window and never saves the VPS password.";
-    NSString *helperTitle = self.connected
-        ? @"Step 2 of 2 — private local guide"
-        : @"Step 2 — private local guide (after server setup)";
+        : @"Enter the address, login name, and port from your VPS provider. SlopNet will show every change in its own window and never saves the VPS password. The setup guide in the sidebar walks through this in order.";
+    NSString *helperTitle = @"Private local guide";
     NSString *helperHelp = self.connected
         ? @"This small model runs only on your server for ordinary setup chat and request drafting. It cannot start coding, make a decision, or spend from a coding subscription. SlopNet shows capacity, downloads only after you approve, limits it to a small 4K context and a 15-minute test, and never opens a model port."
-        : @"After the server passes, come back here to install the private local guide. It handles ordinary setup chat without using a coding subscription.";
+        : @"After the server passes, install the private local guide here or from the setup guide. It handles ordinary setup chat without using a coding subscription.";
 
     NSStackView *page = [NSStackView stackViewWithViews:@[
         [self label:serverTitle size:15 grey:NO bold:YES],
