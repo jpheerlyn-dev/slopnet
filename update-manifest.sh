@@ -24,6 +24,8 @@ paths=$(
       .dockerignore \
       slopnet \
       crew.py \
+      packaging/SlopNetBrand.h \
+      packaging/SlopNetBrand.m \
       packaging/SlopNetConsole.h \
       packaging/SlopNetConsole.m \
       packaging/SlopNetLauncher.m \
@@ -38,6 +40,7 @@ paths=$(
       packaging/slopnet-vps-build.sh \
       packaging/tools.json \
       tests/redteam.sh \
+      tests/console_colour_probe.m \
       tests/settings_resize_probe.m \
       update-manifest.sh \
       .github/workflows/slopnet.yml \

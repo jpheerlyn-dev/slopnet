@@ -10,3 +10,6 @@ node_modules/
 .idea/
 .vscode/
 *.swp
+# Local StormCode visual assets + Menlo-derived fonts (may ship inside the
+# Mac app from the operator machine; must not be a public git download).
+packaging/terminal-visuals/
