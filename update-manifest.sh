@@ -37,6 +37,7 @@ paths=$(
       packaging/SlopNetWizard.m \
       packaging/build_app.sh \
       packaging/build_dmg.sh \
+      packaging/reset-for-testing.sh \
       packaging/make_icon.py \
       packaging/slopnet-vps-onboard.sh \
       packaging/slopnet-vps-project.sh \
