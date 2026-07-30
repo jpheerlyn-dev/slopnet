@@ -1,1 +1,14 @@
 # Extra banned name patterns, one per line, shell-glob style. Operator-editable.
+#
+# NOTE ON SCOPE: these patterns are matched against FILE AND FOLDER PATHS by
+# checks/naming.sh. They stop a bad name being used for a file. They cannot
+# stop a word being used in prose, a comment, or a message on screen — that is
+# a vocabulary decision, not a naming check.
+#
+# "walls" is our own invented word for what the code already calls checks/.
+# The README even defines it as "checks (we call them walls)", which is the
+# tell. No new file should carry it. The existing rulesets/*-wall.json files
+# are deliberately NOT matched here yet: renaming them also means renaming the
+# rules already applied on GitHub, so that belongs with the wider rename.
+*walls*
+*Walls*
