@@ -16,6 +16,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <float.h>
+#import "SlopNetBrand.h"
 #import "SlopNetConsole.h"
 #import "SlopNetSettings.h"
 
@@ -543,6 +544,19 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         [self.console note:@"Welcome. The setup guide is opening now.\n"
                            @"First connect your server; then SlopNet can install and prove its private local guide."];
     }
+    [self.console note:[self providerMarkStrip]];
+}
+
+/// One decorative line: every provider mark this build knows, in glyph
+/// order — the FULL set, deliberately not the short demo roster. With the
+/// bundled colour font these are the real logos; without it, plain marks.
+- (NSString *)providerMarkStrip {
+    NSMutableString *strip = [NSMutableString string];
+    for (NSString *pid in [SlopNetBrand allProviders]) {
+        if (strip.length > 0) [strip appendString:@" "];
+        [strip appendString:[SlopNetBrand markForProvider:pid]];
+    }
+    return [NSString stringWithFormat:@"\n%@", strip];
 }
 
 #pragma mark - actions
@@ -597,11 +611,26 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 
 - (void)refreshModelPicker {
     if (self.modelPicker == nil) return;
+    NSString *provider = [SlopNetBrand providerForLocalModel:self.localModelName];
+    NSString *badge = provider ? [SlopNetBrand markForProvider:provider] : nil;
     NSString *title = self.localModelName.length > 0
         ? [NSString stringWithFormat:@"%@ — local", self.localModelName]
         : @"Local model — set up in Settings";
+    if (badge != nil) title = [NSString stringWithFormat:@"%@ %@", badge, title];
     [self.modelPicker removeAllItems];
     [self.modelPicker addItemWithTitle:title];
+    // Menus draw in the menu font, which has no badge glyphs; give the badge
+    // characters the console face so the real logo shows in the picker.
+    if (badge != nil && [SlopNetBrand colorFontActive]) {
+        NSMenuItem *item = [self.modelPicker itemAtIndex:0];
+        NSMutableAttributedString *styled = [[NSMutableAttributedString alloc]
+            initWithString:title
+                attributes:@{NSFontAttributeName: [NSFont menuFontOfSize:0]}];
+        [styled addAttribute:NSFontAttributeName
+                       value:[SlopNetBrand consoleFontOfSize:13]
+                       range:NSMakeRange(0, badge.length)];
+        item.attributedTitle = styled;
+    }
     [self.modelPicker addItemWithTitle:@"Choose local model in Settings…"];
     [self.modelPicker selectItemAtIndex:0];
 }
@@ -711,11 +740,15 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
         [self.console note:@"The local-helper setup is missing from this app. Build it again."];
         return;
     }
+    NSString *helperProvider = [SlopNetBrand providerForLocalModel:model];
+    NSString *helperBadge = helperProvider
+        ? [[SlopNetBrand markForProvider:helperProvider] stringByAppendingString:@" "]
+        : @"";
     [self.console note:[NSString stringWithFormat:
-        @"\n=== Preparing local helper: %@ ===\n"
+        @"\n=== %@Preparing local helper: %@ ===\n"
          "This happens only on your server. It will show the real capacity before "
          "it downloads anything, keeps this small helper to a 4K context and a "
-         "15-minute test, and never opens a model port.", model]];
+         "15-minute test, and never opens a model port.", helperBadge, model]];
     self.localHelperRunning = YES;
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
@@ -812,9 +845,14 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
             [self.console note:@"The private-chat helper is missing from this app. Build it again."];
             return;
         }
-        [self.console note:@"\n=== Private local-model chat ===\n"
-                           "This reply uses only the selected local model on your VPS. "
-                           "It cannot start a plan, coding agent, or build."];
+        NSString *chatProvider = [SlopNetBrand providerForLocalModel:self.localModelName];
+        NSString *chatBadge = chatProvider
+            ? [[SlopNetBrand markForProvider:chatProvider] stringByAppendingString:@" "]
+            : @"";
+        [self.console note:[NSString stringWithFormat:
+            @"\n=== %@Private local-model chat ===\n"
+             "This reply uses only the selected local model on your VPS. "
+             "It cannot start a plan, coding agent, or build.", chatBadge]];
         self.entry.string = @"";
         [self resizeEntry];
         [self setBusy:YES];

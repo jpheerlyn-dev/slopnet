@@ -1,4 +1,5 @@
 #import "SlopNetConsole.h"
+#import "SlopNetBrand.h"
 #import <util.h>
 #import <termios.h>
 #import <sys/ioctl.h>
@@ -39,7 +40,10 @@ static const NSUInteger kMaxLines = 4000;
     _output.richText = NO;
     _output.drawsBackground = YES;
     _output.backgroundColor = [NSColor textBackgroundColor];
-    _output.font = [NSFont monospacedSystemFontOfSize:11.5 weight:NSFontWeightRegular];
+    // The bundled colour face renders provider badges as real full-colour
+    // logos; if it fails to register this is the system monospaced font and
+    // callers print plain Unicode marks instead (see SlopNetBrand).
+    _output.font = [SlopNetBrand consoleFontOfSize:11.5];
     _output.textColor = [NSColor textColor];
     _output.automaticQuoteSubstitutionEnabled = NO;
     _output.textContainerInset = NSMakeSize(8, 8);

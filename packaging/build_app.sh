@@ -31,14 +31,45 @@ if [ -e "$app" ]; then
 fi
 
 command -v clang >/dev/null 2>&1 || { printf '%s\n' 'SlopNet.app needs the macOS clang compiler.' >&2; exit 1; }
-python3 "$pkg/make_icon.py" "$icon_file"
+
+# The app icon comes from the operator's SlopNet-Logo.png when it exists;
+# the generated placeholder icon remains the fallback so a checkout without
+# the logo still builds. The PNG is 2048x2086 — sips resamples each square
+# size directly (the 1.8% squeeze is invisible at icon sizes).
+logo="$root/SlopNet-Logo.png"
+if [ -f "$logo" ]; then
+  iconset="$work/AppIcon.iconset"
+  mkdir -p "$iconset"
+  for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$logo" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+    double=$((size * 2))
+    sips -z "$double" "$double" "$logo" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$iconset" -o "$icon_file"
+else
+  printf 'No SlopNet-Logo.png at the repo root; using the generated icon.\n'
+  python3 "$pkg/make_icon.py" "$icon_file"
+fi
 
 mkdir -p "$contents/MacOS" "$contents/Resources"
-clang -fobjc-arc -Wall -Wextra -mmacosx-version-min=13.0 -framework AppKit \
+clang -fobjc-arc -Wall -Wextra -mmacosx-version-min=13.0 \
+  -framework AppKit -framework CoreText \
   -I "$pkg" "$pkg/SlopNetLauncher.m" "$pkg/SlopNetConsole.m" \
-  "$pkg/SlopNetSettings.m" \
+  "$pkg/SlopNetSettings.m" "$pkg/SlopNetBrand.m" \
   -o "$contents/MacOS/SlopNet"
 cp "$icon_file" "$contents/Resources/AppIcon.icns"
+
+# The colour badge font (Menlo + full-colour provider logos). Optional: when
+# the terminal-visuals package is absent the app still builds and falls back
+# to plain Unicode marks. Licence: a Menlo derivative may ship inside this
+# local app but must never be published as a standalone download — which is
+# also why the font stays out of git (see packaging/terminal-visuals/README.md).
+badge_font="$pkg/terminal-visuals/packaging-fonts/Menlo-StormCode-Color.ttf"
+if [ -f "$badge_font" ]; then
+  cp "$badge_font" "$contents/Resources/Menlo-StormCode-Color.ttf"
+else
+  printf 'No colour badge font at %s — building with plain marks.\n' "$badge_font"
+fi
 cp "$pkg/slopnet-vps-onboard.sh" "$contents/Resources/slopnet-vps-onboard.sh"
 cp "$pkg/slopnet-vps-project.sh" "$contents/Resources/slopnet-vps-project.sh"
 cp "$pkg/slopnet-vps-local-helper.sh" "$contents/Resources/slopnet-vps-local-helper.sh"
