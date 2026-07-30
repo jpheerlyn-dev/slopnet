@@ -15,7 +15,9 @@
 // dedicated machine, a home server, a Raspberry Pi.
 
 #import <Cocoa/Cocoa.h>
+#import <CoreImage/CoreImage.h>
 #import <float.h>
+#import <math.h>
 #import "SlopNetBrand.h"
 #import "SlopNetConsole.h"
 #import "SlopNetSettings.h"
@@ -87,6 +89,13 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 @property(nonatomic, copy) NSString *actionConcept;
 @property(nonatomic, copy) NSString *actionCaption;
 @property(nonatomic, assign) NSInteger readyBlockToken;
+
+// Dock icon: slow continuous hue + chroma drift for the whole session.
+@property(nonatomic, strong) NSTimer *dockIconTimer;
+@property(nonatomic, strong) NSImage *baseDockIcon;
+@property(nonatomic, strong) CIContext *dockIconContext;
+@property(nonatomic, assign) CGFloat dockHueRadians;
+@property(nonatomic, assign) CGFloat dockChromaPhase;
 
 @property(nonatomic, assign) BOOL busy;
 @property(nonatomic, assign) BOOL setupRunning;
@@ -214,6 +223,144 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
     } else {
         [self refreshLocalModelName];
     }
+
+    // Live Dock icon: hue and chroma drift slowly for as long as the app runs.
+    [self startDockIconAnimation];
+}
+
+#pragma mark - dock icon (hue + chroma)
+
+/// Load the installed app icon once. Prefer the bundle .icns; fall back to
+/// whatever macOS already put on the Dock tile.
+- (NSImage *)loadBaseDockIcon {
+    NSImage *fromBundle = [NSImage imageNamed:@"AppIcon"];
+    if (fromBundle == nil) {
+        NSURL *url = [[NSBundle mainBundle] URLForResource:@"AppIcon" withExtension:@"icns"];
+        if (url != nil) fromBundle = [[NSImage alloc] initWithContentsOfURL:url];
+    }
+    if (fromBundle == nil) fromBundle = [[NSApp applicationIconImage] copy];
+    return fromBundle;
+}
+
+- (void)startDockIconAnimation {
+    [self stopDockIconAnimation];
+    self.baseDockIcon = [self loadBaseDockIcon];
+    if (self.baseDockIcon == nil) return;
+
+    self.dockIconContext = [CIContext contextWithOptions:@{
+        kCIContextUseSoftwareRenderer: @NO,
+    }];
+    self.dockHueRadians = 0;
+    self.dockChromaPhase = 0;
+
+    // ~8 fps is enough for a slow drift and keeps Core Image cost tiny.
+    __weak typeof(self) weakSelf = self;
+    self.dockIconTimer = [NSTimer scheduledTimerWithTimeInterval:0.125
+                                                         repeats:YES
+                                                           block:^(__unused NSTimer *timer) {
+        [weakSelf tickDockIconAnimation];
+    }];
+    // Fire once immediately so the Dock moves before the first interval.
+    [self tickDockIconAnimation];
+}
+
+- (void)stopDockIconAnimation {
+    [self.dockIconTimer invalidate];
+    self.dockIconTimer = nil;
+    if (self.baseDockIcon != nil) {
+        NSApp.applicationIconImage = self.baseDockIcon;
+    }
+}
+
+/// Apply a slow hue rotate and a gentle chroma (saturation) oscillation.
+/// Hue walks the full circle; saturation breathes between muted and vivid.
+- (void)tickDockIconAnimation {
+    if (self.baseDockIcon == nil || self.dockIconContext == nil) return;
+
+    // Full hue cycle ≈ 48 s; chroma breath ≈ 14 s (independent periods).
+    self.dockHueRadians += (CGFloat)(2.0 * M_PI * 0.125 / 48.0);
+    if (self.dockHueRadians > (CGFloat)(2.0 * M_PI)) {
+        self.dockHueRadians -= (CGFloat)(2.0 * M_PI);
+    }
+    self.dockChromaPhase += (CGFloat)(2.0 * M_PI * 0.125 / 14.0);
+    if (self.dockChromaPhase > (CGFloat)(2.0 * M_PI)) {
+        self.dockChromaPhase -= (CGFloat)(2.0 * M_PI);
+    }
+    // Saturation: 0.55 … 1.45 around neutral 1.0.
+    CGFloat saturation = 1.0 + 0.45 * sin(self.dockChromaPhase);
+
+    NSImage *tinted = [self imageByShiftingHue:self.dockHueRadians
+                                    saturation:saturation
+                                      ofImage:self.baseDockIcon];
+    if (tinted != nil) NSApp.applicationIconImage = tinted;
+}
+
+- (NSImage *)imageByShiftingHue:(CGFloat)hueRadians
+                     saturation:(CGFloat)saturation
+                       ofImage:(NSImage *)source {
+    if (source == nil) return nil;
+
+    // Work at a fixed Dock-friendly size so each tick is cheap and sharp.
+    const CGFloat edge = 256.0;
+    NSRect dest = NSMakeRect(0, 0, edge, edge);
+
+    NSBitmapImageRep *bitmap =
+        [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+                                                pixelsWide:(NSInteger)edge
+                                                pixelsHigh:(NSInteger)edge
+                                             bitsPerSample:8
+                                           samplesPerPixel:4
+                                                  hasAlpha:YES
+                                                  isPlanar:NO
+                                            colorSpaceName:NSCalibratedRGBColorSpace
+                                               bytesPerRow:0
+                                              bitsPerPixel:0];
+    if (bitmap == nil) return nil;
+
+    NSGraphicsContext *previous = [NSGraphicsContext currentContext];
+    NSGraphicsContext *gfx = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
+    [NSGraphicsContext setCurrentContext:gfx];
+    [[NSColor clearColor] set];
+    NSRectFill(dest);
+    // Draw the source icon into the square, preserving aspect (letterbox).
+    NSSize srcSize = source.size;
+    if (srcSize.width < 1 || srcSize.height < 1) srcSize = NSMakeSize(edge, edge);
+    CGFloat scale = MIN(edge / srcSize.width, edge / srcSize.height);
+    NSSize drawSize = NSMakeSize(srcSize.width * scale, srcSize.height * scale);
+    NSRect drawRect = NSMakeRect((edge - drawSize.width) * 0.5,
+                                 (edge - drawSize.height) * 0.5,
+                                 drawSize.width, drawSize.height);
+    [source drawInRect:drawRect
+              fromRect:NSZeroRect
+             operation:NSCompositingOperationSourceOver
+              fraction:1.0
+        respectFlipped:YES
+                 hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+    [gfx flushGraphics];
+    [NSGraphicsContext setCurrentContext:previous];
+
+    CIImage *input = [[CIImage alloc] initWithBitmapImageRep:bitmap];
+    if (input == nil) return nil;
+
+    CIFilter *sat = [CIFilter filterWithName:@"CIColorControls"];
+    [sat setValue:input forKey:kCIInputImageKey];
+    [sat setValue:@(saturation) forKey:kCIInputSaturationKey];
+    [sat setValue:@0 forKey:kCIInputBrightnessKey];
+    [sat setValue:@1 forKey:kCIInputContrastKey];
+    CIImage *afterSat = sat.outputImage;
+    if (afterSat == nil) return nil;
+
+    CIFilter *hue = [CIFilter filterWithName:@"CIHueAdjust"];
+    [hue setValue:afterSat forKey:kCIInputImageKey];
+    [hue setValue:@(hueRadians) forKey:kCIInputAngleKey];
+    CIImage *output = hue.outputImage;
+    if (output == nil) return nil;
+
+    CGImageRef cg = [self.dockIconContext createCGImage:output fromRect:output.extent];
+    if (cg == NULL) return nil;
+    NSImage *result = [[NSImage alloc] initWithCGImage:cg size:NSMakeSize(edge, edge)];
+    CGImageRelease(cg);
+    return result;
 }
 
 - (NSView *)buildSidebar {
@@ -1145,6 +1292,10 @@ static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cl
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app { return YES; }
+
+- (void)applicationWillTerminate:(NSNotification *)notification {
+    [self stopDockIconAnimation];
+}
 
 @end
 
