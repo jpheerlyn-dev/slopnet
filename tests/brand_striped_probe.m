@@ -82,6 +82,18 @@ int main(void) {
                                                                 name:@"Granite"];
         check([theirs containsString:@"Granite"], "the reply is attributed to the guide");
 
+
+        // Granite is green on black, which the operator asked for twice. The
+        // green was in the table from the start as a tint while the panel text
+        // stayed white, so the guide read like every other vendor.
+        NSString *reply = [SlopNetBrand guideSaidANSI:@"I am here."
+                                             provider:@"ibm_granite"
+                                                 name:@"Granite" width:60];
+        check([reply containsString:@"38;2;0;171;35"],
+              "the guide speaks in Granite green");
+        check([reply containsString:@"48;2;0;0;0"],
+              "on the black field, not a vendor fill");
+
         fprintf(stderr, failures == 0 ? "\nSTRIPED PROBE DONE — all ok\n"
                                       : "\nSTRIPED PROBE DONE — %d failed\n", failures);
     }

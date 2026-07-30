@@ -84,7 +84,10 @@ static const SlopNetBrandEntry kBrands[] = {
     // tint — the same shape as xai, nous and stormcode, which also present
     // on black. Panel black is what build_colorfont.py baked behind the
     // badge; the green is the artwork's own.
-    { @"ibm_granite", @"Granite",      0xE027, @"❐", 0x000000, 0xFFFFFF, 0,        0x00AB23 },
+    // Green on black, as the operator specified. The green was already here as
+    // the tint; the text itself was white, which is why the panel came out
+    // reading like every other vendor.
+    { @"ibm_granite", @"Granite",      0xE027, @"❐", 0x000000, 0x00AB23, 0,        0x00AB23 },
 };
 static const NSUInteger kBrandCount = sizeof(kBrands) / sizeof(kBrands[0]);
 

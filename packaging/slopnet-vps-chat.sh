@@ -89,7 +89,7 @@ fi
 #
 # So anchor on the last thing known to belong to the echo: whichever comes
 # later, the marker or the question itself. Everything after that is the reply.
-reply=$(printf "%s\n" "$model_output" | awk -v q="$question" "
+reply=$(printf "%s\n" "$model_output" | LC_ALL=C awk -v q="$question" "
   { lines[NR] = \$0 }
   END {
     start = 0
@@ -108,7 +108,7 @@ reply=$(printf "%s\n" "$model_output" | awk -v q="$question" "
     while (first <= last && out[first] ~ /^[[:space:]]*\$/) first++
     for (i = first; i <= last; i++) print out[i]
   }
-")
+" 2>/dev/null)
 if [ -z "$reply" ]; then
   echo "The private local guide returned an unreadable reply. No action was taken. Try again."
   exit 1
