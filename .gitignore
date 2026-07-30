@@ -19,3 +19,6 @@ packaging/terminal-visuals/
 # a file in here by name; it must never paste its contents.
 improvements/
 evidence/
+
+# The built disc image — a release artefact, not source.
+SlopNet.dmg
