@@ -112,6 +112,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, strong) NSButton *secretSend;
 @property(nonatomic, strong) NSButton *approveButton;
 @property(nonatomic, strong) NSButton *declineButton;
+@property(nonatomic, strong) NSButton *continueButton;
 @property(nonatomic, strong) NSURL *conversationURL;
 
 // The animated action glyph. One timer drives whichever surface is live:
@@ -128,6 +129,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, assign) BOOL localHelperRunning;
 @property(nonatomic, assign) BOOL planningRunning;
 @property(nonatomic, assign) BOOL approvedBuildRunning;
+@property(nonatomic, assign) BOOL uninstalling;
 @property(nonatomic, copy) NSString *activeProjectName;
 @property(nonatomic, copy) NSString *plannedProjectName;
 @property(nonatomic, copy) NSString *localModelName;
@@ -441,9 +443,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.secretSend = [self promptButton:@"Send password" action:@selector(secretEntered:)];
     self.approveButton = [self promptButton:@"Yes" action:@selector(approvePressed:)];
     self.declineButton = [self promptButton:@"No" action:@selector(declinePressed:)];
+    self.continueButton = [self promptButton:@"Continue" action:@selector(continuePressed:)];
 
     NSStackView *promptControls = [NSStackView stackViewWithViews:@[
-        self.secretField, self.secretSend, self.approveButton, self.declineButton]];
+        self.secretField, self.secretSend, self.approveButton, self.declineButton,
+        self.continueButton]];
     promptControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     promptControls.alignment = NSLayoutAttributeCenterY;
     promptControls.spacing = 8;
@@ -852,6 +856,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 - (void)openWizardAtStep:(SlopNetWizardStep)step {
     if (self.wizard != nil && self.wizard.window.sheetParent != nil) {
+        // Hand it what is true now. Without this a step kept insisting the
+        // server was not prepared after the run that prepared it, and Back
+        // just showed the same stale screen.
+        [self.wizard updateServerReady:[self isReady] guideReady:[self guideReady]];
         [self.wizard showStep:step];
         return;
     }
@@ -1058,6 +1066,78 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                                        target, command]]) {
         [self setBusy:NO];
     }
+}
+
+/// Remove SlopNet properly. Dragging the app to the Trash leaves the
+/// remembered server, the saved notes and the connection key on this Mac,
+/// and leaves a private account and a downloaded model on the server.
+- (void)settingsWantsUninstall:(SlopNetSettings *)settings {
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"Remove SlopNet?";
+    alert.informativeText =
+        @"This forgets your server, your saved requests and the connection key on "
+        @"this Mac.\n\nIf you also remove it from the server, the private SlopNet "
+        @"account and anything it downloaded there go too. Nothing else on that "
+        @"server is touched — other accounts, websites and databases are left "
+        @"alone.\n\nAfterwards, drag SlopNet from Applications to the Trash.";
+    [alert addButtonWithTitle:@"Remove from this Mac only"];
+    [alert addButtonWithTitle:@"Remove from this Mac and the server"];
+    [alert addButtonWithTitle:@"Cancel"];
+    NSModalResponse choice = [alert runModal];
+    if (choice == NSAlertThirdButtonReturn) return;
+    BOOL alsoServer = (choice == NSAlertSecondButtonReturn);
+
+    if (alsoServer && self.host.length > 0) {
+        NSString *script = [self helper:@"slopnet-vps-uninstall"];
+        if (script == nil) {
+            [self.console note:@"The part of SlopNet that clears a server is missing from "
+                               @"this copy of the app. Removing from this Mac only."];
+            alsoServer = NO;
+        } else {
+            [self.console note:[SlopNetBrand headerANSI:@"Removing SlopNet from your server"
+                                                  width:[self panelWidth]]];
+            self.uninstalling = YES;
+            [self beginActivity:@"search" caption:@"Clearing the server…"];
+            [self setBusy:YES];
+            if (![self.console runExecutable:@"/bin/bash"
+                                   arguments:@[script, self.host, self.port, self.username]]) {
+                self.uninstalling = NO;
+                [self setBusy:NO];
+            }
+            return;    // the Mac side runs when that finishes
+        }
+    }
+    [self removeLocalTraces];
+}
+
+/// Forget everything SlopNet put on this Mac, then say what is left to do.
+- (void)removeLocalTraces {
+    NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
+    for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey, kGuideKey, kWizardKey]) {
+        [store removeObjectForKey:key];
+    }
+    NSFileManager *files = NSFileManager.defaultManager;
+    [files removeItemAtURL:[self historyDirectory] error:nil];
+    NSString *key = [NSHomeDirectory() stringByAppendingPathComponent:
+                     @".ssh/slopnet_vps_ed25519"];
+    [files removeItemAtPath:key error:nil];
+    [files removeItemAtPath:[key stringByAppendingString:@".pub"] error:nil];
+
+    self.host = @"";
+    self.username = @"root";
+    self.port = @"22";
+    self.localModelName = nil;
+    [self refreshModelLabel];
+    [self refreshState];
+
+    NSAlert *done = [[NSAlert alloc] init];
+    done.messageText = @"SlopNet has removed itself";
+    done.informativeText =
+        @"One thing left, and only you can do it: open your Applications folder "
+        @"and drag SlopNet to the Trash.\n\nSlopNet will quit now.";
+    [done addButtonWithTitle:@"Quit SlopNet"];
+    [done runModal];
+    [NSApp terminate:nil];
 }
 
 - (void)settingsDidForget:(SlopNetSettings *)settings {
@@ -1360,6 +1440,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.secretSend.hidden = (prompt != SlopNetPromptPassword);
     self.approveButton.hidden = (prompt != SlopNetPromptConfirm);
     self.declineButton.hidden = (prompt != SlopNetPromptConfirm);
+    self.continueButton.hidden = (prompt != SlopNetPromptContinue);
 
     if (prompt == SlopNetPromptPassword) {
         self.promptLabel.stringValue =
@@ -1379,10 +1460,18 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         self.promptLabel.stringValue = asked.length > 0 ? asked : @"It is asking you to confirm.";
         self.promptLabel.textColor = [NSColor labelColor];
         [self.window makeFirstResponder:self.approveButton];
+    } else if (prompt == SlopNetPromptContinue) {
+        NSString *asked = [question ?: @"" stringByTrimmingCharactersInSet:
+            [NSCharacterSet characterSetWithCharactersInString:@" :\t"]];
+        self.promptLabel.stringValue = asked.length > 0 ? asked : @"Ready to carry on.";
+        self.promptLabel.textColor = [NSColor labelColor];
+        [self.window makeFirstResponder:self.continueButton];
     } else {
         [self.window makeFirstResponder:self.entry];
     }
 }
+
+- (void)continuePressed:(id)sender { [self.console sendLine:@""]; }
 
 - (void)secretEntered:(id)sender {
     NSString *secret = self.secretField.stringValue;
@@ -1434,6 +1523,12 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
             self.plannedProjectName = self.activeProjectName;
             [self.console note:@"The plan is ready above. Read it. No coding agent has run. Choose Build and press Start approved build only when you want the multi-agent run to begin."];
         }
+    }
+    if (self.uninstalling) {
+        self.uninstalling = NO;
+        [self setBusy:NO];
+        [self removeLocalTraces];
+        return;
     }
     if (self.approvedBuildRunning) {
         self.approvedBuildRunning = NO;

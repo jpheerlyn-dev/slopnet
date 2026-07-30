@@ -164,4 +164,3 @@ else
 fi
 
 say "Project planning finished. Read the plan shown above before choosing whether agents should start coding."
-read -r -p "Press Return to close this project window: "

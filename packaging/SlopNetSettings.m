@@ -129,7 +129,11 @@
     NSButton *connect = [self button:@"Connect and prepare this server"
                              action:@selector(connectPressed:)];
     NSButton *forget = [self button:@"Forget this server" action:@selector(forgetPressed:)];
-    NSStackView *connectionButtons = [NSStackView stackViewWithViews:@[connect, forget]];
+    // Dragging the app to the Trash leaves the remembered server, the saved
+    // notes and the connection key behind, and leaves the private account on
+    // the server running. This removes them.
+    NSButton *uninstall = [self button:@"Uninstall SlopNet…" action:@selector(uninstallPressed:)];
+    NSStackView *connectionButtons = [NSStackView stackViewWithViews:@[connect, forget, uninstall]];
     connectionButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     connectionButtons.spacing = 10;
     connectionButtons.translatesAutoresizingMaskIntoConstraints = NO;
@@ -334,6 +338,11 @@
               connectToHost:self.host.stringValue
                        port:self.port.stringValue
                        user:self.user.stringValue];
+    [self closePressed:nil];
+}
+
+- (void)uninstallPressed:(id)sender {
+    [self.delegate settingsWantsUninstall:self];
     [self closePressed:nil];
 }
 

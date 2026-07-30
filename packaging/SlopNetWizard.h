@@ -67,6 +67,11 @@ typedef NS_ENUM(NSInteger, SlopNetWizardStep) {
                                    guideReady:(BOOL)guideReady;
 
 - (void)presentFrom:(NSWindow *)parent;
+
+/// Tell the wizard what is true NOW. It used to take these once at birth, so
+/// a step could keep insisting the server was not prepared after a run that
+/// prepared it — and going Back showed the same stale screen.
+- (void)updateServerReady:(BOOL)serverReady guideReady:(BOOL)guideReady;
 - (void)showStep:(SlopNetWizardStep)step;
 
 /// Read-only look at the server's private runtime account: is it there, is

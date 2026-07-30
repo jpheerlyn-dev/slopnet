@@ -23,6 +23,10 @@
            title:(NSString *)title;
 /// Forget this Mac's memory of the server (never touches the server).
 - (void)settingsDidForget:(SlopNetSettings *)settings;
+/// Remove SlopNet properly: everything it put on this Mac, and optionally
+/// everything it put on the server. Dragging the app to the Trash leaves
+/// both behind.
+- (void)settingsWantsUninstall:(SlopNetSettings *)settings;
 /// Small utility actions live in Settings so the main window stays focused
 /// on the work the person is asking SlopNet to do.
 - (void)settingsCheckConnection:(SlopNetSettings *)settings;

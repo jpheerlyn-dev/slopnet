@@ -74,6 +74,11 @@ int main(void) {
               == SlopNetPromptPassword, "a sudo prompt asks for a password");
         check(promptFor(@"printf 'Enter passphrase for key: '; read x", NULL)
               == SlopNetPromptPassword, "an ssh key passphrase asks for a password");
+        // The confirmation half used to fall through to the plain typing box,
+        // which put the operator's passphrase on screen in clear text.
+        check(promptFor(@"printf 'Enter same passphrase again: '; read x", NULL)
+              == SlopNetPromptPassword,
+              "the repeat-passphrase prompt is masked too, not shown in clear");
         check(promptFor(@"printf 'Continue? [y/N] '; read x", &q)
               == SlopNetPromptConfirm, "a [y/N] question asks for a yes or no");
         check(q != nil && [q containsString:@"Continue?"],
@@ -82,9 +87,14 @@ int main(void) {
               == SlopNetPromptConfirm, "the local-guide install question is a yes or no");
 
         // Things that must NOT hide the typing box.
+        // This test used to assert the opposite, and the operator hit exactly
+        // the behaviour it was protecting: dismissing a message meant clicking
+        // the box, pressing Return, then pressing Send. One button instead.
         check(promptFor(@"printf 'Press Return to close this window: '; read x", NULL)
-              == SlopNetPromptNone,
-              "a press-Return line is left as ordinary typing");
+              == SlopNetPromptContinue,
+              "a press-Return line gets one Continue button");
+        check(promptFor(@"printf 'Press Enter to carry on: '; read x", NULL)
+              == SlopNetPromptContinue, "so does press-Enter");
         check(promptFor(@"printf 'Reading password rules from the file\\n'; sleep 3", NULL)
               == SlopNetPromptNone,
               "the word password inside a finished sentence is not a prompt");

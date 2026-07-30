@@ -26,6 +26,7 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
     SlopNetPromptNone = 0,   ///< nothing waiting, or ordinary typing
     SlopNetPromptPassword,   ///< a password or passphrase, which must not echo
     SlopNetPromptConfirm,    ///< a yes/no question
+    SlopNetPromptContinue,   ///< it just wants Return pressed to carry on
 };
 
 @protocol SlopNetConsoleDelegate <NSObject>

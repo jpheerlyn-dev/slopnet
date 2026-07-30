@@ -491,15 +491,27 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
         line = [[self currentLine].string
             stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
         NSString *lower = line.lowercaseString;
-        if ([lower hasSuffix:@"password:"] || [lower hasSuffix:@"passphrase:"] ||
-            [lower hasSuffix:@"password"] ||
-            ([lower containsString:@"password for"] && [lower hasSuffix:@":"]) ||
-            ([lower containsString:@"passphrase for"] && [lower hasSuffix:@":"])) {
+        // Any line still waiting that mentions a password or passphrase is
+        // treated as a secret. The confirmation half — "Enter same passphrase
+        // again:" — used to fall through to the ordinary typing box, which
+        // put the operator's passphrase on screen in clear text. A prompt
+        // that ends mid-line and says passphrase is a secret, whichever half
+        // of the pair it is.
+        BOOL waiting = [lower hasSuffix:@":"] || [lower hasSuffix:@": "];
+        if (waiting && ([lower containsString:@"password"] ||
+                        [lower containsString:@"passphrase"])) {
             found = SlopNetPromptPassword;
         } else if ([lower hasSuffix:@"[y/n]"] || [lower hasSuffix:@"[y/n]?"] ||
                    [lower hasSuffix:@"(y/n)"] || [lower hasSuffix:@"(yes/no)"] ||
                    [lower hasSuffix:@"[yes/no]"]) {
             found = SlopNetPromptConfirm;
+        } else if (waiting && ([lower containsString:@"press return"] ||
+                               [lower containsString:@"press enter"] ||
+                               [lower containsString:@"hit return"] ||
+                               [lower containsString:@"hit enter"])) {
+            // "Press Return to continue" through a typing box means clicking
+            // the box, pressing Return, then pressing Send. One button.
+            found = SlopNetPromptContinue;
         }
     }
     if (found == self.waitingFor) return;

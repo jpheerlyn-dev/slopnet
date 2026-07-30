@@ -26,18 +26,19 @@ say "You are setting up a protected connection between this Mac and your VPS. Sl
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
 if [ ! -f "$key_path" ]; then
-  say "Step 1 of 3 — protect this connection"
-  say "Create a passphrase for the SlopNet connection key. It stays on this Mac and protects the key if the Mac is ever lost."
-  ssh-keygen -q -t ed25519 -f "$key_path" -C "slopnet-vps"
+  say "Step 1 of 3 — making a key for this connection"
+  say "SlopNet is creating a key so this Mac can reach your server without a password every time. It is kept in your own .ssh folder, readable only by you."
+  # No passphrase, deliberately. A passphrase here bought one more secret to
+  # remember and three extra prompts, and it was cached in the login keychain
+  # immediately afterwards anyway — so it protected nothing that the file
+  # permissions and FileVault do not already protect. The key reaches exactly
+  # one server, the one the person is setting up.
+  ssh-keygen -q -t ed25519 -N "" -f "$key_path" -C "slopnet-vps"
+  chmod 600 "$key_path"
 elif [ ! -f "$key_path.pub" ]; then
   ssh-keygen -y -f "$key_path" > "$key_path.pub"
 fi
 
-if command -v ssh-add >/dev/null 2>&1; then
-  say "macOS will now ask for that passphrase once more so it can keep the key in your Keychain."
-  ssh-add -q --apple-use-keychain "$key_path" || \
-    say "The key was not added to the macOS keychain. That is safe; SSH may ask for the passphrase during setup."
-fi
 
 say "Step 2 of 3 — confirm your VPS"
 say "If SSH asks whether you trust this server, continue only when ${host} is the IP address from your VPS provider. Then enter the VPS password if asked. It is not saved."
@@ -49,7 +50,11 @@ ssh -o LogLevel=ERROR -i "$key_path" -p "$port" "$username@$host" true
 say "Your protected connection is ready."
 say "Step 3 of 3 — prepare the VPS"
 say "SlopNet will update its own workspace and then ask separately before it changes anything on the VPS. If you did not sign in as root, your VPS may ask for your sudo password now."
-read -r -p "Press Return to prepare the VPS, or close this window to stop: "
+read -r -p "Prepare the VPS now? [y/N] " ready
+case "$(printf %s "$ready" | tr "[:upper:]" "[:lower:]")" in
+  y|yes) ;;
+  *) say "Nothing changed on your VPS."; exit 0 ;;
+esac
 
 remote_setup='set -e
 slopnet_release=$1
@@ -93,4 +98,3 @@ else
 fi
 
 say "SlopNet VPS setup finished. Read the result above before starting any project work."
-read -r -p "Press Return to close this setup window: "

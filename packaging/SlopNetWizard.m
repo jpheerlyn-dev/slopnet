@@ -56,7 +56,8 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
                   guideReady:(BOOL)guideReady {
     NSWindow *window = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 620, 500)
-                  styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskResizable)
+                  styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                             NSWindowStyleMaskResizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     window.title = @"Set up SlopNet";
@@ -72,6 +73,13 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     [self buildFrame];
     [self showStep:_step];
     return self;
+}
+
+- (void)updateServerReady:(BOOL)serverReady guideReady:(BOOL)guideReady {
+    if (serverReady == self.serverReady && guideReady == self.guideReady) return;
+    self.serverReady = serverReady;
+    self.guideReady = guideReady;
+    [self showStep:self.step];      // redraw with what is true now
 }
 
 + (SlopNetWizardStep)resumeStepForServerReady:(BOOL)serverReady
@@ -147,6 +155,9 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     [spacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationHorizontal];
 
     NSMutableArray<NSView *> *row = [NSMutableArray arrayWithObjects:where, spacer, nil];
+    // Every screen can be left. Setup that fails with no way out traps the
+    // whole app behind a sheet, which is what happened on 2026-07-30.
+    [row addObject:[self button:@"Close" action:@selector(closePressed:)]];
     if (allowBack) [row addObject:[self button:@"Back" action:@selector(backPressed:)]];
     if (primaryTitle.length > 0) {
         NSButton *primary = [self button:primaryTitle action:primaryAction];
@@ -493,6 +504,16 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 - (void)backPressed:(id)sender {
     if (self.step == SlopNetWizardStepWelcome) return;
     [self showStep:(SlopNetWizardStep)(self.step - 1)];
+}
+
+/// Leave without finishing. Nothing is lost: every step reads what is
+/// actually true when the wizard is reopened.
+- (void)closePressed:(id)sender {
+    [self close];
+}
+
+- (void)cancelOperation:(id)sender {   // Esc
+    [self close];
 }
 
 - (void)finishPressed:(id)sender {

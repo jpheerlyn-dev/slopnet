@@ -173,4 +173,3 @@ else
 fi
 
 say "Local helper setup finished. It remains on your server; no model service is running."
-read -r -p "Press Return to close this setup window: "
