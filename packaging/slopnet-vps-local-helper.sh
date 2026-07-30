@@ -78,9 +78,29 @@ if ! confirm "Continue?"; then
 fi
 
 model_b64=$(printf '%s' "$model" | base64 | tr -d '\n')
+remote_approved="no"
+[ "$approved" = "yes" ] && remote_approved="yes"
 remote_setup='set -eu
 umask 077
 model_b64=$1
+# The approval, carried across explicitly. A shell function defined in the
+# local half of this script does not exist over here: the remote half is
+# base64-encoded, sent, and run by a fresh shell. Calling one here failed with
+# "confirm: not found", took the "no" branch, printed "Nothing changed" and
+# exited 0 — so the wrapper reported that setup had finished while nothing had
+# been installed at all.
+approved=${2:-no}
+confirm() {
+  if [ "$approved" = "yes" ]; then
+    printf "\n%s [y/N] y   (approved in SlopNet before this started)\n" "$1"
+    return 0
+  fi
+  read -r answer_raw
+  case "$(printf "%s" "$answer_raw" | tr "[:upper:]" "[:lower:]")" in
+    y|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 default_model="ibm-granite/granite-4.1-3b-GGUF:Q4_K_M"
 helper_context=4096
 model=$(printf "%s" "$model_b64" | base64 -d)
@@ -140,13 +160,27 @@ echo "The selected public model will download now and answer one harmless word. 
 echo "SlopNet limits this helper to a 4,096-token context and modest batches so a short draft cannot take over the VPS."
 if ! confirm "Install and test it?"; then
   echo "Nothing changed."
-  exit 0
+  exit 3
 fi
 
 if [ ! -x "$runtime_home/.local/bin/llama" ]; then
   echo "Installing Llama.cpp as slopnet…"
+  # Downloaded in full, then run. Piping a download into a shell hands the
+  # interpreter a half-finished script line by line, so a connection that
+  # drops midway executes the first half of an install and can still look
+  # like it worked. llama.app is the ggml-org installer; it fetches from
+  # their own Hugging Face bucket.
+  llama_installer="$runtime_home/.cache/slopnet-llama-install.sh"
+  runuser -u slopnet -- mkdir -p "$runtime_home/.cache"
+  if ! runuser -u slopnet -- curl -fsSL --proto "=https" --tlsv1.2 --max-time 300 \
+       -o "$llama_installer" https://llama.app/install.sh || [ ! -s "$llama_installer" ]; then
+    runuser -u slopnet -- rm -f "$llama_installer"
+    echo "The Llama.cpp installer could not be downloaded. Nothing was installed."
+    exit 1
+  fi
   runuser -u slopnet -- env HOME="$runtime_home" PATH="$runtime_home/.local/bin:/usr/local/bin:/usr/bin:/bin" \
-    sh -c "curl -LsSf https://llama.app/install.sh | sh"
+    sh "$llama_installer"
+  runuser -u slopnet -- rm -f "$llama_installer"
 fi
 llama="$runtime_home/.local/bin/llama"
 if [ ! -x "$llama" ]; then
@@ -183,9 +217,12 @@ echo "[OK] Local helper passed. Selected model is private to the slopnet account
 encoded_setup=$(printf '%s' "$remote_setup" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$model_b64' </dev/tty"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$model_b64' '$remote_approved' </dev/tty"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$model_b64' </dev/tty"
+  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$model_b64' '$remote_approved' </dev/tty"
 fi
 
-say "Local helper setup finished. It remains on your server; no model service is running."
+# Only say it finished if it did. This line printed after a remote half that
+# had bailed out installing nothing, which is worse than any error: the app
+# went on to the next step believing the guide was there.
+say "The guide is installed and answered its test. It remains on your server; no model service is running."
