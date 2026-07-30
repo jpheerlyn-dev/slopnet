@@ -971,11 +971,15 @@ def bootstrap_vps_account(root):
              "Setup must drop root before a provider login can be stored.",
              "Sign in as the SlopNet runtime account, then run: slopnet setup --vps")
     script = pathlib.Path(__file__).resolve()
-    result = subprocess.run(
-        [runuser, "-u", VPS_AGENT_ACCOUNT, "--", sys.executable, str(script),
-         "setup", "--vps", "--vps-account-ready"],
-        cwd=target,
-    )
+    # Carry the approval across. Setup drops root by re-running itself as the
+    # runtime account, and the second half asks its own questions — so losing
+    # the flag here meant the run got further than before and then stopped
+    # dead on the next one, with no interactive input behind it to answer.
+    onward = [runuser, "-u", VPS_AGENT_ACCOUNT, "--", sys.executable, str(script),
+              "setup", "--vps", "--vps-account-ready"]
+    if ASSUME_APPROVED:
+        onward.append("--approved")
+    result = subprocess.run(onward, cwd=target)
     sys.exit(result.returncode)
 
 
