@@ -144,6 +144,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 /// Raised after the guide finishes answering, so its reply comes first and
 /// SlopNet's offer follows it rather than interrupting.
 @property(nonatomic, assign) BOOL offerBuildWhenReplyEnds;
+/// Coding apps still to sign in to, and how each one turned out. Kept so a
+/// refusal or a skip moves on to the next instead of stranding the run.
+@property(nonatomic, strong) NSMutableArray<NSString *> *signInQueue;
+@property(nonatomic, strong) NSMutableArray<NSString *> *signedIn;
+@property(nonatomic, strong) NSMutableArray<NSString *> *skipped;
+@property(nonatomic, copy) NSString *signingIn;
+@property(nonatomic, strong) NSButton *skipButton;
 @end
 
 @implementation SlopNetAppDelegate
@@ -507,10 +514,12 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                                      action:@selector(openSignInPage:)];
     self.codeButton = [self promptButton:@"Copy the code again"
                                      action:@selector(putCodeOnClipboard:)];
+    self.skipButton = [self promptButton:@"Skip this one"
+                                  action:@selector(skipThisSignIn:)];
 
     NSStackView *promptControls = [NSStackView stackViewWithViews:@[
         self.secretField, self.secretSend, self.approveButton, self.declineButton,
-        self.continueButton, self.openPageButton, self.codeButton]];
+        self.continueButton, self.openPageButton, self.codeButton, self.skipButton]];
     promptControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     promptControls.alignment = NSLayoutAttributeCenterY;
     promptControls.spacing = 8;
@@ -965,23 +974,132 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [self installGuideModel:model];
 }
 
-- (void)wizardSignInToCodingApp:(SlopNetWizard *)wizard {
+/// Sign in to the chosen coding apps one after another.
+///
+/// One at a time on purpose: each one opens a browser page and shows a code,
+/// and two of those at once is how somebody ends up pasting the wrong code
+/// into the wrong page. The queue is kept so a failure or a skip moves on to
+/// the next rather than stopping everything.
+- (void)wizard:(SlopNetWizard *)wizard signInToCodingApps:(NSArray<NSString *> *)providers {
+    self.signInQueue = [providers mutableCopy];
+    self.signedIn = [NSMutableArray array];
+    self.skipped = [NSMutableArray array];
+    [self startNextCodingAppSignIn];
+}
+
+/// Put the ordinary typing box back and hide every prompt control.
+- (void)showTypingBar {
+    self.promptBar.hidden = YES;
+    self.skipButton.hidden = YES;
+    self.entryScroller.hidden = NO;
+    self.sendButton.hidden = NO;
+    [self.window makeFirstResponder:self.entry];
+}
+
+/// Stop the spinning glyph. Setting a nil concept would leave the timer
+/// running with nothing to draw.
+- (void)endActivity {
+    [self.actionTimer invalidate];
+    self.actionTimer = nil;
+    self.actionConcept = nil;
+    self.actionCaption = nil;
+}
+
+- (void)startNextCodingAppSignIn {
+    if (self.signInQueue.count == 0) {
+        [self finishCodingAppSignIns];
+        return;
+    }
+    NSString *provider = self.signInQueue.firstObject;
+    [self.signInQueue removeObjectAtIndex:0];
+    self.signingIn = provider;
+
     NSString *script = [self helper:@"slopnet-vps-coding-app"];
     if (script == nil) {
         [self.console note:@"The part of SlopNet that signs in to a coding app is missing "
                            @"from this copy. Download SlopNet again."];
+        self.signingIn = nil;
+        [self finishCodingAppSignIns];
         return;
     }
-    [self.console note:[SlopNetBrand headerANSI:@"Signing in to your coding app"
+    NSString *name = [SlopNetBrand displayNameForProvider:provider] ?: provider;
+    [self.console note:[SlopNetBrand headerANSI:[NSString stringWithFormat:@"Signing in to %@", name]
                                           width:[self panelWidth]]];
     [self.console note:@"A page will open in your browser. Your one-time code appears "
                        @"below and is copied for you."];
-    [self beginActivity:@"search" caption:@"Waiting for you to sign in…"];
+    [self.console note:@"If this one will not go through, press Skip this one — the rest "
+                       @"carry on without it."];
+    [self showSkipControl:name];
+    [self beginActivity:@"search"
+                caption:[NSString stringWithFormat:@"Waiting for you to sign in to %@…", name]];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
-                           arguments:@[script, self.host, self.port, self.username]]) {
+                           arguments:@[script, self.host, self.port, self.username, provider]]) {
         [self setBusy:NO];
+        [self codingAppSignInEnded:NO];
     }
+}
+
+/// A person must always be able to leave a sign-in that will not complete.
+/// Without this, one coding app refusing a login strands the whole first run.
+- (void)showSkipControl:(NSString *)name {
+    self.promptBar.hidden = NO;
+    self.entryScroller.hidden = YES;
+    self.sendButton.hidden = YES;
+    self.secretField.hidden = YES;
+    self.secretSend.hidden = YES;
+    self.approveButton.hidden = YES;
+    self.declineButton.hidden = YES;
+    self.continueButton.hidden = YES;
+    self.openPageButton.hidden = YES;
+    self.codeButton.hidden = YES;
+    self.skipButton.hidden = NO;
+    self.promptLabel.stringValue =
+        [NSString stringWithFormat:@"Signing in to %@. A page and a code appear here when "
+                                   @"it is ready.", name];
+    self.promptLabel.textColor = [NSColor labelColor];
+}
+
+- (void)skipThisSignIn:(id)sender {
+    if (self.signingIn == nil) return;
+    [self.skipped addObject:self.signingIn];
+    [self.console note:[NSString stringWithFormat:@"\nSkipped %@. You can sign in to it "
+                                                  @"later from Settings.",
+                        [SlopNetBrand displayNameForProvider:self.signingIn] ?: self.signingIn]];
+    self.signingIn = nil;
+    [self.console stop];
+    [self setBusy:NO];
+    [self startNextCodingAppSignIn];
+}
+
+/// One sign-in ended, for any reason. Record it and move to the next.
+- (void)codingAppSignInEnded:(BOOL)worked {
+    if (self.signingIn == nil) return;       // already skipped
+    [(worked ? self.signedIn : self.skipped) addObject:self.signingIn];
+    self.signingIn = nil;
+    [self startNextCodingAppSignIn];
+}
+
+- (void)finishCodingAppSignIns {
+    self.skipButton.hidden = YES;
+    [self endActivity];
+    [self setBusy:NO];
+    if (self.signedIn.count > 0) {
+        NSMutableArray<NSString *> *names = [NSMutableArray array];
+        for (NSString *identifier in self.signedIn) {
+            [names addObject:[SlopNetBrand displayNameForProvider:identifier] ?: identifier];
+        }
+        [self.console note:[NSString stringWithFormat:@"\nSigned in: %@.",
+                            [names componentsJoinedByString:@", "]]];
+    }
+    if (self.skipped.count > 0) {
+        [self.console note:@"The ones you skipped are still in Settings whenever you want "
+                           @"to try them again."];
+    }
+    // Always back to the guide. It is the one they talk to; a coding app is
+    // something SlopNet uses on their behalf, not something they operate.
+    [self.console note:@"\nBack to your guide — ask it anything, in your own words."];
+    [self showTypingBar];
 }
 
 - (void)wizardOpenSettings:(SlopNetWizard *)wizard {
@@ -1625,6 +1743,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 #pragma mark - console callbacks
 
 - (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status {
+    // A coding-app sign-in that ended, however it ended. Recorded and moved
+    // past, so one refusal cannot strand the rest of the queue.
+    if (self.signingIn != nil) {
+        [self endActivity];
+        [self codingAppSignInEnded:(status == 0)];
+        return;
+    }
     // A server counts as ready only when SETUP itself finished cleanly —
     // not because someone typed an address. That is what makes the green
     // dot in the sidebar worth trusting.

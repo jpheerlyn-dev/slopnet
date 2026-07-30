@@ -37,6 +37,16 @@ static NSButton *buttonTitled(NSWindow *window, NSString *title) {
     return nil;
 }
 
+/// Any box somebody could type into. The whole point of this screen is that
+/// there is not one.
+static BOOL anyEditableFieldIn(NSView *view) {
+    if ([view isKindOfClass:NSTextField.class] && ((NSTextField *)view).isEditable) return YES;
+    for (NSView *child in view.subviews) {
+        if (anyEditableFieldIn(child)) return YES;
+    }
+    return NO;
+}
+
 static BOOL anyTextContains(NSView *view, NSString *needle) {
     if ([view isKindOfClass:NSTextField.class]) {
         NSString *value = ((NSTextField *)view).stringValue;
@@ -52,6 +62,7 @@ static BOOL anyTextContains(NSView *view, NSString *needle) {
 @property(nonatomic, assign) BOOL askedToPrepare;
 @property(nonatomic, assign) BOOL askedToInstall;
 @property(nonatomic, assign) BOOL askedToSignIn;
+@property(nonatomic, copy) NSArray<NSString *> *chosen;
 @property(nonatomic, copy) NSString *model;
 @end
 
@@ -65,7 +76,10 @@ static BOOL anyTextContains(NSView *view, NSString *needle) {
 }
 - (void)wizard:(SlopNetWizard *)w rememberHost:(NSString *)h port:(NSString *)p user:(NSString *)u {}
 - (void)wizardOpenSettings:(SlopNetWizard *)w {}
-- (void)wizardSignInToCodingApp:(SlopNetWizard *)w { self.askedToSignIn = YES; }
+- (void)wizard:(SlopNetWizard *)w signInToCodingApps:(NSArray<NSString *> *)providers {
+    self.askedToSignIn = YES;
+    self.chosen = providers;
+}
 - (void)wizardStartChat:(SlopNetWizard *)w {}
 - (void)wizardDidFinish:(SlopNetWizard *)w {}
 @end
@@ -174,10 +188,59 @@ int main(void) {
         // Signing in to a coding app now comes AFTER the guide, because it
         // needs a browser and a one-time code and used to block the thing
         // that helps somebody understand the rest.
+        // Which coding apps somebody pays for is a question with buttons and
+        // no typing: nothing to spell, nothing to get wrong, and more than one
+        // answer allowed.
         [done showStep:SlopNetWizardStepCodingApp];
         [done.window.contentView layoutSubtreeIfNeeded];
-        check(buttonTitled(done.window, @"Sign in now") != nil,
-              "the coding-app step can actually sign in, not just describe it");
+
+        // The provider toggles are the only buttons carrying an identifier.
+        NSMutableArray<NSButton *> *ticks = [NSMutableArray array];
+        for (NSButton *b in buttonsIn(done.window.contentView)) {
+            if (b.identifier != nil) [ticks addObject:b];
+        }
+        check(ticks.count == 4, "four coding apps are offered as buttons");
+        NSMutableArray<NSString *> *offered = [NSMutableArray array];
+        for (NSButton *b in ticks) [offered addObject:b.identifier];
+        check([offered containsObject:@"anthropic"] && [offered containsObject:@"openai"] &&
+              [offered containsObject:@"google"] && [offered containsObject:@"xai"],
+              "Claude, ChatGPT, Gemini and Grok are the four");
+
+        check(!anyEditableFieldIn(done.window.contentView),
+              "there is nothing to type on this screen");
+
+        NSButton *go = buttonTitled(done.window, @"Sign in to these");
+        check(go != nil, "a separate button confirms the choice");
+        check(go != nil && !go.enabled, "confirming does nothing until something is ticked");
+        check(buttonTitled(done.window, @"Skip for now") != nil,
+              "the whole step can be skipped");
+
+        // Tick two, in order, and confirm.
+        // performClick flips a switch and fires its action, which is exactly
+        // what a click does. Setting the state first would flip it back.
+        for (NSString *wanted in @[@"google", @"anthropic"]) {
+            for (NSButton *b in ticks) {
+                if ([b.identifier isEqualToString:wanted]) [b performClick:nil];
+            }
+        }
+        check(go.enabled, "confirming turns on once something is ticked");
+        [go performClick:nil];
+        check(silent.askedToSignIn, "confirming starts the sign-ins");
+        check(silent.chosen.count == 2, "both ticked apps are passed on");
+        check([silent.chosen.firstObject isEqualToString:@"google"],
+              "they are signed in to in the order they were ticked");
+
+        // Unticking removes it again.
+        [done showStep:SlopNetWizardStepCodingApp];
+        [done.window.contentView layoutSubtreeIfNeeded];
+        for (NSButton *b in buttonsIn(done.window.contentView)) {
+            if ([b.identifier isEqualToString:@"google"]) [b performClick:nil];
+        }
+        NSButton *go2 = buttonTitled(done.window, @"Sign in to these");
+        [go2 performClick:nil];
+        check(silent.chosen.count == 1 &&
+              [silent.chosen.firstObject isEqualToString:@"anthropic"],
+              "unticking one leaves the other");
 
         fprintf(stderr, failures == 0 ? "\nWIZARD PROBE DONE — all ok\n"
                                       : "\nWIZARD PROBE DONE — %d failed\n", failures);

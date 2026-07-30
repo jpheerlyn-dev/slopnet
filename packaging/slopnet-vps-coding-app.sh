@@ -8,14 +8,20 @@
 # runs last, and only when somebody wants to build something.
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-  printf '%s\n' 'Usage: slopnet-vps-coding-app.sh HOST PORT USER' >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+  printf '%s\n' 'Usage: slopnet-vps-coding-app.sh HOST PORT USER [PROVIDER]' >&2
   exit 2
 fi
 
 host="$1"
 port="$2"
 username="$3"
+# Which coding app. Defaults to the one proved end to end on a real server.
+provider="${4:-openai}"
+case "$provider" in
+  anthropic|openai|google|xai) ;;
+  *) printf '%s\n' "SlopNet does not know how to sign in to '$provider'." >&2; exit 2 ;;
+esac
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 
 if [ ! -f "$key_path" ]; then
@@ -30,7 +36,8 @@ remote='set -eu
 cd /opt/slopnet
 exec runuser -u slopnet -- env HOME=/home/slopnet \
   PATH=/home/slopnet/.local/bin:/home/slopnet/.local/node_modules/.bin:/usr/local/bin:/usr/bin:/bin \
-  /opt/slopnet/slopnet setup --vps --coding-app-only'
+  /opt/slopnet/slopnet setup --vps --coding-app-only --approved --provider PROVIDER'
+remote=$(printf '%s' "$remote" | sed "s/PROVIDER/$provider/")
 encoded=$(printf '%s' "$remote" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then

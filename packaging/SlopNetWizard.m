@@ -45,6 +45,12 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 @property(nonatomic, strong) NSButton *installButton;
 @property(nonatomic, strong) NSProgressIndicator *capacitySpinner;
 @property(nonatomic, copy) NSString *provedModel;
+
+/// The coding apps ticked on the sign-in screen, in the order they were
+/// ticked, so they are signed in to in the order the person chose.
+@property(nonatomic, strong) NSMutableArray<NSString *> *chosenProviders;
+@property(nonatomic, strong) NSButton *continueToSignIn;
+@property(nonatomic, strong) NSTextField *chosenSummary;
 @end
 
 @implementation SlopNetWizard
@@ -420,29 +426,115 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     return views;
 }
 
-- (NSArray<NSView *> *)codingAppViews {
-    NSButton *settings = [self button:@"See coding apps in Settings"
-                              action:@selector(openSettingsPressed:)];
-    NSStackView *row = [NSStackView stackViewWithViews:@[settings]];
-    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    row.spacing = 10;
+/// The four coding apps a person can sign in to with a subscription they
+/// already pay for. All four have a command-line tool that signs in through a
+/// browser, so none of them needs an API key typed into anything.
+///
+/// Moonshot and Z.ai are deliberately absent: they work from a pasted API key,
+/// which is a different job and a different screen.
++ (NSArray<NSDictionary<NSString *, NSString *> *> *)signInProviders {
     return @[
-        [self title:@"A coding app, when you want to build"],
-        [self body:@"Chat with the private guide works now. Building software needs one "
-                   @"coding app on your server, signed in with a subscription you already "
-                   @"pay for — SlopNet never buys one for you."],
-        [self body:@"SlopNet keeps this to one app at a time on purpose. Codex is the one "
-                   @"it has proved end to end on a real server; the others are listed in "
-                   @"Settings with whatever is known about each."],
-        [self quiet:@"SlopNet will not guess an install command it has not verified. Where "
-                    @"a command is missing it says so rather than running something that "
-                    @"might be wrong."],
-        row,
-        [self quiet:@"You can skip this and come back. Talking to your guide "
-                    @"does not need it — only building does."],
+        @{@"id": @"anthropic", @"name": @"Claude",        @"note": @"Claude Pro or Max"},
+        @{@"id": @"openai",    @"name": @"ChatGPT",       @"note": @"ChatGPT Plus, Pro or Team"},
+        @{@"id": @"google",    @"name": @"Google Gemini", @"note": @"a Google account"},
+        @{@"id": @"xai",       @"name": @"Grok",          @"note": @"X Premium or an xAI plan"},
+    ];
+}
+
+/// One tappable card per coding app. A button rather than a checkbox on
+/// purpose: the whole row is the target, there is nothing to type, and nothing
+/// can be mistyped.
+- (NSButton *)providerToggle:(NSDictionary<NSString *, NSString *> *)provider {
+    NSButton *toggle = [NSButton buttonWithTitle:@"" target:self
+                                          action:@selector(providerToggled:)];
+    toggle.buttonType = NSButtonTypeSwitch;
+    toggle.identifier = provider[@"id"];
+    NSMutableAttributedString *label = [[NSMutableAttributedString alloc]
+        initWithString:provider[@"name"]
+            attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:13
+                                                                weight:NSFontWeightMedium],
+                         NSForegroundColorAttributeName: NSColor.labelColor}];
+    [label appendAttributedString:[[NSAttributedString alloc]
+        initWithString:[NSString stringWithFormat:@"   %@", provider[@"note"]]
+            attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:12],
+                         NSForegroundColorAttributeName: NSColor.secondaryLabelColor}]];
+    toggle.attributedTitle = label;
+    toggle.state = [self.chosenProviders containsObject:provider[@"id"]]
+        ? NSControlStateValueOn : NSControlStateValueOff;
+    return toggle;
+}
+
+- (void)providerToggled:(NSButton *)sender {
+    NSString *identifier = sender.identifier;
+    if (identifier == nil) return;
+    if (sender.state == NSControlStateValueOn) {
+        if (![self.chosenProviders containsObject:identifier]) {
+            [self.chosenProviders addObject:identifier];   // keeps their order
+        }
+    } else {
+        [self.chosenProviders removeObject:identifier];
+    }
+    self.continueToSignIn.enabled = self.chosenProviders.count > 0;
+    self.chosenSummary.stringValue = [self chosenSummaryText];
+}
+
+- (NSString *)chosenSummaryText {
+    if (self.chosenProviders.count == 0) {
+        return @"Nothing picked yet. You can skip this and come back later.";
+    }
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (NSDictionary *provider in [self.class signInProviders]) {
+        if ([self.chosenProviders containsObject:provider[@"id"]]) {
+            [names addObject:provider[@"name"]];
+        }
+    }
+    return [NSString stringWithFormat:@"Signing in to %@, one at a time. Any one "
+                                      @"that will not go through can be skipped.",
+                                      [names componentsJoinedByString:@", "]];
+}
+
+- (NSArray<NSView *> *)codingAppViews {
+    if (self.chosenProviders == nil) self.chosenProviders = [NSMutableArray array];
+
+    NSMutableArray<NSView *> *toggles = [NSMutableArray array];
+    for (NSDictionary<NSString *, NSString *> *provider in [self.class signInProviders]) {
+        [toggles addObject:[self providerToggle:provider]];
+    }
+    NSStackView *choices = [NSStackView stackViewWithViews:toggles];
+    choices.orientation = NSUserInterfaceLayoutOrientationVertical;
+    choices.alignment = NSLayoutAttributeLeading;
+    choices.spacing = 10;
+    choices.edgeInsets = NSEdgeInsetsMake(4, 6, 4, 6);
+
+    self.chosenSummary = [self quiet:[self chosenSummaryText]];
+
+    self.continueToSignIn = [self button:@"Sign in to these"
+                                  action:@selector(signInPressed:)];
+    self.continueToSignIn.keyEquivalent = @"\r";
+    self.continueToSignIn.enabled = self.chosenProviders.count > 0;
+
+    NSButton *later = [self button:@"Skip for now" action:@selector(nextPressed:)];
+    NSStackView *actions = [NSStackView stackViewWithViews:@[self.continueToSignIn, later]];
+    actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    actions.spacing = 10;
+
+    return @[
+        [self title:@"Which coding apps do you pay for?"],
+        [self body:@"Tick the ones you already have a subscription to. SlopNet signs in "
+                   @"to them on your server using your own account — it never buys one "
+                   @"for you, and never asks you to type a key."],
+        choices,
+        self.chosenSummary,
+        [self body:@"Each one opens a page in your browser and shows you a code to paste "
+                   @"into it. If one will not go through, you can skip that one and carry "
+                   @"on — nothing gets stuck waiting."],
+        [self quiet:@"Proved end to end on a real server: ChatGPT. The other three use the "
+                    @"same browser sign-in their own tool ships with, and SlopNet says so "
+                    @"plainly rather than pretending it has tested them."],
         [self separator],
-        [self footerWithBack:YES primary:@"Sign in now"
-                      action:@selector(signInPressed:)],
+        actions,
+        [self quiet:@"Whatever you pick, you come back to your private guide first. "
+                    @"It is the one you talk to."],
     ];
 }
 
@@ -531,7 +623,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 /// Sign in to the coding app. The console runs it, because the tool prints
 /// a link and a code that need a real browser.
 - (void)signInPressed:(id)sender {
-    [self.delegate wizardSignInToCodingApp:self];
+    [self.delegate wizard:self signInToCodingApps:[self.chosenProviders copy]];
     [self close];
 }
 

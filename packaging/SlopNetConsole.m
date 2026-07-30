@@ -61,6 +61,16 @@
 /// not raise the same offer on every redraw.
 @property(nonatomic, copy) NSString *announcedSignIn;
 @property(nonatomic, copy) NSString *announcedCode;
+/// Whether the view should stay pinned to the newest output. Set false the
+/// moment somebody scrolls up, true again when they come back to the bottom.
+@property(nonatomic, assign) BOOL followTail;
+/// A redraw is already queued, so a chatty program cannot queue a thousand.
+@property(nonatomic, assign) BOOL redrawQueued;
+/// A redraw is already scheduled for the next turn of the run loop.
+@property(nonatomic, assign) BOOL redrawScheduled;
+/// Follow the newest line, the way a terminal does — until somebody scrolls
+/// up to read something, and again once they come back to the bottom.
+@property(nonatomic, assign) BOOL followingTail;
 @end
 
 /// Keep the console light even during a long build.
@@ -162,6 +172,8 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     _column = 0;
     _ink = [[SlopNetInk alloc] init];
     _droppedLines = 0;
+    _followTail = YES;
+    _followingTail = YES;
 
     _output = [[NSTextView alloc] initWithFrame:NSZeroRect];
     _output.editable = NO;
@@ -191,6 +203,12 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     _scroller.backgroundColor = [SlopNetBrand voidColor];
     _scroller.documentView = _output;
     _scroller.translatesAutoresizingMaskIntoConstraints = NO;
+    // Notice when somebody scrolls, so output arriving does not drag them back.
+    _scroller.contentView.postsBoundsChangedNotifications = YES;
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(scrolled:)
+                                               name:NSViewBoundsDidChangeNotification
+                                             object:_scroller.contentView];
     _output.minSize = NSMakeSize(0, 0);
     _output.maxSize = NSMakeSize(FLT_MAX, FLT_MAX);
     _output.verticallyResizable = YES;
@@ -309,9 +327,51 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 
 /// Push the line buffer into the view. Called after each chunk, not per
 /// character, so a chatty program cannot make the window crawl.
+/// Ask for a redraw. Cheap to call as often as output arrives.
+///
+/// It used to redraw inline, once per chunk read from the program. Rebuilding
+/// the whole buffer thousands of times in a row is what made the window stop
+/// responding while the local guide was installing — and an unresponsive
+/// window is exactly what "scrolling is broken" looks like from the outside.
+/// Now the work happens once per turn of the run loop no matter how much
+/// arrives, which leaves the main thread free to handle the scroll wheel.
+- (void)setNeedsRedrawSoon {
+    self.needsRedraw = YES;
+    if (self.redrawScheduled) return;
+    self.redrawScheduled = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        strongSelf.redrawScheduled = NO;
+        [strongSelf redraw];
+    });
+}
+
+/// Somebody moved the view. Follow the newest line only while they are on it,
+/// which is what makes reading back through a build survive the next line
+/// being printed.
+- (void)scrolled:(NSNotification *)note {
+    self.followingTail = [self atTail];
+}
+
+/// Is the view sitting at the newest line?
+- (BOOL)atTail {
+    NSClipView *clip = self.scroller.contentView;
+    CGFloat documentHeight = ((NSView *)self.scroller.documentView).frame.size.height;
+    CGFloat visibleBottom = NSMaxY(clip.bounds);
+    // A couple of points of slack: the tail is never pixel-exact after a
+    // relayout, and being one point short must not count as scrolled away.
+    return visibleBottom >= documentHeight - 4.0;
+}
+
 - (void)redraw {
     if (!self.needsRedraw) return;
     self.needsRedraw = NO;
+    // Decided before the text changes, because replacing the storage moves
+    // the document out from under the scroll position.
+    BOOL follow = self.followingTail || [self atTail];
+    NSPoint parked = self.scroller.contentView.bounds.origin;
     NSMutableAttributedString *joined = [[NSMutableAttributedString alloc] init];
     NSAttributedString *newline =
         [[NSAttributedString alloc] initWithString:@"\n" attributes:[self fieldAttributes]];
@@ -322,7 +382,16 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     }
     [joined endEditing];
     [self.output.textStorage setAttributedString:joined];
-    [self.output scrollRangeToVisible:NSMakeRange(self.output.textStorage.length, 0)];
+    self.followingTail = follow;
+    if (follow) {
+        [self.output scrollRangeToVisible:NSMakeRange(self.output.textStorage.length, 0)];
+    } else {
+        // Someone is reading. Put them back exactly where they were, rather
+        // than dragging them to the bottom on every line the program prints.
+        [self.output.layoutManager ensureLayoutForTextContainer:self.output.textContainer];
+        [self.scroller.contentView scrollToPoint:parked];
+        [self.scroller reflectScrolledClipView:self.scroller.contentView];
+    }
 }
 
 - (NSMutableAttributedString *)currentLine {
@@ -476,8 +545,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
         }
         [self putText:[raw substringWithRange:NSMakeRange(start, i - start)]];
     }
-    self.needsRedraw = YES;
-    [self redraw];
+    [self setNeedsRedrawSoon];
     [self noticeWhatItIsWaitingFor];
     [self noticeASignInPage];
 }
@@ -633,6 +701,35 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
     return [[text substringWithRange:line].lowercaseString containsString:@"code"];
 }
 
+#pragma mark - for probes only
+
+- (NSString *)string {
+    [self redraw];
+    return self.output.textStorage.string;
+}
+
+- (void)scrollToTopForTesting {
+    [self redraw];
+    [self.output.layoutManager ensureLayoutForTextContainer:self.output.textContainer];
+    [self.scroller.contentView scrollToPoint:NSZeroPoint];
+    [self.scroller reflectScrolledClipView:self.scroller.contentView];
+    self.followingTail = NO;
+}
+
+- (void)scrollToBottomForTesting {
+    [self redraw];
+    [self.output scrollRangeToVisible:NSMakeRange(self.output.textStorage.length, 0)];
+    self.followingTail = YES;
+}
+
+- (CGFloat)scrollOffsetForTesting {
+    return self.scroller.contentView.bounds.origin.y;
+}
+
+- (BOOL)isFollowingTailForTesting {
+    return self.followingTail || [self atTail];
+}
+
 - (void)note:(NSString *)text {
     [self consume:[NSString stringWithFormat:@"%@\n", text]];
 }
@@ -696,8 +793,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
         self.lines[self.row] = block[index];
         [self newline];
     }
-    self.needsRedraw = YES;
-    [self redraw];
+    [self setNeedsRedrawSoon];
     return token;
 }
 
@@ -709,8 +805,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
     for (NSUInteger index = 0; index < block.count; index++) {
         self.lines[(NSUInteger)start + index] = block[index];
     }
-    self.needsRedraw = YES;
-    [self redraw];
+    [self setNeedsRedrawSoon];
     return YES;
 }
 
@@ -724,8 +819,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
     // origin past them makes replaceLinesFromToken: answer NO, which is how
     // an animation learns to stop.
     self.droppedLines += (NSInteger)kMaxLines;
-    self.needsRedraw = YES;
-    [self redraw];
+    [self setNeedsRedrawSoon];
 }
 
 #pragma mark - the status line
@@ -864,6 +958,10 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
                        tint:nil];
         [self note:[NSString stringWithFormat:@"\n— stopped, code %d —", status]];
     }
+    // Draw the last of it now rather than on a queued tick, so the final
+    // lines — which are the ones saying what to do next — are on screen the
+    // instant the program stops.
+    [self redraw];
     if ([self.delegate respondsToSelector:@selector(console:finishedWithStatus:)]) {
         [self.delegate console:self finishedWithStatus:status];
     }
@@ -890,6 +988,12 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
 }
 
 - (void)stopPressed:(id)sender { [self stop]; }
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self
+                                                  name:NSViewBoundsDidChangeNotification
+                                                object:nil];
+}
 
 - (void)stop {
     if (!self.running) return;

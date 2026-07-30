@@ -44,6 +44,7 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 - (void)console:(SlopNetConsole *)console
        asksFor:(SlopNetPrompt)prompt
       question:(NSString *)question;
+
 @end
 
 @interface SlopNetConsole : NSView
@@ -96,4 +97,15 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 /// Empty the console.
 - (void)clear;
 
+
+#pragma mark - for probes only
+
+/// Everything printed so far, plain. Used by tests to assert on output.
+- (NSString *)string;
+/// Scroll state, so a probe can park the view and prove new output leaves it
+/// alone. Not used by the app.
+- (void)scrollToTopForTesting;
+- (void)scrollToBottomForTesting;
+- (CGFloat)scrollOffsetForTesting;
+- (BOOL)isFollowingTailForTesting;
 @end
