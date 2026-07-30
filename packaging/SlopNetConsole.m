@@ -57,6 +57,9 @@
 @property(nonatomic, assign) NSInteger droppedLines;
 /// The last thing we told the delegate the program was waiting for.
 @property(nonatomic, assign) SlopNetPrompt waitingFor;
+/// The sign-in link already handed to the delegate, so one login does
+/// not raise the same offer on every redraw.
+@property(nonatomic, copy) NSString *announcedSignIn;
 @end
 
 /// Keep the console light even during a long build.
@@ -475,6 +478,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     self.needsRedraw = YES;
     [self redraw];
     [self noticeWhatItIsWaitingFor];
+    [self noticeASignInPage];
 }
 
 /// Read the line the program stopped on and work out what it wants.
@@ -518,6 +522,54 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     self.waitingFor = found;
     if ([self.delegate respondsToSelector:@selector(console:asksFor:question:)]) {
         [self.delegate console:self asksFor:found question:line];
+    }
+}
+
+/// Spot a sign-in link, and the short code that goes with it.
+///
+/// Deliberately does NOT open anything by itself. The link is put in front of
+/// the person with its address visible and a button to open it, because the
+/// console shows output from programs, and output is not an instruction.
+- (void)noticeASignInPage {
+    if (!self.running) return;
+    NSString *recent = @"";
+    NSUInteger from = self.lines.count > 12 ? self.lines.count - 12 : 0;
+    for (NSUInteger i = from; i < self.lines.count; i++) {
+        recent = [recent stringByAppendingFormat:@"%@\n", self.lines[i].string];
+    }
+    static NSRegularExpression *link;
+    static NSRegularExpression *shortCode;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        link = [NSRegularExpression regularExpressionWithPattern:
+                @"https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+" options:0 error:nil];
+        // The shape these one-time codes take: short, upper-case, often split
+        // by a hyphen. Anchored on a word boundary so it cannot match a slice
+        // of a longer token.
+        shortCode = [NSRegularExpression regularExpressionWithPattern:
+                     @"\\b[A-Z0-9]{4}-[A-Z0-9]{4}\\b|\\b[A-Z]{4}-[A-Z]{4}\\b" options:0 error:nil];
+    });
+    NSTextCheckingResult *found =
+        [link firstMatchInString:recent options:0 range:NSMakeRange(0, recent.length)];
+    if (found == nil) return;
+    NSString *address = [recent substringWithRange:found.range];
+    // Trim trailing punctuation a sentence may have left on the end.
+    while (address.length > 0 &&
+           [@".,);:" rangeOfString:[address substringFromIndex:address.length - 1]].location != NSNotFound) {
+        address = [address substringToIndex:address.length - 1];
+    }
+    if ([address isEqualToString:self.announcedSignIn]) return;
+    NSURL *page = [NSURL URLWithString:address];
+    if (page == nil) return;
+    self.announcedSignIn = address;
+
+    NSString *code = nil;
+    NSTextCheckingResult *codeMatch =
+        [shortCode firstMatchInString:recent options:0 range:NSMakeRange(0, recent.length)];
+    if (codeMatch != nil) code = [recent substringWithRange:codeMatch.range];
+
+    if ([self.delegate respondsToSelector:@selector(console:needsSignIn:code:)]) {
+        [self.delegate console:self needsSignIn:page code:code];
     }
 }
 
@@ -682,6 +734,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 
     self.master = master;
     self.child = pid;
+    self.announcedSignIn = nil;
     self.stopButton.enabled = YES;
     [self setStatusText:[NSString stringWithFormat:@"Running %@ …", path.lastPathComponent]
                   glyph:nil

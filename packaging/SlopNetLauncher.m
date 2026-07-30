@@ -113,6 +113,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, strong) NSButton *approveButton;
 @property(nonatomic, strong) NSButton *declineButton;
 @property(nonatomic, strong) NSButton *continueButton;
+@property(nonatomic, strong) NSButton *openPageButton;
+@property(nonatomic, strong) NSButton *codeButton;
+@property(nonatomic, strong) NSURL *signInPage;
+@property(nonatomic, copy) NSString *signInCode;
 @property(nonatomic, strong) NSURL *conversationURL;
 
 // The animated action glyph. One timer drives whichever surface is live:
@@ -214,7 +218,58 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 #pragma mark - launch
 
+/// Build the menu bar.
+///
+/// There was none. That is why Command-C did nothing in the console and the
+/// only way to copy was a right-click: the standard shortcuts are routed by
+/// the menu bar, and with no Edit menu there was nothing to route them to.
+/// Command-Q had the same problem. Every Mac app needs this; SlopNet simply
+/// never had one.
+- (void)buildMenuBar {
+    NSMenu *bar = [[NSMenu alloc] init];
+
+    NSMenuItem *appItem = [[NSMenuItem alloc] init];
+    NSMenu *appMenu = [[NSMenu alloc] init];
+    [appMenu addItemWithTitle:@"About SlopNet"
+                       action:@selector(orderFrontStandardAboutPanel:)
+                keyEquivalent:@""];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    [appMenu addItemWithTitle:@"Settings…" action:@selector(openSettings:) keyEquivalent:@","];
+    [appMenu addItemWithTitle:@"Setup guide" action:@selector(openWizard:) keyEquivalent:@""];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    [appMenu addItemWithTitle:@"Hide SlopNet" action:@selector(hide:) keyEquivalent:@"h"];
+    [appMenu addItemWithTitle:@"Quit SlopNet" action:@selector(terminate:) keyEquivalent:@"q"];
+    appItem.submenu = appMenu;
+    [bar addItem:appItem];
+
+    NSMenuItem *editItem = [[NSMenuItem alloc] init];
+    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
+    [editMenu addItemWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"];
+    NSMenuItem *redo = [editMenu addItemWithTitle:@"Redo" action:@selector(redo:)
+                                    keyEquivalent:@"Z"];
+    redo.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+    [editMenu addItem:[NSMenuItem separatorItem]];
+    [editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
+    [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
+    [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+    editItem.submenu = editMenu;
+    [bar addItem:editItem];
+
+    NSMenuItem *windowItem = [[NSMenuItem alloc] init];
+    NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+    [windowMenu addItemWithTitle:@"Minimise" action:@selector(performMiniaturize:)
+                   keyEquivalent:@"m"];
+    [windowMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
+    windowItem.submenu = windowMenu;
+    [bar addItem:windowItem];
+
+    NSApp.mainMenu = bar;
+    NSApp.windowsMenu = windowMenu;
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
+    [self buildMenuBar];
     self.window = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 1000, 700)
                   styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
@@ -444,10 +499,14 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.approveButton = [self promptButton:@"Yes" action:@selector(approvePressed:)];
     self.declineButton = [self promptButton:@"No" action:@selector(declinePressed:)];
     self.continueButton = [self promptButton:@"Continue" action:@selector(continuePressed:)];
+    self.openPageButton = [self promptButton:@"Open the sign-in page"
+                                     action:@selector(openSignInPage:)];
+    self.codeButton = [self promptButton:@"Copy the code again"
+                                     action:@selector(putCodeOnClipboard:)];
 
     NSStackView *promptControls = [NSStackView stackViewWithViews:@[
         self.secretField, self.secretSend, self.approveButton, self.declineButton,
-        self.continueButton]];
+        self.continueButton, self.openPageButton, self.codeButton]];
     promptControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     promptControls.alignment = NSLayoutAttributeCenterY;
     promptControls.spacing = 8;
@@ -1441,6 +1500,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.approveButton.hidden = (prompt != SlopNetPromptConfirm);
     self.declineButton.hidden = (prompt != SlopNetPromptConfirm);
     self.continueButton.hidden = (prompt != SlopNetPromptContinue);
+    // The sign-in offer is separate: it stays put while the program keeps
+    // printing, and is cleared when the run ends.
+    self.openPageButton.hidden = (self.signInPage == nil);
+    self.codeButton.hidden = (self.signInCode == nil);
+    if (self.signInPage != nil) self.promptBar.hidden = NO;
 
     if (prompt == SlopNetPromptPassword) {
         self.promptLabel.stringValue =
@@ -1472,6 +1536,51 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 }
 
 - (void)continuePressed:(id)sender { [self.console sendLine:@""]; }
+
+/// A coding app wants a browser sign-in. It prints a link and a one-time
+/// code, and expects both to be carried across by hand.
+///
+/// The code goes straight to the clipboard so it is ready to paste, and the
+/// link gets a button showing exactly where it goes. SlopNet does not open it
+/// unprompted: this is output from a program, and output is not an
+/// instruction — the person decides.
+- (void)console:(SlopNetConsole *)console needsSignIn:(NSURL *)page code:(NSString *)code {
+    self.signInPage = page;
+    self.signInCode = code;
+    if (code.length > 0) {
+        [NSPasteboard.generalPasteboard clearContents];
+        [NSPasteboard.generalPasteboard setString:code forType:NSPasteboardTypeString];
+    }
+    self.promptBar.hidden = NO;
+    self.entryScroller.hidden = YES;
+    self.sendButton.hidden = YES;
+    self.secretField.hidden = YES;
+    self.secretSend.hidden = YES;
+    self.approveButton.hidden = YES;
+    self.declineButton.hidden = YES;
+    self.continueButton.hidden = YES;
+    self.openPageButton.hidden = NO;
+    self.codeButton.hidden = (code.length == 0);
+    self.promptLabel.stringValue = code.length > 0
+        ? [NSString stringWithFormat:
+           @"%@ needs you to sign in. Your code %@ is copied — press the button, "
+           @"then paste it on the page that opens.", @"A coding app", code]
+        : [NSString stringWithFormat:@"A coding app needs you to sign in at %@",
+           page.absoluteString];
+    self.promptLabel.textColor = [NSColor labelColor];
+    [self.console note:[NSString stringWithFormat:@"\nSign-in page: %@", page.absoluteString]];
+    [self.window makeFirstResponder:self.openPageButton];
+}
+
+- (void)openSignInPage:(id)sender {
+    if (self.signInPage != nil) [NSWorkspace.sharedWorkspace openURL:self.signInPage];
+}
+
+- (void)putCodeOnClipboard:(id)sender {
+    if (self.signInCode.length == 0) return;
+    [NSPasteboard.generalPasteboard clearContents];
+    [NSPasteboard.generalPasteboard setString:self.signInCode forType:NSPasteboardTypeString];
+}
 
 - (void)secretEntered:(id)sender {
     NSString *secret = self.secretField.stringValue;
@@ -1542,6 +1651,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         [self.console note:@"Nothing was left half-done. Read the last few lines above, "
                            @"fix what they mention, and try again."];
     }
+    self.signInPage = nil;
+    self.signInCode = nil;
+    self.openPageButton.hidden = YES;
+    self.codeButton.hidden = YES;
+
     // The guide has answered. If what they asked for sounded like something
     // to have made, offer now — after the reply, not on top of it.
     if (self.offerBuildWhenReplyEnds && self.pendingRequest.length > 0 && status == 0) {

@@ -27,12 +27,18 @@ static void check(BOOL ok, const char *what) {
 @property(nonatomic, assign) SlopNetPrompt seen;
 @property(nonatomic, copy) NSString *question;
 @property(nonatomic, assign) BOOL finished;
+@property(nonatomic, strong) NSURL *signInPage;
+@property(nonatomic, copy) NSString *signInCode;
 @end
 
 @implementation Watcher
 - (void)console:(SlopNetConsole *)c asksFor:(SlopNetPrompt)p question:(NSString *)q {
     self.seen = p;
     self.question = q;
+}
+- (void)console:(SlopNetConsole *)c needsSignIn:(NSURL *)page code:(NSString *)code {
+    self.signInPage = page;
+    self.signInCode = code;
 }
 - (void)console:(SlopNetConsole *)c finishedWithStatus:(int)s { self.finished = YES; }
 @end
@@ -100,6 +106,30 @@ int main(void) {
               "the word password inside a finished sentence is not a prompt");
         check(promptFor(@"printf 'Cloning into my-app...\\n'; sleep 3", NULL)
               == SlopNetPromptNone, "ordinary output is not a prompt");
+
+        // A browser sign-in: the tool prints a link and a one-time code and
+        // expects both carried across by hand. The console has to spot them
+        // so the window can offer a button and put the code on the clipboard.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Watcher *w = [Watcher new];
+            c.delegate = w;
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c",
+                @"printf 'Open https://auth.example.invalid/device and enter code WXYZ-1234\n'; sleep 3"]];
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:4];
+            while (w.signInPage == nil && [until timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check(w.signInPage != nil, "a sign-in link is spotted in the output");
+            check([w.signInPage.absoluteString isEqualToString:
+                   @"https://auth.example.invalid/device"],
+                  "the link is captured without trailing punctuation");
+            check([w.signInCode isEqualToString:@"WXYZ-1234"],
+                  "the one-time code is captured so it can be put on the clipboard");
+            [c stop];
+        }
 
         fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);

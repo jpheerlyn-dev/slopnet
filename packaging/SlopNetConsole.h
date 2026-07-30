@@ -32,6 +32,13 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 @protocol SlopNetConsoleDelegate <NSObject>
 @optional
 - (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status;
+/// A sign-in page and its one-time code appeared in the output. Coding tools
+/// authenticate by printing a link and a code for a browser; making somebody
+/// copy both out of a terminal by hand is the worst moment in setup.
+/// `code` may be nil when the tool printed only a link.
+- (void)console:(SlopNetConsole *)console
+    needsSignIn:(NSURL *)page
+           code:(NSString *)code;
 /// The running program started, or stopped, waiting for something specific.
 /// `question` is the line it is waiting on, for showing above the control.
 - (void)console:(SlopNetConsole *)console

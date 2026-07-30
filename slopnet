@@ -1027,12 +1027,14 @@ def cmd_vps_setup(root, args):
         print("[OK] Codex CLI is already installed for this private VPS account.")
 
     if not codex_login_ok(executable):
-        print("Codex is installed but not logged in.")
-        print("The normal device sign-in below opens no server port and keeps the session in this VPS user home.")
-        if not ask_yes_no("Start Codex device sign-in now?"):
-            fail("Codex is not logged in.",
-                 "Setup never stores a key or browser credential for you.",
-                 "When ready, re-run: slopnet setup --vps")
+        # No question here. Somebody running setup has already said they want
+        # this; asking "start sign-in now?" in the middle of it is a decision
+        # with one sensible answer, and every one of those makes setup feel
+        # like an interrogation. Sign-in still cannot complete without the
+        # person approving it in their own browser, which is the consent that
+        # actually matters.
+        print("Signing in to Codex. Your browser does the approving; SlopNet "
+              "never sees or stores the credential, and no port is opened.")
         login = subprocess.run([executable, "login", "--device-auth"])
         if login.returncode != 0 or not codex_login_ok(executable):
             fail("Codex sign-in did not complete.",
