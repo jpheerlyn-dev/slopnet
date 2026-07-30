@@ -1152,7 +1152,7 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"Start coding agents?";
         alert.informativeText = [NSString stringWithFormat:
-            @"You approved the plan for %@. This starts the multi-agent coding run on your VPS and spends from the proved coding subscription. Agents may edit only that project; walls and its test command decide what can merge.",
+            @"You approved the plan for %@. This starts the multi-agent coding run on your VPS and spends from the proved coding subscription. Agents may edit only that project; checks and its test command decide what can merge.",
             self.plannedProjectName];
         [alert addButtonWithTitle:@"Start coding agents"];
         [alert addButtonWithTitle:@"Keep plan only"];
@@ -1263,7 +1263,7 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
         self.approvedBuildRunning = NO;
         self.plannedProjectName = nil;
         if (status == 0) {
-            [self.console note:@"The approved build finished. Read the result above; SlopNet kept only work that passed its walls and project tests."];
+            [self.console note:@"The approved build finished. Read the result above; SlopNet kept only work that passed its checks and project tests."];
         }
     }
     [self setBusy:NO];

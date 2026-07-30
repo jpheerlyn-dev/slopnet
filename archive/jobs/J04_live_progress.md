@@ -29,7 +29,7 @@ Wave 1 of 2                                    3m12s
 ```
 
 States, in plain words a child understands: `waiting`, `working…`,
-`checking…` (walls), `testing…`, `MERGED`, `FAILED — <short reason>`.
+`checking…` (checks), `testing…`, `MERGED`, `FAILED — <short reason>`.
 
 Also required:
 

@@ -6,9 +6,9 @@
 > in `SLOPNET.md` does not exist yet, so do not give this file to a newcomer as
 > setup instructions.
 
-SlopNet's walls stop bad work landing. The crew is how good work gets
+SlopNet's checks stop bad work landing. The crew is how good work gets
 made: one agent **plans**, several agents **write code at the same time**,
-and the walls plus your own tests decide what is allowed to stay.
+and the checks plus your own tests decide what is allowed to stay.
 
 The everyday path is one command:
 
@@ -64,7 +64,7 @@ slopnet run          # or: slopnet run --wave 2
 Each task gets its own private copy of the repo (a git worktree) and its
 own coding agent. They work in parallel. Then, for each attempt:
 
-1. **The walls judge it** — the same checks that guard your commits.
+1. **The checks judge it** — the same checks that guard your commits.
 2. **Your tests judge it** — the real command, which must exit 0.
 3. Only if both pass is the work merged into your tree. Anything else is
    thrown away, and the run tells you exactly why.
@@ -73,10 +73,10 @@ The register records every run automatically.
 
 ## The rules that make this safe
 
-- **An agent never says whether its own work is good.** Tests and walls do.
+- **An agent never says whether its own work is good.** Tests and checks do.
 - **A test command that cannot fail is refused.** `true`, `exit 0`,
   `echo OK`, or anything ending `|| true` would launder bad work as
-  proven, so SlopNet won't accept it. (Blank is fine — then the walls
+  proven, so SlopNet won't accept it. (Blank is fine — then the checks
   judge alone, and SlopNet says so out loud.)
 - **Failed work is discarded, never merged.** Its branch is deleted; your
   tree is untouched.
@@ -86,7 +86,7 @@ The register records every run automatically.
 
 ## If something goes wrong
 
-Every failure line says why: a wall's RULE, a test's last lines, or a
+Every failure line says why: a check's RULE, a test's last lines, or a
 merge conflict (that branch is kept so you can look). Nothing fails
 silently. Re-run a single wave with `--wave N` after fixing the cause.
 

@@ -24,7 +24,7 @@ all=0
 if [ "$all" -eq 1 ]; then
   env_hits=$(git ls-files -z | tr '\0' '\n' | grep -E '(^|/)\.env(\..+)?$' | grep -v -E '(^|/)\.env\.example$' || true)
 else
-  env_hits=$(git diff --cached --name-only -z | tr '\0' '\n' | grep -E '(^|/)\.env(\..+)?$' | grep -v -E '(^|/)\.env\.example$' || true)
+  env_hits=$(git diff --cached --diff-filter=d --name-only -z | tr '\0' '\n' | grep -E '(^|/)\.env(\..+)?$' | grep -v -E '(^|/)\.env\.example$' || true)
 fi
 if [ -n "$env_hits" ]; then
   fail "$(printf '%s\n' "$env_hits" | summarize) must not be committed: .env files hold live secrets." \
@@ -63,7 +63,7 @@ if [ "$all" -eq 1 ]; then
 else
   hits=""
   if git diff --cached -U0 | grep '^+' | grep -v '^+++' | grep -qE "$pat"; then
-    hits=$(git diff --cached --name-only -z | tr '\0' '\n' | while IFS= read -r f; do
+    hits=$(git diff --cached --diff-filter=d --name-only -z | tr '\0' '\n' | while IFS= read -r f; do
       if git diff --cached -U0 -- "$f" | grep '^+' | grep -v '^+++' | grep -qE "$pat"; then
         printf '%s\n' "$f"
       fi

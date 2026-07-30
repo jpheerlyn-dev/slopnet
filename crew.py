@@ -6,14 +6,14 @@ Imported by the `slopnet` CLI; not meant to be run directly. Three jobs:
           have, and save the crew to .slopnet/crew.json
   plan    a PLANNER agent turns your idea into WAVES.md (waves of tasks)
   run     the ORCHESTRATOR runs each wave: every task gets its own git
-          worktree and its own coding agent, in parallel; the walls and
+          worktree and its own coding agent, in parallel; the checks and
           your tests are the judge; only proven work is merged
 
 The rules that make this safe are borrowed, with thanks, from the
 operator's own StormCode: an agent never self-certifies (real tests must
 exit 0), a plan is validated before anything runs, each attempt is
 isolated in a worktree, and a losing attempt is thrown away rather than
-merged. SlopNet adds its own gate: the walls must pass too.
+merged. SlopNet adds its own gate: the checks must pass too.
 
 Standard library only. No UI code lives here — printing is the caller's.
 """
@@ -241,7 +241,7 @@ def refuse_fake_gate(command):
         crew_fail(
             "That test command can never fail.",
             "A test that always passes would mark bad work as proven.",
-            "Remove '|| true' (or use a real test command, or leave blank for walls only), then re-run setup",
+            "Remove '|| true' (or use a real test command, or leave blank for checks only), then re-run setup",
         )
 
 
@@ -511,7 +511,7 @@ def setup(root, ask, say, automatic=False, resource_limits=None):
             labels, multi=True)
         while True:
             test_cmd = ask(
-                "What command runs your tests? [walls only]", None)
+                "What command runs your tests? [checks only]", None)
             try:
                 refuse_fake_gate(test_cmd)
                 break
@@ -550,7 +550,7 @@ def setup(root, ask, say, automatic=False, resource_limits=None):
     path = save_crew(root, crew)
     say(f"\nCrew saved to {path.relative_to(root)}.")
     if not crew["test_command"]:
-        say("No test command — the walls alone will judge the work. Add one "
+        say("No test command — the checks alone will judge the work. Add one "
             "later in that file when your project has tests; agents that "
             "can't be tested can't be trusted.")
     return crew
@@ -1237,7 +1237,7 @@ def _attempt(root, task, worker, crew, base_branch, say, cancel_event=None,
                                   capture_output=True, text=True)
             if proc.returncode != 0:
                 first = (proc.stdout + proc.stderr).strip().splitlines()
-                return False, branch, f"wall said no: {first[0] if first else check.name}"
+                return False, branch, f"check said no: {first[0] if first else check.name}"
 
         code, out = _git(["-c", "user.name=slopnet", "-c", "user.email=crew@slopnet",
                           "commit", "-m", f"{tid}: {worker['name']}"], wt)

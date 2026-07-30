@@ -1,6 +1,6 @@
 ---
 name: slopnet-session
-description: SlopNet session ritual for any repo governed by SlopNet — read the register and pending questions before working, obey FIX lines when a check blocks you, sign the register and verify the walls before finishing. Use at the start and end of every working session in a SlopNet repo.
+description: SlopNet session ritual for any repo governed by SlopNet — read the register and pending questions before working, obey FIX lines when a check blocks you, sign the register and verify the checks before finishing. Use at the start and end of every working session in a SlopNet repo.
 ---
 
 # The SlopNet session ritual

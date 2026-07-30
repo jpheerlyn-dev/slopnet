@@ -31,7 +31,7 @@
 
 /// How many characters fit across the console at its current width. Panel
 /// builders use this to fit their frames to the window instead of emitting
-/// a wall wider than the view.
+/// a check wider than the view.
 @property(nonatomic, readonly) NSUInteger columns;
 
 /// Run a program with arguments. Any previous run must have finished.

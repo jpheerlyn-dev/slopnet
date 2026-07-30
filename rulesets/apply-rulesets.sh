@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Applies the JSON rulesets in this folder to the current GitHub repo —
-# the SERVER-side wall: enforced by GitHub itself, immune to --no-verify,
+# the SERVER-side check: enforced by GitHub itself, immune to --no-verify,
 # hook tampering, and force pushes.
 #
 # Needs: the gh CLI, logged in, with admin rights on this repo.
@@ -16,7 +16,7 @@
 #     can have push rules". Nothing you can configure changes that.
 #     Until this repo lives in an organisation, those same rules are
 #     enforced by checks/junk.sh + checks/naming.sh locally and in CI,
-#     which is why SlopNet never relied on the push wall alone.
+#     which is why SlopNet never relied on the push check alone.
 
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -32,7 +32,7 @@ if [ "${1:-}" = "--check" ]; then
     echo "Active rulesets on $repo:"
     printf '  %s\n' $active
   else
-    echo "No rulesets active on $repo. Run ./rulesets/apply-rulesets.sh to raise the wall."
+    echo "No rulesets active on $repo. Run ./rulesets/apply-rulesets.sh to turn the checks on."
   fi
   exit 0
 fi

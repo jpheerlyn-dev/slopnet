@@ -1,9 +1,9 @@
 """Fast unit checks for crew.py's pure functions.
 
-The engine holds the planning and wall logic, and until now it was covered
+The engine holds the planning and check logic, and until now it was covered
 only by tests/redteam.sh — which is thorough but slow, and only exercises the
 engine through a whole run. These target the pure functions directly, so a
-regression in the plan parser or the fake-gate wall shows up in under a
+regression in the plan parser or the fake-gate check shows up in under a
 second.
 
 Adapted from improvements/test_crew_scaffold.py (glm-5.2's note), extended
@@ -122,7 +122,7 @@ def test_parse_waves_still_allows_ordinary_project_paths():
         assert waves[0][0]["files"] == [good], good
 
 
-# ── the fake-gate wall ───────────────────────────────────────────────────
+# ── the fake-gate check ───────────────────────────────────────────────────
 
 def test_refuse_fake_gate_blocks_always_pass_tests():
     _expect_error(lambda: crew.refuse_fake_gate("true"))

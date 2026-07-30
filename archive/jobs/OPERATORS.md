@@ -78,10 +78,10 @@ where the job says): `RESEARCH_subscriptions.md`.
 ## Rules that apply to every job
 
 1. Never rename anything. Naming is the operator's.
-2. Never weaken a wall to make a job pass. If a check blocks you, that is
+2. Never weaken a check to make a job pass. If a check blocks you, that is
    the check working — fix your work.
 3. Prove it by running it. Paste real terminal output into the register;
    an agent's summary is not evidence.
-4. Nothing merges without the walls and (where they exist) real tests.
+4. Nothing merges without the checks and (where they exist) real tests.
 5. If a job turns out to be wrong, say so in `PENDING_OPERATOR.md` and
    stop. An honest blocker beats a confident mess.

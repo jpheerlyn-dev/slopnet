@@ -1,6 +1,6 @@
 {
   "_comment": "ORG-OWNED REPOS ONLY. GitHub refuses push rulesets on user-owned repos ('Source only org-owned repos can have push rules'), so apply-rulesets.sh will report this one as refused on a personal account — that is expected, not a failure. The same protections are enforced by checks/junk.sh and checks/naming.sh locally and in CI. Move the repo into an organisation to make them server-side too.",
-  "name": "slopnet-push-wall",
+  "name": "slopnet-push-limits",
   "target": "push",
   "enforcement": "active",
   "rules": [

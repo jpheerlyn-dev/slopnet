@@ -160,7 +160,7 @@ say "  armed."
 # ---------------------------------------------------------------- step 3
 say ""
 say "STEP 3 of 4 — asking for a hello world, and letting it build"
-say "  (this is the real thing: plan, then agents, then walls, then tests)"
+say "  (this is the real thing: plan, then agents, then checks, then tests)"
 idea="a python function that returns the string hello world, with a pytest test for it"
 note ""
 note "## Step 3 — the build"

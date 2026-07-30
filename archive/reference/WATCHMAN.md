@@ -4,7 +4,7 @@
 > current beginner MVP. They report only and must never be used as a reason to
 > bypass the VPS setup and one-agent proof still required by `SLOPNET.md`.
 
-The walls check every commit. The watchman checks the *silences* — the
+The checks run on every commit. The watchman checks the *silences* — the
 things that go wrong between commits, or that nobody commits at all.
 
 Two watchmen can do these rounds; they are the same rounds:
@@ -21,7 +21,7 @@ Two watchmen can do these rounds; they are the same rounds:
 
 ```yaml
 tasks:
-  - name: walls-standing
+  - name: checks-standing
     interval: 1d
     prompt: >
       From the repo root run every checks/*.sh with --all. Report any
@@ -43,12 +43,12 @@ tasks:
       If register/PENDING_OPERATOR.md has anything under "## Open",
       remind the operator once, gently. Unanswered questions become
       agent guesses.
-  - name: walls-on-the-server
+  - name: checks-on-the-server
     interval: 7d
     prompt: >
       Run rulesets/apply-rulesets.sh --check if the gh CLI is available.
       If no rulesets are active, remind the operator weekly — local
-      hooks alone are a fence, not a wall.
+      hooks alone are a fence, not a check.
 ```
 
 **The one law of any watchman, human or machine: report, never repair.**

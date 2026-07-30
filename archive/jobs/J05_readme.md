@@ -33,7 +33,7 @@ repository, a commit, or a hook is, and they should not need to.
    machine and runnable from anywhere.
 4. **Your first project** — a complete worked example from empty folder
    to working program, with the real terminal output shown.
-5. **What just happened** — a short, plain explanation of the walls, the
+5. **What just happened** — a short, plain explanation of the checks, the
    register, and the crew. One short paragraph each. No lists of jargon.
 6. **When something says no** — show a real RULE/WHY/FIX rejection and
    explain that this is the tool protecting them, not an error they broke.

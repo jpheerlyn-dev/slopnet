@@ -57,7 +57,7 @@ questions at all), and `--wave N` passthrough.
 cd $(mktemp -d) && git init -q && slopnet go "a python script that prints the date, with a test" --yes
 ```
 (Use the repo's `./slopnet` path if it isn't installed yet.) A real agent
-does the work; the run ends with files merged and the walls green.
+does the work; the run ends with files merged and the checks green.
 
 ```bash
 slopnet go "same idea again"

@@ -63,7 +63,7 @@ demands it. Subcommands, each replacing a today-manual step:
 |---|---|
 | `slopnet init` | install.sh + the entire manual Wave 0: arm hooks, fetch pinned binaries, first register file, and (with `--github`) create the repo, push, enable Actions, apply rulesets — the human types one command, ever |
 | `slopnet doctor [--fix]` | doctor.sh; `--fix` re-arms hooks and applies rulesets via gh instead of nagging |
-| `slopnet check` | run the six walls on demand (what agents call *before* wasting a commit attempt) |
+| `slopnet check` | run the six checks on demand (what agents call *before* wasting a commit attempt) |
 | `slopnet sign "<what I did>"` | append a prose register entry — one line for humans, one call for agents |
 | `slopnet orbit new <name>` | the SLOPNET.md recipe as one command: templates copied, registry row added, repo initialized |
 | `slopnet adapt` | detect which tools are configured in this checkout (.claude/, .cursor/, codex, gemini…) and install the matching adapter configs — the codebase-memory-mcp auto-detect pattern |
@@ -74,7 +74,7 @@ demands it. Subcommands, each replacing a today-manual step:
 
 Tools: `session_start` (returns today's register + open PENDING items —
 the ritual's reading half, delivered as data) · `sign_register(text)` ·
-`check(staged|all)` (walls on demand, RULE/WHY/FIX verbatim) ·
+`check(staged|all)` (checks on demand, RULE/WHY/FIX verbatim) ·
 `pending_add(question)` · `doctor()`.
 Resources: the law files (AGENTS.md, SLOPNET.md, WATCHMAN.md) exposed
 read-only so tools can surface them natively.
@@ -107,7 +107,7 @@ future tools, because it only stands on layers no tool can skip.
   agents talking to a port.
 - **Swamp-impossible:** unchanged — MCP adds convenience, never replaces
   the chokepoints. An agent that ignores the MCP server entirely still
-  hits the same walls.
+  hits the same checks.
 - **CEO-grade:** stdlib-only, no telemetry, MIT; MCP is the
   industry-standard port, not a bet on any vendor; the proxy rejection
   keeps credentials untouched.
@@ -130,7 +130,7 @@ pending→orbit→adapt plus a full piped MCP session: initialize,
 tools/list, tools/call).
 
 **Progress note 2 (2026-07-28, evening):** V04 and V05 shipped.
-V04 = `slopnet verify` + the MCP `verify` tool: re-runs walls, manifest,
+V04 = `slopnet verify` + the MCP `verify` tool: re-runs checks, manifest,
 doctor, and (CLI-only) the full red-team, then writes a COUNTERSIGN
 entry to the register with per-proof PASS/FAIL and the commit sha —
 AGENTS.md rule 7 now requires a countersign from a *different* agent
@@ -138,7 +138,7 @@ before work is DONE. V05 = the red-team extended to 25 attacks with an
 MCP fuzz round (garbage stdin, missing required arguments — the server
 must answer isError and keep serving). v0.2 is feature-complete; what
 remains before calling SlopNet "complete" is operator-side: raise the
-server wall (apply rulesets + branch protection), take the template
+server-side protection (apply rulesets + branch protection), take the template
 public when ready, and a v0.3 list (fake-gate sniffer, protected-path
 globs, Hermes hook adapter if Hermes grows hooks).
 
@@ -161,7 +161,7 @@ Taken into SlopNet now or next:
   repair round, "a bad plan never executes") — the blueprint for
   SlopNet wave-briefs when multi-agent dispatch arrives.
 - **Relationship:** StormCode is the factory, SlopNet is the law. A
-  StormCode swarm working inside a SlopNet repo already hits the walls
+  StormCode swarm working inside a SlopNet repo already hits the checks
   at every merge; wiring StormCode's `gates.test_command` to
   `slopnet check --all` + tests makes the marriage explicit. StormCode
   joins STACK.md as a worker companion.

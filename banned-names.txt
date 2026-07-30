@@ -5,10 +5,9 @@
 # stop a word being used in prose, a comment, or a message on screen — that is
 # a vocabulary decision, not a naming check.
 #
-# "walls" is our own invented word for what the code already calls checks/.
-# The README even defines it as "checks (we call them walls)", which is the
-# tell. No new file should carry it. The existing rulesets/*-wall.json files
-# are deliberately NOT matched here yet: renaming them also means renaming the
-# rules already applied on GitHub, so that belongs with the wider rename.
-*walls*
-*Walls*
+# "wall" was our own invented word for what the code has always called
+# checks/. The README even introduced it as "checks (we call them walls)",
+# which is the tell: a made-up word explained using the plain one. Renamed
+# throughout on 2026-07-30. Nothing new should carry it.
+*wall*
+*Wall*

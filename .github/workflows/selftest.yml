@@ -1,6 +1,6 @@
 name: Selftest
 # The template proves itself: the full red-team (31 attacks, 0 may land)
-# runs weekly and on demand. Kept off the per-push path so the wall stays
+# runs weekly and on demand. Kept off the per-push path so the check stays
 # fast; the watchman and this together mean drift can't hide for long.
 
 on:

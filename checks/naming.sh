@@ -74,7 +74,7 @@ if [ "$all" -eq 1 ]; then
     violates "$p" && printf '%s\n' "$p"
   done)
 else
-  hits=$(git diff --cached --name-only -z | tr '\0' '\n' | while IFS= read -r p; do
+  hits=$(git diff --cached --diff-filter=d --name-only -z | tr '\0' '\n' | while IFS= read -r p; do
     violates "$p" && printf '%s\n' "$p"
   done)
 fi

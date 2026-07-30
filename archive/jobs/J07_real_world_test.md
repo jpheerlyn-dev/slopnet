@@ -41,7 +41,7 @@ parallel, on one actual small app, judged by real tests.
 - **Did the thing actually work?** Run it. Paste the output.
 - Every moment a human would have been confused, lost, or annoyed.
 - Cost, if the agents report it, or a note that they don't.
-- Total wall-clock time, and how much of it needed a human.
+- Total check-clock time, and how much of it needed a human.
 - One-line verdict: *could a beginner have done this alone?*
 
 ## Rules

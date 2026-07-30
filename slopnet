@@ -3,7 +3,7 @@
 
   slopnet init             arm this repo: hooks, register, health check
   slopnet doctor [--fix]   health checklist; --fix re-arms + applies rulesets
-  slopnet check [--all]    run the walls right now (before wasting a commit)
+  slopnet check [--all]    run the checks right now (before wasting a commit)
   slopnet sign "TEXT"      append your register entry for today
   slopnet verify [--quick] re-run every proof and COUNTERSIGN the register —
                            meant to be run by a DIFFERENT agent than the one
@@ -14,7 +14,7 @@
 
   slopnet setup [--vps]    meet your crew, or guide one Linux VPS Codex proof
   slopnet plan "IDEA"      the planner turns your idea into WAVES.md
-  slopnet run [--wave N]   the crew works: parallel worktrees, walls + tests
+  slopnet run [--wave N]   the crew works: parallel worktrees, checks + tests
                            as judge, only proven work merged
   slopnet go "IDEA"        arm, choose, plan, approve, and run in one command
 
@@ -143,14 +143,14 @@ def require_python():
 
 def print_welcome():
     print(
-        "SlopNet — VPS-first software building with walls that block junk.\n"
+        "SlopNet — VPS-first software building with checks that block junk.\n"
         "\n"
         "Current status: the strict VPS safety gate is proved; the first guided\n"
         "Linux VPS Codex proof is ready for live verification. A local `go` run\n"
         "is a developer check, not the beginner product flow.\n"
         "\n"
         "  slopnet doctor      Check this project is healthy.\n"
-        "  slopnet check       Run the safety walls right now.\n"
+        "  slopnet check       Run the safety checks right now.\n"
         "  slopnet setup --vps Guided Linux VPS Codex setup and edit proof.\n"
         "  slopnet go \"idea\"   Historical local development path.\n"
         "\n"
@@ -277,7 +277,7 @@ def run_checks(root, all_mode):
     """Run every checks/*.sh; return (ok, report_text)."""
     checks_dir = root / "checks"
     if not checks_dir.is_dir():
-        return False, ("RULE: This repo has no checks/ folder.\nWHY:  Without checks there are no walls.\nFIX:  Restore them: git checkout -- checks/    or re-clone the SlopNet project")
+        return False, ("RULE: This repo has no checks/ folder.\nWHY:  Without checks there are no checks.\nFIX:  Restore them: git checkout -- checks/    or re-clone the SlopNet project")
     lines, ok = [], True
     for script in sorted(checks_dir.glob("*.sh")):
         cmd = ["sh", str(script)] + (["--all"] if all_mode else [])
@@ -288,7 +288,7 @@ def run_checks(root, all_mode):
             ok = False
             lines.append(f"[!!] {script.name}")
             lines.append(out)
-    lines.append("All walls standing." if ok else "A wall said no — read its FIX line.")
+    lines.append("All checks standing." if ok else "A check said no — read its FIX line.")
     return ok, "\n".join(lines)
 
 
@@ -479,7 +479,7 @@ def run_verification(root, quick, who):
     results = []
 
     ok, _ = run_checks(root, all_mode=True)
-    results.append(("walls (checks --all)", ok))
+    results.append(("checks (checks --all)", ok))
 
     if (root / "MANIFEST.sha256").exists():
         code, _ = sh("shasum -a 256 -c MANIFEST.sha256 >/dev/null 2>&1 "
@@ -637,7 +637,7 @@ def cmd_adapt(root, args):
           "Hermes…), give it this server config:\n")
     print(mcp_snippet(root))
     print("\nThat single server is the universal adapter — session briefing, "
-          "register signing, and the walls, callable from inside the tool.")
+          "register signing, and the checks, callable from inside the tool.")
 
 
 # ------------------------------------------------------------------- crew
@@ -1277,7 +1277,7 @@ def git_is_clean(root):
 def checkpoint(root, message, paths=None):
     """Record go's own generated state without firing the post-commit logger.
 
-    The same walls still judge the staged change explicitly. Skipping only
+    The same checks still judge the staged change explicitly. Skipping only
     the logger avoids its after-commit line immediately making the tree dirty.
     """
     add = ["git", "add", "-A"]
@@ -1352,7 +1352,7 @@ def record_go(root, text):
     checkpoint(root, "SlopNet: record go result", [path.relative_to(root)])
 
 
-def report_go(done, failed, walls_ok, next_command, interrupted=False):
+def report_go(done, failed, checks_ok, next_command, interrupted=False):
     print("\nWork report")
     print("Merged: " + (", ".join(done) if done else "nothing"))
     if interrupted:
@@ -1363,7 +1363,7 @@ def report_go(done, failed, walls_ok, next_command, interrupted=False):
             print(f"  - {task}: {why}")
     else:
         print("Failed: nothing")
-    print("Walls: green." if walls_ok else "Walls: not green — read the failure above.")
+    print("Checks: green." if checks_ok else "Checks: not green — read the failure above.")
     print(f"Next: {next_command}")
 
 
@@ -1435,8 +1435,8 @@ def cmd_go(root, args):
             record_go(root, text)
         except RuntimeError as record_error:
             print(f"Could not record the interruption cleanly: {record_error}")
-        walls_ok, _ = run_checks(root, all_mode=True)
-        report_go(exc.done, exc.failed, walls_ok, go_next_command(args),
+        checks_ok, _ = run_checks(root, all_mode=True)
+        report_go(exc.done, exc.failed, checks_ok, go_next_command(args),
                   interrupted=True)
         return 130
     except KeyboardInterrupt:
@@ -1445,8 +1445,8 @@ def cmd_go(root, args):
             record_go(root, "Go was interrupted before the crew run began.")
         except RuntimeError as record_error:
             print(f"Could not record the interruption cleanly: {record_error}")
-        walls_ok, _ = run_checks(root, all_mode=True)
-        report_go([], [], walls_ok, go_next_command(args), interrupted=True)
+        checks_ok, _ = run_checks(root, all_mode=True)
+        report_go([], [], checks_ok, go_next_command(args), interrupted=True)
         return 130
     except (crew.CrewError, RuntimeError) as exc:
         view.finish()
@@ -1455,28 +1455,28 @@ def cmd_go(root, args):
             record_go(root, f"Go stopped — {exc}")
         except RuntimeError as record_error:
             print(f"Could not record the stopped run cleanly: {record_error}")
-        walls_ok, _ = run_checks(root, all_mode=True)
-        report_go([], failed, walls_ok, go_next_command(args))
+        checks_ok, _ = run_checks(root, all_mode=True)
+        report_go([], failed, checks_ok, go_next_command(args))
         return 1
 
     view.finish()
-    walls_ok, walls_report = run_checks(root, all_mode=True)
-    if not walls_ok:
-        failed.append(("walls", walls_report.replace("\n", " / ")))
+    checks_ok, checks_report = run_checks(root, all_mode=True)
+    if not checks_ok:
+        failed.append(("checks", checks_report.replace("\n", " / ")))
     record_text = ("Go run — merged: "
                    + (", ".join(done) if done else "none")
                    + ("; failed: "
                       + "; ".join(f"{task} ({why})" for task, why in failed)
                       if failed else "")
-                   + f"; walls: {'green' if walls_ok else 'not green'}.")
+                   + f"; checks: {'green' if checks_ok else 'not green'}.")
     try:
         record_go(root, record_text)
     except RuntimeError as exc:
         failed.append(("register", str(exc)))
     next_command = (go_next_command(args) if failed
                     else "git log --oneline --max-count=5")
-    report_go(done, failed, walls_ok, next_command)
-    return 1 if failed or not walls_ok else 0
+    report_go(done, failed, checks_ok, next_command)
+    return 1 if failed or not checks_ok else 0
 
 
 # -------------------------------------------------------------------- mcp
@@ -1487,7 +1487,7 @@ MCP_TOOLS = [
                     "previous day, and every open question you must not guess at.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "check",
-     "description": "Run the SlopNet walls now, before attempting a commit. "
+     "description": "Run the SlopNet checks now, before attempting a commit. "
                     "Returns RULE/WHY/FIX lines for anything that would be blocked.",
      "inputSchema": {"type": "object", "properties": {
          "scope": {"type": "string", "enum": ["staged", "all"]}}}},
@@ -1507,7 +1507,7 @@ MCP_TOOLS = [
      "description": "Run the SlopNet health checklist for this repo.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "verify",
-     "description": "COUNTERSIGN another agent's work: re-run the walls, "
+     "description": "COUNTERSIGN another agent's work: re-run the checks, "
                     "manifest, and doctor, then write the countersign to the "
                     "register. Run this when you are the second, independent "
                     "verifier — never on your own work. (The full red-team is "
@@ -1612,7 +1612,7 @@ def main():
     p = sub.add_parser("doctor", help="health checklist")
     p.add_argument("--fix", action="store_true", help="re-arm hooks + apply rulesets first")
 
-    p = sub.add_parser("check", help="run the walls now")
+    p = sub.add_parser("check", help="run the checks now")
     p.add_argument("--all", action="store_true", help="whole tree, not just staged")
 
     p = sub.add_parser("sign", help="append your register entry for today")

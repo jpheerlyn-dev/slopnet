@@ -17,7 +17,7 @@ The run used the empty, automatically generated external directory /private/tmp/
 - 04:17:46 BST — slopnet go armed the empty folder and committed its SlopNet scaffolding.
 - The first-run wizard required four answers: initialise Git, select a planner, select writers, and supply a test command. The planner default was selected; all six detected coding CLIs were selected as writers; the supplied test command was python3 -m unittest discover -s tests -v.
 - The proof stage rejected all six selected writers. The selected planner, Claude, was also unproven, so the run stopped before planning.
-- 04:21:29 BST — SlopNet committed its go result. The automatic Git timestamps put the arm-to-result wall-clock time at **3 minutes 43 seconds**.
+- 04:21:29 BST — SlopNet committed its go result. The automatic Git timestamps put the arm-to-result check-clock time at **3 minutes 43 seconds**.
 - After the stop, I did not modify the orbit. I inspected the files, attempted the configured test command, and read the orbit register.
 
 The human interaction was four required wizard answers. The tool reports no separate time spent answering them, so an exact human-time total is unavailable; no human intervention was needed after setup, and no attempt was made to repair the run.
@@ -57,7 +57,7 @@ Who should WRITE the code? (pick one or more, comma-separated) [1]
   6. hermes (logged-in CLI)
 > 1,2,3,4,5,6
 
-What command runs your tests? [walls only]
+What command runs your tests? [checks only]
 > python3 -m unittest discover -s tests -v
 
 Proving the selected agents in throwaway git repos:
@@ -90,7 +90,7 @@ WHY:  The coding app exited without a successful edit.
 FIX:  Fix login/quota/errors above, then re-run the same command.
 WHY:  Unproven agents are not allowed to write real work.
 FIX:  Run: slopnet setup
-Walls: green.
+Checks: green.
 Next: slopnet go 'a command-line tool that takes a folder of photos and writes an HTML contact sheet.'
 ```
 

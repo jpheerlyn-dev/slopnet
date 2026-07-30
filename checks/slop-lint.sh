@@ -34,7 +34,7 @@ else
   # shellcheck disable=SC2086
   if git diff --cached -U0 -- $src_globs | grep '^+' | grep -v '^+++' | grep -q -i -E "$pat"; then
     # shellcheck disable=SC2086
-    hits=$(git diff --cached --name-only -z -- $src_globs | tr '\0' '\n' | while IFS= read -r f; do
+    hits=$(git diff --cached --diff-filter=d --name-only -z -- $src_globs | tr '\0' '\n' | while IFS= read -r f; do
       if git diff --cached -U0 -- "$f" | grep '^+' | grep -v '^+++' | grep -q -i -E "$pat"; then
         printf '%s\n' "$f"
       fi

@@ -2,7 +2,7 @@
 
 SlopNet is intended to make VPS-based AI software building easy. You describe
 a small thing you want built; agents write the files on the VPS, and safety
-checks (we call them **walls**) block messy or broken work from being kept.
+checks block messy or broken work from being kept.
 
 ## The simple promise — and the honest current status
 
@@ -99,7 +99,7 @@ subscription. SlopNet first asks for confirmation to make a plan and stops; no
 coding agent runs. After the person reads the plan, **Start approved build**
 asks for a second explicit confirmation before a multi-agent pipeline may edit
 the VPS project. That control currently refuses safely until a project-specific
-runner and its walls have passed their first VPS proof; it never falls back to
+runner and its checks have passed their first VPS proof; it never falls back to
 an unprotected or local run. A local request draft remains optional, and the
 person must accept its exact wording before the paid planner sees it.
 
@@ -121,7 +121,7 @@ provider until you choose that provider in a later setup step.
 
 ### Container gate (available now)
 
-SlopNet now has a locked-down Docker gate for the VPS. It runs the walls in
+SlopNet now has a locked-down Docker gate for the VPS. It runs the checks in
 an offline, non-root container with a read-only operating system, no extra
 Linux powers, no Docker socket and strict resource limits. Once Docker Engine
 and its Compose plugin are installed on the VPS, stand in this folder there
@@ -153,7 +153,7 @@ for fixable high/critical vulnerabilities in GitHub Actions.
 
 ### Why the name?
 
-In AI chat, “slop” often means low-quality generated junk. **SlopNet’s job is the opposite:** only work that passes the walls is allowed to stay. The name is a reminder of the problem; the walls are the fix.
+In AI chat, “slop” often means low-quality generated junk. **SlopNet’s job is the opposite:** only work that passes the checks is allowed to stay. The name is a reminder of the problem; the checks are the fix.
 
 ### Who this guide is for
 
@@ -184,9 +184,9 @@ not control the VPS or meet the product promise above.
 | **Clone** | “Download a full copy of a project onto my computer.” |
 | **AI coding app** | A program you install and log into. It can edit project files when SlopNet asks it to. Not the same as only chatting on a website. |
 | **Crew** | Your chosen AI apps for this project: who **plans**, who **writes** code. Saved after `./slopnet setup`. |
-| **Walls** | Automatic safety checks. They can say **no** and tell you how to fix it. |
+| **Checks** | Small scripts that inspect every change before it is kept. They can say **no** and tell you how to fix it. |
 | **Plan / WAVES.md** | A short checklist the AI writes before coding. You read it and approve it. |
-| **MERGED** | This attempt passed the walls and was kept in your project. Success for that step. |
+| **MERGED** | This attempt passed the checks and was kept in your project. Success for that step. |
 
 You will almost always run SlopNet as:
 
@@ -297,7 +297,7 @@ cd my-app2
 ```
 
 **What did you download?**  
-A ready-made **project folder** that already includes SlopNet’s safety walls.  
+A ready-made **project folder** that already includes SlopNet’s safety checks.  
 You build *your* small programs **inside** this folder.  
 (It is not only a tool sitting somewhere else on the Mac.)
 
@@ -322,7 +322,7 @@ SlopNet will:
 1. List AI coding apps it can see on your Mac.  
 2. Ask who should **plan** (think of steps).  
 3. Ask who should **write** the files (can be the same app).  
-4. Ask what command runs your tests — for your first try, just press **Enter** (“walls only”).  
+4. Ask what command runs your tests — for your first try, just press **Enter** (“checks only”).  
 5. Run a tiny proof that the app can create a file.
 
 Type the **number** next to the app you installed.  
@@ -341,7 +341,7 @@ Who should PLAN the work? (best thinker) [1]
 > 2
 Who should WRITE the code? (pick one or more, comma-separated) [1]
 > 2
-What command runs your tests? [walls only]
+What command runs your tests? [checks only]
 >
 
 Proving the selected agents in throwaway git repos:
@@ -375,7 +375,7 @@ What happens:
    - type `n` to stop without building  
    - type `edit` only if you know how to edit a text file in Terminal  
 4. The **writer** AI works. You may see words like `working…`, `checking…`, then `MERGED`.  
-5. **Walls: green** means the safety checks passed.
+5. **Checks: green** means the safety checks passed.
 
 Real output from that exact ask (2026-07-29, Codex as planner and writer):
 
@@ -398,7 +398,7 @@ Run this? (y/n/edit) [y]
 Work report
 Merged: T1-create-hello-page
 Failed: nothing
-Walls: green.
+Checks: green.
 Next: git log --oneline --max-count=5
 ```
 
@@ -461,7 +461,7 @@ You already have the `my-app` folder and a saved crew. Next time:
    ./slopnet go "your short idea here"
    ```
 
-4. Read the plan, press **Enter** to approve, wait for `MERGED` and `Walls: green`.
+4. Read the plan, press **Enter** to approve, wait for `MERGED` and `Checks: green`.
 
 You do **not** need to clone again.  
 You do **not** need setup again unless you want different AI apps or an app stopped being logged in.
@@ -476,8 +476,8 @@ On a **fresh** clone, `./slopnet go "…"` will run setup for you if no crew exi
 **The crew.**  
 One AI writes a plan (`WAVES.md`). One or more AIs write files for those steps. They work in private copies of the project first, so a bad try does not immediately wreck your main files.
 
-**The walls.**  
-Before work is kept, fixed safety checks run. Messy files, secrets, and other forbidden junk are blocked. The walls decide; the AI does **not** grade its own work.
+**The checks.**  
+Before work is kept, fixed safety checks run. Messy files, secrets, and other forbidden junk are blocked. The checks decide; the AI does **not** grade its own work.
 
 **The register.**  
 Under `register/` is a day-by-day log of what ran. You can open those text files later to see history.
@@ -486,7 +486,7 @@ Under `register/` is a day-by-day log of what ran. You can open those text files
 
 ## When something says no
 
-A red or `[!!]` message is often the walls **protecting** you, not you “breaking” the computer.
+A red or `[!!]` message is often the checks **protecting** you, not you “breaking” the computer.
 
 Real example when a junk file was staged on purpose:
 
@@ -495,7 +495,7 @@ Real example when a junk file was staged on purpose:
 RULE: Thumbs.db are junk files that must never be committed.
 WHY:  Junk files bloat the repo, leak local paths, and cause pointless conflicts.
 FIX:  Unstage with git rm --cached <file>; .gitignore already ignores these.
-A wall said no — read its FIX line.
+A check said no — read its FIX line.
 ```
 
 Read three lines every time:
@@ -517,10 +517,10 @@ Run them from inside your project folder as `./slopnet …`.
 |---|---|
 | `./slopnet init` | Arms this folder (hooks, log folder, basic health). |
 | `./slopnet doctor` | Health checklist. Add `--fix` to repair what it safely can. |
-| `./slopnet check` | Runs the walls now. Add `--all` for the full set. |
+| `./slopnet check` | Runs the checks now. Add `--all` for the full set. |
 | `./slopnet setup` | Finds AI apps, proves them, saves your crew. |
 | `./slopnet plan "idea"` | Writes a step-by-step plan only (`WAVES.md`). |
-| `./slopnet run` | Runs an existing plan: agents code, walls (and tests) judge. |
+| `./slopnet run` | Runs an existing plan: agents code, checks (and tests) judge. |
 | `./slopnet go "idea"` | Setup if needed, plan, ask you, then run. |
 | `./slopnet sign "note"` | Adds your note to today’s log in `register/`. |
 | `./slopnet pending "question"` | Files a question for the human project owner. |
@@ -565,8 +565,8 @@ If a platform-specific install step is missing, that is a documentation gap — 
 
 ## For teams and advanced use
 
-- **Rulesets:** extra project rules can live under `rulesets/` and run with the walls.  
-- **CI:** the same walls can run in GitHub Actions (see `.github/workflows/`).  
+- **Rulesets:** extra project rules can live under `rulesets/` and run with the checks.  
+- **CI:** the same checks can run in GitHub Actions (see `.github/workflows/`).  
 - **Countersign rule:** work counts as done only when a *different* agent runs `./slopnet verify` and leaves a countersign in `register/`. Nobody countersigns their own work.  
 - **Push protection:** forcing checks on `git push` is mainly a GitHub **Organization** feature; a personal repo may not get full push rules.  
 - **Orbit:** experimental side ideas get their **own** small project (`./slopnet orbit new NAME`) so the main folder stays stable. Only the human operator chooses names.
@@ -576,10 +576,10 @@ If a platform-specific install step is missing, that is a documentation gap — 
 ## Honest limits
 
 - SlopNet does **not** decide whether your idea is good or useful.  
-- It **cannot** catch a bug that nobody wrote a test for. With “walls only,” only the safety checks judge.  
+- It **cannot** catch a bug that nobody wrote a test for. With “checks only,” only the safety checks judge.  
 - It **needs** a working AI coding login. No login means no crew.  
 - Short, concrete asks work best: name the file and say what should be inside.  
-- Sample output above came from **Codex** on one machine. Your app names and timing will differ; look for `MERGED` and `Walls: green`, not identical wording.
+- Sample output above came from **Codex** on one machine. Your app names and timing will differ; look for `MERGED` and `Checks: green`, not identical wording.
 
 ---
 

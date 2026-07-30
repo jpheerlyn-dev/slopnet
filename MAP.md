@@ -17,7 +17,7 @@
 |---|---|
 | `slopnet` | command-line entry point: setup, plan, run, go, sign, verify, and doctor |
 | `crew.py` | crew configuration, planning, parallel worktrees, and merge handling |
-| `checks/` | the six repository walls; this is the law |
+| `checks/` | the six repository checks; this is the law |
 | `tests/` | behavioural tests and the red-team suite |
 | `.githooks/` and `.github/workflows/` | local and GitHub enforcement |
 | `register/` | chronological evidence and operator decisions |
@@ -26,7 +26,7 @@
 ## VPS container gate
 
 `Dockerfile` and `compose.yml` provide one deliberately strict VPS gate for
-the repository walls: non-root, read-only filesystem, no network, no Docker
+the repository checks: non-root, read-only filesystem, no network, no Docker
 socket, and bounded resources. It is a containment proof, not the future
 credentialed coding-agent runtime. The tested VPS checkout is at
 `/opt/slopnet`; the full live proof is in `register/2026-07-29.md`.

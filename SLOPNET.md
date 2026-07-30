@@ -63,14 +63,14 @@ build; it does not spend from a coding subscription. **Build** is deliberately
 separate: the person confirms that the proved coding app may make a plan, then
 reads that plan, then sees a second explicit confirmation before SlopNet can
 run the multi-agent coding pipeline. The current build control refuses safely
-until a project-specific runner and its walls have passed a real VPS proof; it
+until a project-specific runner and its checks have passed a real VPS proof; it
 never substitutes a local or unprotected run. A local request draft remains
 optional, and a person must accept its exact wording before the paid planner
 sees it.
 
 ## MVP crew roles
 
-SlopNet is the coding executor: it isolates work, runs tests and walls, and
+SlopNet is the coding executor: it isolates work, runs tests and checks, and
 decides what may merge. It does not become a general chat gateway or a second
 memory store.
 
@@ -94,11 +94,11 @@ receive real work.
 Docker is a containment layer, not a magic quality stamp. It protects a VPS
 from a process that misbehaves; it cannot prove that a feature is correct,
 that a dependency is trustworthy, or that an agent understood a request.
-SlopNet therefore keeps the walls, real tests, review and the register even
+SlopNet therefore keeps the checks, real tests, review and the register even
 inside a container.
 
 This checkout now ships one strict container gate: `Dockerfile` and
-`compose.yml`. It runs SlopNet's walls in a non-root process with a read-only
+`compose.yml`. It runs SlopNet's checks in a non-root process with a read-only
 root filesystem, no Linux capabilities, no new privileges, a small temporary
 filesystem, CPU/memory/process limits, and no network. It never receives a
 Docker socket, host networking, provider credentials, or privileged mode.

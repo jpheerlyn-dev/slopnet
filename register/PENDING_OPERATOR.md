@@ -1,6 +1,6 @@
 ## Open
 
-- [2026-07-29, Codex] The v0.9 Mac app cleanly separates local Granite chat, paid planning, and an explicit approved-build control, but a newly named VPS project still has no proven project-specific walls/runtime. Its plan is saved as a clean Git base; the approved-build helper refuses before any agent starts when that runtime is absent. Do not claim end-to-end multi-agent building from the Mac app until a small project template/runtime has passed a real VPS plan-and-run proof.
+- [2026-07-29, Codex] The v0.9 Mac app cleanly separates local Granite chat, paid planning, and an explicit approved-build control, but a newly named VPS project still has no proven project-specific checks/runtime. Its plan is saved as a clean Git base; the approved-build helper refuses before any agent starts when that runtime is absent. Do not claim end-to-end multi-agent building from the Mac app until a small project template/runtime has passed a real VPS plan-and-run proof.
 
 - [2026-07-29, Codex] Local-model benchmark conclusion needs a later, model-specific tool-call adapter proof: the corrected bounded VPS benchmark measured Granite 4.1 3B at 14.9 tokens/sec / 3.9 GiB peak RSS and SmolLM3 3B at 15.2 tokens/sec / 3.6 GiB. Its first action-shape scorer was invalid because llama.cpp echoed the prompt; a later bare-prompt Granite run started but did not promptly finish a function-shaped answer. Ministral 3B and Qwen3 4B did not complete this generic CLI harness and were manually stopped. Do not offer them as SlopNet presets or claim native tool calling until each has a dedicated chat template, parser, timeout test, and real action-denial proof.
 
@@ -25,7 +25,7 @@
   3. First-time path: setup-then-go vs go-starts-setup still dual-explained.
   4. Sample names Codex; beginner may think that exact app is required.
   5. WAVES.md / “read it” / y|n|edit not fully explained at first sight.
-  6. “Walls: green” before walls are taught; `git log` “Next:” looks mandatory.
+  6. “Checks: green” before checks are taught; `git log` “Next:” looks mandatory.
   7. AI app table has no install links / which one a pure beginner should pick.
   8. PATH jargon for AI CLIs and for the optional `export PATH="$(pwd):$PATH"` line.
   9. Setup’s printed “Next: plan” vs README’s next step `go`.
@@ -58,5 +58,5 @@
 
 - [2026-07-29, operator] Authorized Docker Engine plus the Compose plugin on the tested VPS. Preserve the existing root/password SSH policy; install from Docker's official Ubuntu repository, then prove SlopNet's container gate and record the actual output.
 
-- [2026-07-28, operator] Approved sending the disposable J03 acceptance prompt and scratch-repository contents to OpenAI Codex. The real run then merged `T1-print-current-date`, passed its pytest and all walls, reused the crew and unchanged plan on the second run, and left a clean tree with no worktree or branch leftovers after Ctrl-C.
+- [2026-07-28, operator] Approved sending the disposable J03 acceptance prompt and scratch-repository contents to OpenAI Codex. The real run then merged `T1-print-current-date`, passed its pytest and all checks, reused the crew and unchanged plan on the second run, and left a clean tree with no worktree or branch leftovers after Ctrl-C.
 - [2026-07-29, Grok J05 redo] Prior Codex J05 confusions (overlapping walkthroughs, no template vs checkout, setup vs existing-crew sample, subscription-without-CLI-login) addressed in README rewrite; new peer confusions re-filed under Open.

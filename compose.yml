@@ -1,4 +1,4 @@
-# The strict, offline gate. It runs walls and tests; it is deliberately not
+# The strict, offline gate. It runs checks and tests; it is deliberately not
 # the networked coding-agent runtime. Do not add privileged mode, host network,
 # Docker's socket, or provider credentials to this service.
 services:

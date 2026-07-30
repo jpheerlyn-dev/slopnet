@@ -23,7 +23,7 @@ frustrated. Every one of those was the tool's fault, not theirs.
    `die(...)` and every failure path in `slopnet` and `crew.py`. Each
    must answer: what happened, why it matters, what to type next. Three
    short lines maximum, in the RULE/WHY/FIX spirit already used by the
-   walls.
+   checks.
 3. **Make it runnable from anywhere.** Provide (and document in
    `install.sh`) the one line that puts `slopnet` on the user's PATH, so
    they type `slopnet` rather than `python3 ./slopnet`. It must work on a

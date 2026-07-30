@@ -28,7 +28,7 @@ unknown() {
   printf "[??] Can't check from here — %s\n" "$1"
 }
 
-instruction='Turn on branch protection: Settings → Branches → require law, manifest, register-audit, and container. This is the wall nobody can climb.'
+instruction='Turn on branch protection: Settings → Branches → require law, manifest, register-audit, and container. Nobody can skip these.'
 
 hooks_ok=1
 for hook in .git/hooks/pre-commit .git/hooks/post-commit; do
@@ -41,7 +41,7 @@ if [[ "$hooks_ok" -eq 1 ]]; then
 else
   bad \
     'Hooks are not armed.' \
-    'Commits would not run the walls.' \
+    'Commits would not run the checks.' \
     'Run: ./install.sh    or: slopnet doctor --fix'
 fi
 
@@ -66,11 +66,11 @@ for check in "${checks[@]}"; do
   fi
 done
 if [[ "$law_ok" -eq 1 ]]; then
-  ok 'All six law checks are present.'
+  ok 'All six checks are present.'
 else
   bad \
-    'Some law checks are missing or not executable.' \
-    'Without checks/ the walls cannot run.' \
+    'Some checks are missing or not executable.' \
+    'Without checks/ nothing can judge a commit.' \
     'Restore them: git checkout -- checks/    or re-clone the SlopNet project'
 fi
 
@@ -112,7 +112,7 @@ if [[ -f .github/workflows/slopnet.yml ]]; then
 else
   bad \
     'The CI workflow is missing.' \
-    'GitHub Actions will not run the walls on pull requests.' \
+    'GitHub Actions will not run the checks on pull requests.' \
     'Restore it: git checkout -- .github/workflows/slopnet.yml'
 fi
 
@@ -169,16 +169,16 @@ else
         fi
       done
       if [[ "$protection_ok" -eq 1 ]]; then
-        ok 'The server wall requires all four SlopNet checks.'
+        ok 'GitHub requires all four SlopNet checks before anything reaches the default branch.'
         # Required checks that an admin may always bypass are advice, not a
-        # wall. Say so plainly: a real push on 2026-07-30 was accepted with
+        # check. Say so plainly: a real push on 2026-07-30 was accepted with
         # "4 of 4 required status checks are expected", and nothing in this
-        # report mentioned it. Believing a wall is solid when it is not is
+        # report mentioned it. Believing a check is solid when it is not is
         # worse than knowing it is thin.
-        if [[ -f rulesets/slopnet-checks-wall.json ]] \
-          && grep -q '"bypass_actors"' rulesets/slopnet-checks-wall.json \
-          && ! grep -q '"bypass_actors": *\[\] *,\?' rulesets/slopnet-checks-wall.json; then
-          printf '[!!] The checks wall can be bypassed by a repository admin, so it advises rather than blocks. Fine while you are the only person here; remove the bypass in rulesets/slopnet-checks-wall.json and re-apply before anyone else can push.\n'
+        if [[ -f rulesets/slopnet-required-checks.json ]] \
+          && grep -q '"bypass_actors"' rulesets/slopnet-required-checks.json \
+          && ! grep -q '"bypass_actors": *\[\] *,\?' rulesets/slopnet-required-checks.json; then
+          printf '[!!] GitHub lets a repository admin push past those required checks, so they advise rather than block. Fine while you are the only person here; remove the bypass in rulesets/slopnet-required-checks.json and re-apply before anyone else can push.\n'
         fi
       else
         bad \

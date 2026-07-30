@@ -9,7 +9,7 @@ LABEL org.opencontainers.image.title="SlopNet" \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Git is required by the walls and worktree runner. No language packages are
+# Git is required by the checks and worktree runner. No language packages are
 # installed into the image; SlopNet remains standard-library only.
 RUN apt-get update \
     && apt-get install --no-install-recommends --yes git ca-certificates \

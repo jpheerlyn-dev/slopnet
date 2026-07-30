@@ -244,7 +244,7 @@ attack_22() {
   local out
   out=$(printf '%s\n' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-    '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"drop_all_walls","arguments":{}}}' \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"drop_all_checks","arguments":{}}}' \
     '{"jsonrpc":"2.0","id":3,"method":"ping"}' \
     | python3 ./slopnet mcp) || return 1
   printf '%s' "$out" | grep -q '"isError": true' || return 1
