@@ -10,7 +10,7 @@ username="$3"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.5"
+slopnet_release="v0.9.6"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 repo_url="https://github.com/jpheerlyn-dev/slopnet.git"
 

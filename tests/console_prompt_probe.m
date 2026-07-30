@@ -190,6 +190,19 @@ int main(void) {
                   "hyphenated shouting is not mistaken for a one-time code");
         }
 
+        // Real output, captured from grok 0.2.117 signing in on a server.
+        // Every earlier case here was written from my idea of what a provider
+        // prints. This one is what one actually printed, kept verbatim.
+        {
+            Watcher *w = signInFor(
+                @"printf '  https://accounts.x.ai/oauth2/device?user_code=2E2J-J8A8\n\n'; "
+                @"printf 'Confirm this code in your browser:\n\n  2E2J-J8A8\n'; "
+                @"printf '\033[90mOnly continue with a code you requested.\033[0m\n'; sleep 1");
+            check(w.signInPage != nil, "the real sign-in link is offered");
+            check([w.signInCode isEqualToString:@"2E2J-J8A8"],
+                  "the real one-time code is captured, so nobody types it by hand");
+        }
+
     fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }

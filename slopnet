@@ -31,6 +31,7 @@ import datetime
 import json
 import os
 import pathlib
+import tempfile
 import re
 import shlex
 import shutil
@@ -984,12 +985,14 @@ def bootstrap_vps_account(root):
 
 
 # The coding apps SlopNet can sign in to with a subscription somebody already
-# pays for. Each entry is the official package published by the company that
-# runs the service, and the command that starts its own browser sign-in.
+# pays for. Each entry comes from the company that runs the service — never a
+# third party's build — and carries the command that starts its own browser
+# sign-in.
 #
-# Grok is deliberately absent. There is no xAI-published CLI on npm — only
-# third-party packages — and installing a stranger's package to handle
-# somebody's account credentials is not a decision SlopNet makes for them.
+# Two shapes of install. Three publish an npm package. Grok ships an installer
+# on xai's own domain instead, which is why an npm-only search once concluded
+# there was no Grok CLI at all. It writes only inside the account's home and
+# needs no root, the same terms as the others.
 CODING_APPS = {
     "openai": {
         "name": "ChatGPT",
@@ -1009,6 +1012,12 @@ CODING_APPS = {
         "binary": "gemini",
         "login": [],
     },
+    "xai": {
+        "name": "Grok",
+        "installer": "https://x.ai/cli/install.sh",
+        "binary": "grok",
+        "login": ["login"],
+    },
 }
 
 
@@ -1017,8 +1026,8 @@ def coding_app_or_refuse(provider):
     app = CODING_APPS.get(provider)
     if app is None:
         fail(f"SlopNet has no verified way to sign in to '{provider}'.",
-             "There is no CLI published by that company for SlopNet to install, "
-             "and it will not install a third party's package to handle your account.",
+             "SlopNet installs a coding app only from the company that runs the "
+             "service, and it has no such install for this one.",
              "Pick another coding app, or skip this one and carry on")
     return app
 
@@ -1032,16 +1041,28 @@ def codex_login_ok(executable):
 
 
 def install_coding_app_for_current_user(home, provider="openai"):
-    """Install one official coding-app package for this account only."""
+    """Install one official coding-app tool for this account only.
+
+    Everything lands under the account's own home. Nothing here runs as root,
+    and nothing is installed system-wide, so a coding app can never reach
+    another account on the server.
+    """
     app = coding_app_or_refuse(provider)
+    prefix = home / ".local"
+    prefix.mkdir(mode=0o700, exist_ok=True)
+    ensure_private_directory(prefix, os.geteuid(), "The local tool directory")
+
+    if app.get("installer"):
+        return _install_from_vendor_script(app, prefix)
+    return _install_from_npm(app, prefix)
+
+
+def _install_from_npm(app, prefix):
     npm = shutil.which("npm")
     if not npm:
         fail(f"The {app['name']} tool is not installed and npm is unavailable.",
              "Installing it needs Node.js and npm on this VPS.",
              "Install Node.js 20 or newer, then re-run: slopnet setup --vps")
-    prefix = home / ".local"
-    prefix.mkdir(mode=0o700, exist_ok=True)
-    ensure_private_directory(prefix, os.geteuid(), "The local tool directory")
     print(f"SlopNet can install the official {app['name']} command-line tool")
     print(f"for this account only at {prefix}. It runs: "
           f"npm install --prefix {prefix} {app['package']}")
@@ -1051,14 +1072,70 @@ def install_coding_app_for_current_user(home, provider="openai"):
              "Install a CLI when you are ready, then re-run: slopnet setup --vps")
     installed = subprocess.run([npm, "install", "--prefix", str(prefix), app["package"]])
     if installed.returncode != 0:
-        fail("Codex CLI installation failed.",
+        fail(f"{app['name']} installation failed.",
              "npm did not finish installing the approved package for this user.",
              "Read the npm error above, fix it, then re-run: slopnet setup --vps")
-    executable = prefix / "node_modules" / ".bin" / "codex"
+    # The binary is the one this app publishes, not always codex. Getting this
+    # wrong installed the package and then reported it missing.
+    return _installed_executable(app, prefix / "node_modules" / ".bin" / app["binary"])
+
+
+def _install_from_vendor_script(app, prefix):
+    """Run a vendor's own installer, with its output pinned inside the account.
+
+    The script is downloaded in full and then run, rather than piped straight
+    into a shell. A pipe hands a half-finished download to the interpreter line
+    by line, so a connection that drops midway executes the first half of an
+    install and reports success.
+    """
+    curl = shutil.which("curl")
+    if not curl:
+        fail(f"The {app['name']} tool is installed with curl, which is unavailable.",
+             "Its publisher ships an install script rather than an npm package.",
+             "Install curl on this VPS, then re-run: slopnet setup --vps")
+    # Bash, not sh. These installers use arrays and other bash-only syntax, and
+    # on Debian and Ubuntu /bin/sh is dash — running one there dies on line 20
+    # with a syntax error that looks like a corrupt download.
+    bash = shutil.which("bash")
+    if not bash:
+        fail(f"The {app['name']} installer needs bash, which is unavailable.",
+             "Its publisher's install script uses bash syntax that dash refuses.",
+             "Install bash on this VPS, then re-run: slopnet setup --vps")
+    bin_dir = prefix / "bin"
+    bin_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    print(f"SlopNet can install the official {app['name']} command-line tool")
+    print(f"for this account only at {bin_dir}. It downloads and runs the "
+          f"installer published at {app['installer']}.")
+    if not ask_yes_no(f"Install the {app['name']} tool now?"):
+        fail("No coding CLI was installed.",
+             "A real provider proof needs one approved coding CLI.",
+             "Install a CLI when you are ready, then re-run: slopnet setup --vps")
+    with tempfile.TemporaryDirectory() as workspace:
+        script = pathlib.Path(workspace) / "install.sh"
+        fetched = subprocess.run(
+            [curl, "-fsSL", "--proto", "=https", "--tlsv1.2",
+             "--max-time", "120", "-o", str(script), app["installer"]])
+        if fetched.returncode != 0 or not script.is_file() or script.stat().st_size == 0:
+            fail(f"The {app['name']} installer could not be downloaded.",
+                 "Nothing was run, so nothing was half-installed.",
+                 "Check this server can reach the internet, then re-run: "
+                 "slopnet setup --vps")
+        environment = dict(os.environ)
+        environment["GROK_BIN_DIR"] = str(bin_dir)
+        installed = subprocess.run([bash, str(script)], env=environment)
+    if installed.returncode != 0:
+        fail(f"{app['name']} installation failed.",
+             "The publisher's installer did not finish.",
+             "Read the error above, fix it, then re-run: slopnet setup --vps")
+    return _installed_executable(app, bin_dir / app["binary"])
+
+
+def _installed_executable(app, executable):
     if not executable.is_file() or not os.access(executable, os.X_OK):
-        fail("npm finished but Codex CLI was not found.",
+        fail(f"The install finished but {app['name']} was not found.",
              "Setup will not guess where a provider installed its executable.",
-             "Check npm output, then re-run: slopnet setup --vps")
+             f"Expected it at {executable}. Read the output above, then re-run: "
+             "slopnet setup --vps")
     return str(executable)
 
 
