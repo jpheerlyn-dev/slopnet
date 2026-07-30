@@ -730,6 +730,11 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
     return self.followingTail || [self atTail];
 }
 
+- (NSString *)textForTesting {
+    [self redraw];
+    return self.output.textStorage.string;
+}
+
 - (void)note:(NSString *)text {
     [self consume:[NSString stringWithFormat:@"%@\n", text]];
 }
@@ -945,9 +950,11 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
     [self.ink reset];
     [self noticeWhatItIsWaitingFor];
 
+    BOOL quiet = self.quietWhenItWorks;
+    self.quietWhenItWorks = NO;          // one run only
     if (status == 0) {
         [self setStatusText:@"Finished successfully." glyph:nil tint:nil];
-        [self note:@"\n— finished —"];
+        if (!quiet) [self note:@"\n— finished —"];
     } else if (status < 0) {
         [self setStatusText:@"Stopped." glyph:nil tint:nil];
         [self note:@"\n— stopped —"];

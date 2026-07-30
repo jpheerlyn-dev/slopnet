@@ -1594,6 +1594,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [self resizeEntry];
     [self beginActivity:@"think" caption:@"Your guide is thinking…"];
     [self setBusy:YES];
+    // The reply is the news. A turn that worked should not be followed by a
+    // note saying a program exited — that is the app talking about itself.
+    self.console.quietWhenItWorks = YES;
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port, self.username, question]]) {
         [self setBusy:NO];

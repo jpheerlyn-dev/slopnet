@@ -203,6 +203,42 @@ int main(void) {
                   "the real one-time code is captured, so nobody types it by hand");
         }
 
+        // A conversation turn is a program run, but the reply arriving is the
+        // news — nobody wants a note telling them their sentence finished.
+        // Failures must still speak up.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Watcher *w = [Watcher new];
+            c.delegate = w;
+            c.quietWhenItWorks = YES;
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c", @"printf 'a reply\n'"]];
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:3];
+            while (!w.finished && [until timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            NSString *shown = c.textForTesting;
+            check([shown containsString:@"a reply"], "the reply itself is shown");
+            check(![shown containsString:@"finished"],
+                  "a turn that worked says nothing about finishing");
+
+            // The flag lasts one run, so it cannot silence a later failure.
+            SlopNetConsole *f = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [f layoutSubtreeIfNeeded];
+            Watcher *w2 = [Watcher new];
+            f.delegate = w2;
+            f.quietWhenItWorks = YES;
+            [f runExecutable:@"/bin/bash" arguments:@[@"-c", @"exit 3"]];
+            NSDate *until2 = [NSDate dateWithTimeIntervalSinceNow:3];
+            while (!w2.finished && [until2 timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check([f.textForTesting containsString:@"stopped, code 3"],
+                  "a turn that failed still says so");
+        }
+
     fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }

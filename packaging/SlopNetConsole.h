@@ -59,6 +59,17 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 
 /// Run a program with arguments. Any previous run must have finished.
 /// Returns NO and shows a plain-English line if it cannot start.
+/// Say nothing when the next run ends cleanly.
+///
+/// A conversation turn is a program run, but nobody wants a note telling them
+/// their sentence finished — the reply arriving is the news. Failures are
+/// still announced, because those a person does need to see. Cleared after
+/// each run, so it never silences the next one by accident.
+@property(nonatomic, assign) BOOL quietWhenItWorks;
+
+/// Everything currently on screen, for probes to read back.
+- (NSString *)textForTesting;
+
 - (BOOL)runExecutable:(NSString *)path
             arguments:(NSArray<NSString *> *)arguments;
 
