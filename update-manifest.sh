@@ -42,6 +42,7 @@ paths=$(
       packaging/slopnet-vps-build.sh \
       packaging/tools.json \
       tests/redteam.sh \
+      tests/crew_unit_probe.py \
       tests/console_colour_probe.m \
       tests/settings_resize_probe.m \
       tests/wizard_step_probe.m \

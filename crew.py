@@ -576,11 +576,51 @@ def _worker_timeout(worker, override=None):
     return int(timeout) if timeout.is_integer() else timeout
 
 
+# Secret shapes to scrub from anything an agent printed before it is shown.
+# Same families checks/secrets.sh blocks at commit time, plus the two an auth
+# failure is most likely to echo: a bearer token and credentials inside a URL.
+_SECRET_SHAPES = [
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "[redacted]"),
+    (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}"), "[redacted]"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "[redacted]"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), "[redacted]"),
+    (re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}"), "[redacted]"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}"),
+     "[redacted]"),
+    (re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{12,}"), r"\1 [redacted]"),
+    # credentials inside a URL: scheme://user:secret@host — keep the shape so
+    # the host still reads as a host.
+    (re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1[redacted]@"),
+    # key=value and "key": "value" for the usual secret-ish names. The closing
+    # quote of a JSON key sits before the colon, so it has to be optional on
+    # both sides of the separator.
+    # An auth scheme word may sit between the key and the value
+    # ("Authorization: Basic <base64>"). Matching it only after a known key
+    # keeps prose like "basic authentication failed" untouched.
+    (re.compile(r"(?i)\b(api[_-]?key|secret|token|passwd|password|authorization)"
+                r"([\"']?\s*[:=]\s*)[\"']?(?:(?:basic|bearer|digest|token)\s+)?"
+                r"[^\s\"',}]{8,}"), r"\1\2[redacted]"),
+]
+
+
+def _redact(text):
+    """Mask secret-shaped runs so a failure line can be shown safely.
+
+    The agent's output is captured, not streamed, so this line is often the
+    only clue a person gets about an unrecognised failure — dropping it
+    entirely would trade a leak for a blind error. Mask the secret instead
+    and keep the diagnosis.
+    """
+    for shape, replacement in _SECRET_SHAPES:
+        text = shape.sub(replacement, text)
+    return text
+
+
 def _short_failure(output, limit=240):
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     if not lines:
         return ""
-    return lines[-1][:limit]
+    return _redact(lines[-1])[:limit]
 
 
 def classify_failure(output, returncode=None, http_code=None):
@@ -934,6 +974,22 @@ def parse_waves(text):
                     "Each task must name the files it owns.",
                     "Edit WAVES.md or re-run: slopnet plan \"your idea\"",
                 )
+            # A task owns files INSIDE the project. The plan is written by a
+            # model, so a path that climbs out of the project ("../"), starts
+            # at the root, expands to a home directory, or reaches into .git
+            # is refused here rather than handed to an agent as an
+            # instruction. The sandbox is still the thing that stops a write;
+            # this stops the plan from ever asking for one.
+            escaped = [f for f in task["files"] if _escapes_project(f)]
+            if escaped:
+                crew_fail(
+                    f"Task {task['id']} names files outside the project: "
+                    + ", ".join(escaped) + ".",
+                    "A task may only own paths inside the project, and never "
+                    "the .git directory that records its history.",
+                    "Use a path relative to the project, like src/app.py, then "
+                    "re-run: slopnet plan \"your idea\"",
+                )
     waves = [w for w in waves if w]
     if not waves:
         crew_fail(
@@ -951,6 +1007,30 @@ def parse_waves(text):
                 "Edit WAVES.md or re-run: slopnet plan \"your idea\"",
             )
     return waves
+
+
+def _escapes_project(path):
+    """True when a 'Files:' entry does not stay inside the project.
+
+    Checked on the raw text, not a resolved path: the plan is judged before
+    anything touches a disk, and on a machine that is not the one the task
+    will run on. Backslashes count as separators so a Windows-style path
+    cannot smuggle a '..' segment past a '/'-only split.
+    """
+    text = (path or "").strip()
+    if not text:
+        return True
+    if text.startswith("/") or text.startswith("~"):
+        return True
+    # A drive letter or UNC path is absolute too.
+    if re.match(r"^[A-Za-z]:", text) or text.startswith("\\\\"):
+        return True
+    parts = [p for p in re.split(r"[\\/]+", text) if p]
+    if any(p == ".." for p in parts):
+        return True
+    if parts and parts[0] == ".git":
+        return True
+    return False
 
 
 def plan(root, idea, say):
