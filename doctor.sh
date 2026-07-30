@@ -170,6 +170,16 @@ else
       done
       if [[ "$protection_ok" -eq 1 ]]; then
         ok 'The server wall requires all four SlopNet checks.'
+        # Required checks that an admin may always bypass are advice, not a
+        # wall. Say so plainly: a real push on 2026-07-30 was accepted with
+        # "4 of 4 required status checks are expected", and nothing in this
+        # report mentioned it. Believing a wall is solid when it is not is
+        # worse than knowing it is thin.
+        if [[ -f rulesets/slopnet-checks-wall.json ]] \
+          && grep -q '"bypass_actors"' rulesets/slopnet-checks-wall.json \
+          && ! grep -q '"bypass_actors": *\[\] *,\?' rulesets/slopnet-checks-wall.json; then
+          printf '[!!] The checks wall can be bypassed by a repository admin, so it advises rather than blocks. Fine while you are the only person here; remove the bypass in rulesets/slopnet-checks-wall.json and re-apply before anyone else can push.\n'
+        fi
       else
         bad \
           'Branch protection is incomplete.' \
