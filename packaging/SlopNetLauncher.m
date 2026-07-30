@@ -1564,6 +1564,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 /// unprompted: this is output from a program, and output is not an
 /// instruction — the person decides.
 - (void)console:(SlopNetConsole *)console needsSignIn:(NSURL *)page code:(NSString *)code {
+    // The same page is offered again when the code turns up a moment after the
+    // link, so only write it into the output the first time.
+    BOOL alreadyShown = [page.absoluteString isEqualToString:self.signInPage.absoluteString];
     self.signInPage = page;
     self.signInCode = code;
     if (code.length > 0) {
@@ -1587,7 +1590,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         : [NSString stringWithFormat:@"A coding app needs you to sign in at %@",
            page.absoluteString];
     self.promptLabel.textColor = [NSColor labelColor];
-    [self.console note:[NSString stringWithFormat:@"\nSign-in page: %@", page.absoluteString]];
+    if (!alreadyShown) {
+        [self.console note:[NSString stringWithFormat:@"\nSign-in page: %@",
+                            page.absoluteString]];
+    }
     [self.window makeFirstResponder:self.openPageButton];
 }
 

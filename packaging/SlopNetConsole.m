@@ -60,6 +60,7 @@
 /// The sign-in link already handed to the delegate, so one login does
 /// not raise the same offer on every redraw.
 @property(nonatomic, copy) NSString *announcedSignIn;
+@property(nonatomic, copy) NSString *announcedCode;
 @end
 
 /// Keep the console light even during a long build.
@@ -530,6 +531,9 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 /// Deliberately does NOT open anything by itself. The link is put in front of
 /// the person with its address visible and a button to open it, because the
 /// console shows output from programs, and output is not an instruction.
+static NSString *codeInsideAddress(NSURL *page);
+static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
+
 - (void)noticeASignInPage {
     if (!self.running) return;
     NSString *recent = @"";
@@ -543,11 +547,13 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     dispatch_once(&once, ^{
         link = [NSRegularExpression regularExpressionWithPattern:
                 @"https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+" options:0 error:nil];
-        // The shape these one-time codes take: short, upper-case, often split
-        // by a hyphen. Anchored on a word boundary so it cannot match a slice
-        // of a longer token.
+        // The shape these one-time codes take: short, upper-case, split by a
+        // hyphen — but the group lengths differ by provider, so 4-4, 3-4 and
+        // 4-6 all have to match. Anchored on word boundaries so it cannot
+        // match a slice of a longer token. Deliberately broad; codeLooksReal
+        // below throws out the hyphenated English this would otherwise catch.
         shortCode = [NSRegularExpression regularExpressionWithPattern:
-                     @"\\b[A-Z0-9]{4}-[A-Z0-9]{4}\\b|\\b[A-Z]{4}-[A-Z]{4}\\b" options:0 error:nil];
+                     @"\\b[A-Z0-9]{3,6}-[A-Z0-9]{3,6}\\b" options:0 error:nil];
     });
     NSTextCheckingResult *found =
         [link firstMatchInString:recent options:0 range:NSMakeRange(0, recent.length)];
@@ -558,19 +564,73 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
            [@".,);:" rangeOfString:[address substringFromIndex:address.length - 1]].location != NSNotFound) {
         address = [address substringToIndex:address.length - 1];
     }
-    if ([address isEqualToString:self.announcedSignIn]) return;
     NSURL *page = [NSURL URLWithString:address];
     if (page == nil) return;
-    self.announcedSignIn = address;
 
-    NSString *code = nil;
-    NSTextCheckingResult *codeMatch =
-        [shortCode firstMatchInString:recent options:0 range:NSMakeRange(0, recent.length)];
-    if (codeMatch != nil) code = [recent substringWithRange:codeMatch.range];
+    // The code first, because whether this is worth announcing depends on it.
+    // Some sign-in pages carry it in the address, which is exact; otherwise
+    // read it out of the surrounding text.
+    NSString *code = codeInsideAddress(page);
+    if (code == nil) {
+        NSTextCheckingResult *codeMatch =
+            [shortCode firstMatchInString:recent options:0 range:NSMakeRange(0, recent.length)];
+        if (codeMatch != nil) {
+            NSString *candidate = [recent substringWithRange:codeMatch.range];
+            if (codeLooksReal(candidate, recent, codeMatch.range)) code = candidate;
+        }
+    }
+
+    // A program prints the link, then the code a line or two later. Announcing
+    // once per address meant the bar went up with the link and no code, and
+    // never updated — so the code had to be copied by hand, which is the whole
+    // thing this was meant to stop. Announce again when the code arrives.
+    BOOL sameAddress = [address isEqualToString:self.announcedSignIn];
+    if (sameAddress) {
+        if (code == nil) return;                                  // nothing new
+        if ([code isEqualToString:self.announcedCode]) return;    // already said
+    }
+    self.announcedSignIn = address;
+    self.announcedCode = code;
 
     if ([self.delegate respondsToSelector:@selector(console:needsSignIn:code:)]) {
         [self.delegate console:self needsSignIn:page code:code];
     }
+}
+
+/// A one-time code carried in the address itself, which several sign-in pages
+/// do (`?user_code=WDJB-MJHT`). Exact when it is there, so it wins.
+static NSString *codeInsideAddress(NSURL *page) {
+    NSURLComponents *parts = [NSURLComponents componentsWithURL:page resolvingAgainstBaseURL:NO];
+    for (NSURLQueryItem *item in parts.queryItems) {
+        NSString *name = item.name.lowercaseString;
+        if (([name isEqualToString:@"user_code"] || [name isEqualToString:@"code"] ||
+             [name isEqualToString:@"otc"]) && item.value.length > 0) {
+            return item.value;
+        }
+    }
+    return nil;
+}
+
+/// Throw out the hyphenated English the code pattern also matches, so SHOUTED
+/// words like READ-ONLY never end up on the Copy button.
+///
+/// Shape alone cannot do it: READ-ONLY and WDJB-MJHT are both nine letters
+/// with a hyphen in the middle, and the letters-only form is a real code —
+/// GitHub's device codes have no digits at all. So a candidate carrying a
+/// digit is taken on its shape, and a letters-only one is taken only when the
+/// text around it says what it is. Its own line or the line above, because
+/// printing "Your code:" and then the code on a line of its own is common.
+static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
+    if ([candidate rangeOfCharacterFromSet:NSCharacterSet.decimalDigitCharacterSet].location
+        != NSNotFound) {
+        return YES;
+    }
+    NSRange line = [text lineRangeForRange:where];
+    if (line.location > 0) {
+        NSRange above = [text lineRangeForRange:NSMakeRange(line.location - 1, 0)];
+        line = NSUnionRange(above, line);
+    }
+    return [[text substringWithRange:line].lowercaseString containsString:@"code"];
 }
 
 - (void)note:(NSString *)text {
@@ -735,6 +795,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     self.master = master;
     self.child = pid;
     self.announcedSignIn = nil;
+    self.announcedCode = nil;
     self.stopButton.enabled = YES;
     [self setStatusText:[NSString stringWithFormat:@"Running %@ …", path.lastPathComponent]
                   glyph:nil

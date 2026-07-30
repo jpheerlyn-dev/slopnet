@@ -29,6 +29,9 @@ static void check(BOOL ok, const char *what) {
 @property(nonatomic, assign) BOOL finished;
 @property(nonatomic, strong) NSURL *signInPage;
 @property(nonatomic, copy) NSString *signInCode;
+/// How many times a sign-in was offered, and what the first one carried.
+@property(nonatomic, assign) NSInteger signInOffers;
+@property(nonatomic, copy) NSString *firstCode;
 @end
 
 @implementation Watcher
@@ -37,6 +40,8 @@ static void check(BOOL ok, const char *what) {
     self.question = q;
 }
 - (void)console:(SlopNetConsole *)c needsSignIn:(NSURL *)page code:(NSString *)code {
+    if (self.signInOffers == 0) self.firstCode = code;
+    self.signInOffers++;
     self.signInPage = page;
     self.signInCode = code;
 }
@@ -66,6 +71,28 @@ static SlopNetPrompt promptFor(NSString *script, NSString **question) {
                                  beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     }
     return seen;
+}
+
+/// Run a snippet that prints a sign-in link, and hand back the watcher so a
+/// test can ask both what was offered and how many times.
+static Watcher *signInFor(NSString *script) {
+    SlopNetConsole *console = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0, 0, 900, 400)];
+    [console layoutSubtreeIfNeeded];
+    Watcher *watcher = [Watcher new];
+    console.delegate = watcher;
+    [console runExecutable:@"/bin/bash" arguments:@[@"-c", script]];
+    NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:2.5];
+    while ([limit timeIntervalSinceNow] > 0) {
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    }
+    [console stop];
+    NSDate *settle = [NSDate dateWithTimeIntervalSinceNow:0.4];
+    while ([settle timeIntervalSinceNow] > 0) {
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    }
+    return watcher;
 }
 
 int main(void) {
@@ -131,7 +158,39 @@ int main(void) {
             [c stop];
         }
 
-        fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
+            // The real shape of a device sign-in: the link prints, and the code
+        // arrives a moment later. Offering once per link meant the bar went up
+        // with the link and no code, and never updated — so the code had to be
+        // copied by hand, which is the whole thing this exists to stop.
+        {
+            Watcher *w = signInFor(
+                @"printf 'Open https://auth.example.invalid/device\n'; sleep 0.6; "
+                @"printf 'Enter the code WDJB-MJHT\n'; sleep 1");
+            check(w.signInOffers >= 2, "the link and the later code are both offered");
+            check(w.firstCode == nil, "no code is invented before one has printed");
+            check([w.signInCode isEqualToString:@"WDJB-MJHT"],
+                  "a code that arrives after the link is still picked up");
+        }
+
+        // A code carried in the link itself is exact, so it wins outright.
+        {
+            Watcher *w = signInFor(
+                @"printf 'Go to https://auth.example.invalid/activate?user_code=BDWD-HQPS\n'; sleep 1");
+            check([w.signInCode isEqualToString:@"BDWD-HQPS"],
+                  "a code inside the link is read out of the link");
+        }
+
+        // Shouted English near a link must not land on the Copy button.
+        {
+            Watcher *w = signInFor(
+                @"printf 'WARNING: this token is READ-ONLY\n'; "
+                @"printf 'Sign in at https://auth.example.invalid/device\n'; sleep 1");
+            check(w.signInPage != nil, "the link is still offered");
+            check(w.signInCode == nil,
+                  "hyphenated shouting is not mistaken for a one-time code");
+        }
+
+    fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }
     return failures == 0 ? 0 : 1;
