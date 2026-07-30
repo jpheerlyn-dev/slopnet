@@ -352,20 +352,54 @@ static const unichar kStripedBase = 0xE800;
 }
 
 + (NSString *)youSaidANSI:(NSString *)text width:(NSUInteger)width {
-    (void)width;
-    // The person's own words, marked but not boxed. They used to be wrapped in
-    // a Granite-branded panel carrying a thinking glyph, so the screen said
-    // "Granite" directly above something Granite had not said.
-    NSString *rule = SlopNetInkSGR([self crimsonColor]);
-    NSString *ink = SlopNetInkSGR([self inkColor]);
-    NSString *quiet = SlopNetInkSGR([self ghostColor]);
-    // The drawn user-message icon, which has been in the font since the first
-    // build and never once used — a bar character stood in for it. Falls back
-    // to that bar when the face is missing.
+    // The shape demo_agency.py draws: a panel per message, a header row
+    // carrying the speaker and what kind of turn it is, then the words
+    // wrapped and indented inside it. The person has no vendor, so the fill
+    // is the field itself and the mark is a caret, exactly as the demo does
+    // for its own user turns.
+    NSUInteger panelWidth = MAX((NSUInteger)24, width);
+    NSColor *panel = [self voidColor];
+    NSColor *ink = [self inkColor];
+    NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐" label:@""]];
+
     NSString *mark = [self colorFontActive]
-        ? [self actionGlyph:@"user-message" frame:0 cells:2] : @"▌";
-    return [NSString stringWithFormat:@"\n%@%@ %@you%@\n%@▌ %@%@%@",
-            rule, mark, quiet, kReset, rule, ink, text, kReset];
+        ? [self actionGlyph:@"user-message" frame:0 cells:2] : @"▶ ";
+    NSString *head = [NSString stringWithFormat:@" %@ \033[1mYou\033[22m", mark];
+    [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink
+                                       body:head columns:2 + kMarkColumns + 3]];
+
+    for (NSString *line in [self wrapText:text toColumns:(NSInteger)panelWidth - 6]) {
+        NSString *body = [NSString stringWithFormat:@"  %@", line];
+        [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink
+                                           body:body columns:2 + line.length]];
+    }
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘" label:@""]];
+    return [NSString stringWithFormat:@"\n%@", [rows componentsJoinedByString:@"\n"]];
+}
+
+/// Break text to a column count on word boundaries, the way the demo wraps
+/// every panel body. A word longer than the line is left whole rather than
+/// cut, because a split identifier is harder to read than a ragged edge.
++ (NSArray<NSString *> *)wrapText:(NSString *)text toColumns:(NSInteger)columns {
+    if (columns < 8) columns = 8;
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (NSString *paragraph in [text componentsSeparatedByString:@"\n"]) {
+        NSMutableString *line = [NSMutableString string];
+        for (NSString *word in [paragraph componentsSeparatedByString:@" "]) {
+            if (word.length == 0) continue;
+            if (line.length == 0) {
+                [line appendString:word];
+            } else if ((NSInteger)(line.length + 1 + word.length) <= columns) {
+                [line appendFormat:@" %@", word];
+            } else {
+                [lines addObject:[line copy]];
+                [line setString:word];
+            }
+        }
+        [lines addObject:[line copy]];
+    }
+    return lines;
 }
 
 + (NSString *)guideRepliesANSIForProvider:(NSString *)providerId name:(NSString *)name {
@@ -500,12 +534,20 @@ static const unichar kStripedBase = 0xE800;
 
 + (NSString *)panelStripANSIForProviders:(NSArray<NSString *> *)providers
                                    width:(NSUInteger)width {
+    return [self panelStripANSIForProviders:providers status:nil width:width];
+}
+
++ (NSString *)panelStripANSIForProviders:(NSArray<NSString *> *)providers
+                                  status:(NSDictionary<NSString *, NSString *> *)status
+                                   width:(NSUInteger)width {
     if (providers.count == 0) return @"";
     // Three lanes at most: past that the names stop fitting and the row turns
     // into a stack of abbreviations. Lanes share the width exactly, with the
     // remainder spread over the leftmost ones, so the strip ends where the
     // panels above it do.
-    NSUInteger perRow = MIN((NSUInteger)3, MAX((NSUInteger)1, (width + 1) / 21));
+    // Two to a row. Three left each tile too narrow for a name and a status
+    // line, which is what made them read as buttons rather than as panels.
+    NSUInteger perRow = MIN((NSUInteger)2, MAX((NSUInteger)1, (width + 1) / 27));
     NSUInteger span = width - (perRow - 1);
     NSUInteger base = span / perRow, remainder = span % perRow;
     NSMutableArray<NSString *> *blocks = [NSMutableArray array];
@@ -515,9 +557,10 @@ static const unichar kStripedBase = 0xE800;
         for (NSUInteger i = start; i < MIN(start + perRow, providers.count); i++) {
             NSUInteger lane = base + ((i - start) < remainder ? 1 : 0);
             widest = MAX(widest, lane);
+            NSString *note = status[providers[i]];
             NSString *panel = [self panelANSIForProvider:providers[i]
                                                   title:nil
-                                                 detail:nil
+                                                 detail:note.length > 0 ? @[note] : nil
                                                  action:nil
                                                   frame:0
                                                   width:lane];

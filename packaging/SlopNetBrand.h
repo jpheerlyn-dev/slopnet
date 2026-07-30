@@ -95,6 +95,7 @@
 /// heading keeps its shape. One striped glyph is one cell, like the base face.
 + (NSString *)stripedText:(NSString *)text;
 /// One turn of the conversation, drawn as the person's line and nothing else.
++ (NSArray<NSString *> *)wrapText:(NSString *)text toColumns:(NSInteger)columns;
 + (NSString *)youSaidANSI:(NSString *)text width:(NSUInteger)width;
 /// The guide's name on its own line, with its mark, ready for the reply to
 /// stream underneath in ordinary ink.
@@ -120,6 +121,12 @@
 
 /// A row of small side-by-side panels, one per provider — the lane look the
 /// demos use. Wraps onto further rows when they will not fit the width.
+/// The coding-app tiles, each carrying a line of plain status underneath its
+/// name — whether it is signed in, and so whether it can build anything.
+/// Two to a row rather than three, so a name and a status both fit.
++ (NSString *)panelStripANSIForProviders:(NSArray<NSString *> *)providers
+                                  status:(NSDictionary<NSString *, NSString *> *)status
+                                   width:(NSUInteger)width;
 + (NSString *)panelStripANSIForProviders:(NSArray<NSString *> *)providers
                                    width:(NSUInteger)width;
 

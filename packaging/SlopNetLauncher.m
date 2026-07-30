@@ -24,6 +24,7 @@
 static NSString *const kHostKey     = @"SlopNetVPSHost";
 static NSString *const kUserKey     = @"SlopNetVPSUser";
 static NSString *const kPortKey     = @"SlopNetVPSPort";
+static NSString *const kSignedInProvidersKey = @"SlopNetSignedInProviders";
 static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cleanly
 // The private local guide passed its own READY proof on the server. Set only
 // from a real outcome: a clean local-helper run, or reading the model back out
@@ -850,7 +851,17 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     NSArray<NSString *> *tools = [self codingToolProviders];
     if (tools.count > 0) {
         [parts addObject:[SlopNetBrand headerANSI:@"Coding apps" width:width]];
-        [parts addObject:[SlopNetBrand panelStripANSIForProviders:tools width:width]];
+        NSArray *signedIn = [NSUserDefaults.standardUserDefaults
+            arrayForKey:kSignedInProvidersKey] ?: @[];
+        NSMutableDictionary<NSString *, NSString *> *status = [NSMutableDictionary dictionary];
+        for (NSString *identifier in tools) {
+            status[identifier] = [signedIn containsObject:identifier]
+                ? @"signed in · can build"
+                : @"not signed in yet";
+        }
+        [parts addObject:[SlopNetBrand panelStripANSIForProviders:tools
+                                                           status:status
+                                                            width:width]];
     }
     return [parts componentsJoinedByString:@"\n"];
 }
@@ -1095,6 +1106,15 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         [self.console note:[NSString stringWithFormat:@"\nSigned in: %@.",
                             [names componentsJoinedByString:@", "]]];
     }
+    // Remembered, so the board can say which apps can actually build. Without
+    // this the tiles were five identical badges saying nothing at all.
+    NSUserDefaults *store = NSUserDefaults.standardUserDefaults;
+    NSMutableArray *known = [([store arrayForKey:kSignedInProvidersKey] ?: @[]) mutableCopy];
+    for (NSString *identifier in self.signedIn) {
+        if (![known containsObject:identifier]) [known addObject:identifier];
+    }
+    [store setObject:known forKey:kSignedInProvidersKey];
+
     if (self.skipped.count > 0) {
         [self.console note:@"The ones you skipped are still in Settings whenever you want "
                            @"to try them again."];

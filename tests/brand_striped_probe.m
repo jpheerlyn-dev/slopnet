@@ -71,8 +71,10 @@ int main(void) {
         // the guide's. This is what a Granite-branded panel around the typed
         // question used to do.
         NSString *mine = [SlopNetBrand youSaidANSI:@"hello?" width:60];
-        check([mine containsString:@"you"], "the person's line is labelled as theirs");
+        check([mine containsString:@"You"], "the person's panel is labelled as theirs");
         check([mine containsString:@"hello?"], "and carries what they typed");
+        check([mine containsString:@"┌"] && [mine containsString:@"└"],
+              "the message sits in a panel, the way demo_agency draws a turn");
         check(![mine containsString:@"Granite"],
               "the guide's name is not printed above words it did not write");
 
