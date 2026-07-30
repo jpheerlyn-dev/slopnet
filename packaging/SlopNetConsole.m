@@ -188,7 +188,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     // The bundled colour face renders provider badges as real full-colour
     // logos; if it fails to register this is the system monospaced font and
     // callers print plain Unicode marks instead (see SlopNetBrand).
-    _output.font = [SlopNetBrand consoleFontOfSize:11.5];
+    _output.font = [SlopNetBrand consoleFontOfSize:13.5];
     _boldFont = [[NSFontManager sharedFontManager] convertFont:_output.font
                                                    toHaveTrait:NSBoldFontMask];
     _output.textColor = [SlopNetBrand inkColor];
@@ -841,7 +841,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where) {
     // the status line still looks like part of the app.
     [line appendAttributedString:[[NSAttributedString alloc]
         initWithString:[glyph stringByAppendingString:@"  "]
-            attributes:@{NSFontAttributeName: [SlopNetBrand consoleFontOfSize:12]}]];
+            attributes:@{NSFontAttributeName: [SlopNetBrand consoleFontOfSize:13.5]}]];
     [line appendAttributedString:[[NSAttributedString alloc]
         initWithString:safeText
             attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],

@@ -856,7 +856,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 }
 
 - (void)showReadyBlock {
-    self.actionConcept = @"think";
+    // No action glyph. The board is what the app looks like when it is doing
+    // nothing, and a Think animation running against an idle guide says the
+    // opposite — think belongs to the moment a question is being answered.
+    self.actionConcept = nil;
     self.actionTick = 0;
     self.readyBlockToken = [self.console noteReplaceable:[self readyBlockANSI]];
     [self startActionAnimation];
@@ -1180,7 +1183,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                 attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:11],
                              NSForegroundColorAttributeName: [NSColor secondaryLabelColor]}];
         [styled addAttribute:NSFontAttributeName
-                       value:[SlopNetBrand consoleFontOfSize:12]
+                       value:[SlopNetBrand consoleFontOfSize:13.5]
                        range:NSMakeRange(0, badge.length)];
         self.modelLabel.attributedStringValue = styled;
     } else {

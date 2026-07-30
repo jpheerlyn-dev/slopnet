@@ -359,8 +359,13 @@ static const unichar kStripedBase = 0xE800;
     NSString *rule = SlopNetInkSGR([self crimsonColor]);
     NSString *ink = SlopNetInkSGR([self inkColor]);
     NSString *quiet = SlopNetInkSGR([self ghostColor]);
-    return [NSString stringWithFormat:@"\n%@▌ %@you%@\n%@▌ %@%@%@",
-            rule, quiet, kReset, rule, ink, text, kReset];
+    // The drawn user-message icon, which has been in the font since the first
+    // build and never once used — a bar character stood in for it. Falls back
+    // to that bar when the face is missing.
+    NSString *mark = [self colorFontActive]
+        ? [self actionGlyph:@"user-message" frame:0 cells:2] : @"▌";
+    return [NSString stringWithFormat:@"\n%@%@ %@you%@\n%@▌ %@%@%@",
+            rule, mark, quiet, kReset, rule, ink, text, kReset];
 }
 
 + (NSString *)guideRepliesANSIForProvider:(NSString *)providerId name:(NSString *)name {
