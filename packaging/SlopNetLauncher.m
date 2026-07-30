@@ -961,6 +961,25 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [self installGuideModel:model];
 }
 
+- (void)wizardSignInToCodingApp:(SlopNetWizard *)wizard {
+    NSString *script = [self helper:@"slopnet-vps-coding-app"];
+    if (script == nil) {
+        [self.console note:@"The part of SlopNet that signs in to a coding app is missing "
+                           @"from this copy. Download SlopNet again."];
+        return;
+    }
+    [self.console note:[SlopNetBrand headerANSI:@"Signing in to your coding app"
+                                          width:[self panelWidth]]];
+    [self.console note:@"A page will open in your browser. Your one-time code appears "
+                       @"below and is copied for you."];
+    [self beginActivity:@"search" caption:@"Waiting for you to sign in…"];
+    [self setBusy:YES];
+    if (![self.console runExecutable:@"/bin/bash"
+                           arguments:@[script, self.host, self.port, self.username]]) {
+        [self setBusy:NO];
+    }
+}
+
 - (void)wizardOpenSettings:(SlopNetWizard *)wizard {
     dispatch_async(dispatch_get_main_queue(), ^{ [self openSettings:nil]; });
 }

@@ -44,6 +44,7 @@ paths=$(
       packaging/slopnet-vps-local-helper.sh \
       packaging/slopnet-vps-chat.sh \
       packaging/slopnet-vps-build.sh \
+      packaging/slopnet-vps-coding-app.sh \
       packaging/slopnet-vps-uninstall.sh \
       packaging/tools.json \
       tests/redteam.sh \

@@ -438,9 +438,11 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
                     @"a command is missing it says so rather than running something that "
                     @"might be wrong."],
         row,
-        [self quiet:@"You can skip this and come back — Chat does not need it."],
+        [self quiet:@"You can skip this and come back. Talking to your guide "
+                    @"does not need it — only building does."],
         [self separator],
-        [self footerWithBack:YES primary:@"Finish" action:@selector(nextPressed:)],
+        [self footerWithBack:YES primary:@"Sign in now"
+                      action:@selector(signInPressed:)],
     ];
 }
 
@@ -523,6 +525,13 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 
 - (void)startChatPressed:(id)sender {
     [self.delegate wizardStartChat:self];
+    [self close];
+}
+
+/// Sign in to the coding app. The console runs it, because the tool prints
+/// a link and a code that need a real browser.
+- (void)signInPressed:(id)sender {
+    [self.delegate wizardSignInToCodingApp:self];
     [self close];
 }
 

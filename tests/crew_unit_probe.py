@@ -209,6 +209,36 @@ def test_ordinary_english_is_not_mistaken_for_an_escape():
         assert waves[0][0]["files"] == ["app.py"], body
 
 
+def test_the_sandbox_command_actually_builds():
+    """The branch that only runs on Linux, exercised from anywhere.
+
+    This is the regression for a NameError that broke server setup: `_cage`
+    used shlex without it being imported, and because the function returns
+    early on macOS the line never ran on a developer machine. Every test
+    passed while the only path that mattered was broken.
+    """
+    real = crew._bwrap_path
+    crew._bwrap_path = lambda: "/usr/bin/bwrap"
+    try:
+        caged = crew._cage("codex exec --sandbox workspace-write 'x'", "/tmp/project")
+    finally:
+        crew._bwrap_path = real
+    assert "bwrap" in caged
+    assert "--ro-bind" in caged          # the filesystem is read-only
+    assert "--bind" in caged             # except the task's own worktree
+    assert "/tmp/project" in caged
+    assert "--die-with-parent" in caged
+
+
+def test_no_sandbox_means_the_command_is_unchanged():
+    real = crew._bwrap_path
+    crew._bwrap_path = lambda: None
+    try:
+        assert crew._cage("echo hi", "/tmp") == "echo hi"
+    finally:
+        crew._bwrap_path = real
+
+
 def test_worker_timeout_validates():
     # The error path reads worker["name"], so a realistic worker carries it.
     assert crew._worker_timeout({"name": "t", "timeout": 5}) == 5

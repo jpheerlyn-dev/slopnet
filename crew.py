@@ -24,6 +24,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -281,7 +282,6 @@ def find_exe(name):
 def _render_invocation(template, exe, auto_approve):
     """Resolve executable/permission placeholders, leaving prompt transport
     placeholders for the runner."""
-    import shlex
     return (template.replace("{exe}", shlex.quote(exe))
             .replace("{auto_approve}", auto_approve)).replace("  ", " ").strip()
 
@@ -649,6 +649,19 @@ def classify_failure(output, returncode=None, http_code=None):
     return "failed"
 
 
+def _bwrap_path():
+    """Where Bubblewrap is, or None when this machine cannot cage anything.
+
+    Split out so a test can point it at a stand-in. The NameError that broke
+    setup on 2026-07-30 lived in the branch below this line: it never ran on
+    a Mac, so nothing on a developer machine ever reached it, and every test
+    passed while the only real execution path was broken.
+    """
+    if os.name != "posix" or sys.platform == "darwin":
+        return None
+    return shutil.which("bwrap")
+
+
 def _cage(cmd, workdir):
     """Run an agent so the operating system decides what it may write to.
 
@@ -669,8 +682,8 @@ def _cage(cmd, workdir):
     is returned unchanged. That is honest rather than silent: `slopnet run`
     refuses an unsandboxed unattended run separately, in run().
     """
-    bwrap = shutil.which("bwrap")
-    if not bwrap or os.name != "posix" or sys.platform == "darwin":
+    bwrap = _bwrap_path()
+    if not bwrap:
         return cmd
     work = os.path.abspath(str(workdir))
     return " ".join([

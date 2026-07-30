@@ -43,6 +43,8 @@ typedef NS_ENUM(NSInteger, SlopNetWizardStep) {
 /// the connection fields).
 - (void)wizard:(SlopNetWizard *)wizard rememberHost:(NSString *)host
           port:(NSString *)port user:(NSString *)user;
+/// Sign in to the coding app on the server, in the main console.
+- (void)wizardSignInToCodingApp:(SlopNetWizard *)wizard;
 /// Open Settings, where the coding apps on the server are listed.
 - (void)wizardOpenSettings:(SlopNetWizard *)wizard;
 /// Finish: close up and put the person in Chat with the private guide.

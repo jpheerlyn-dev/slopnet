@@ -51,6 +51,7 @@ static BOOL anyTextContains(NSView *view, NSString *needle) {
 @interface Silent : NSObject <SlopNetWizardDelegate>
 @property(nonatomic, assign) BOOL askedToPrepare;
 @property(nonatomic, assign) BOOL askedToInstall;
+@property(nonatomic, assign) BOOL askedToSignIn;
 @property(nonatomic, copy) NSString *model;
 @end
 
@@ -64,6 +65,7 @@ static BOOL anyTextContains(NSView *view, NSString *needle) {
 }
 - (void)wizard:(SlopNetWizard *)w rememberHost:(NSString *)h port:(NSString *)p user:(NSString *)u {}
 - (void)wizardOpenSettings:(SlopNetWizard *)w {}
+- (void)wizardSignInToCodingApp:(SlopNetWizard *)w { self.askedToSignIn = YES; }
 - (void)wizardStartChat:(SlopNetWizard *)w {}
 - (void)wizardDidFinish:(SlopNetWizard *)w {}
 @end
@@ -168,6 +170,14 @@ int main(void) {
               "the last screen is honest about the approved-build gap");
         check(buttonTitled(done.window, @"Start chatting") != nil,
               "Chat is the primary action once the guide is proved");
+
+        // Signing in to a coding app now comes AFTER the guide, because it
+        // needs a browser and a one-time code and used to block the thing
+        // that helps somebody understand the rest.
+        [done showStep:SlopNetWizardStepCodingApp];
+        [done.window.contentView layoutSubtreeIfNeeded];
+        check(buttonTitled(done.window, @"Sign in now") != nil,
+              "the coding-app step can actually sign in, not just describe it");
 
         fprintf(stderr, failures == 0 ? "\nWIZARD PROBE DONE — all ok\n"
                                       : "\nWIZARD PROBE DONE — %d failed\n", failures);

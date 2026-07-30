@@ -1026,9 +1026,23 @@ def cmd_vps_setup(root, args):
     else:
         print("[OK] Codex CLI is already installed for this private VPS account.")
 
+    # Preparing the server stops here by default.
+    #
+    # Signing in to a coding app needs a browser, a link and a one-time code —
+    # the slowest, most interruptible thing in setup. Putting it in the middle
+    # meant the private local guide, which is the thing that helps somebody
+    # understand the rest, sat behind it. The guide comes first now, and this
+    # runs afterwards as its own step.
+    if not getattr(args, "coding_app_only", False):
+        print("\n[OK] Your server is prepared, and the Codex CLI is installed "
+              "on it, ready to sign in.")
+        print("Next: the private local guide. Signing in to a coding app "
+              "comes after that, and only when you want to build something.")
+        return 0
+
     if not codex_login_ok(executable):
-        # No question here. Somebody running setup has already said they want
-        # this; asking "start sign-in now?" in the middle of it is a decision
+        # No question here. Somebody running this step has already said they
+        # want it; asking "start sign-in now?" in the middle is a decision
         # with one sensible answer, and every one of those makes setup feel
         # like an interrogation. Sign-in still cannot complete without the
         # person approving it in their own browser, which is the consent that
@@ -1640,6 +1654,9 @@ def main():
     p = sub.add_parser("setup", help="meet your crew or guide one VPS proof")
     p.add_argument("--vps", action="store_true",
                    help="guided Linux VPS setup, Codex login, and real edit proof")
+    p.add_argument("--coding-app-only", action="store_true",
+                   help="only sign in to the coding app and prove it "
+                        "(server preparation already done)")
     p.add_argument("--vps-account-ready", action="store_true",
                    help=argparse.SUPPRESS)
 
