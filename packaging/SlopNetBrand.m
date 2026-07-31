@@ -122,7 +122,9 @@ static const NSUInteger kActionCount = sizeof(kActions) / sizeof(kActions[0]);
 /// Both modes cost the same columns, so a panel's edges line up whether or
 /// not the colour font loaded: a badge glyph advances two cells on its own,
 /// and a fallback mark is one character plus a space.
-static const NSUInteger kMarkColumns = 2;
+/// Three, matching show_panels.py's CELLS. Everything in the reference
+/// is laid out against this width.
+static const NSUInteger kMarkColumns = 3;
 
 static NSColor *SlopNetColorFromHex(uint32_t hex) {
     return [NSColor colorWithSRGBRed:((hex >> 16) & 0xFF) / 255.0
@@ -248,8 +250,12 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     const SlopNetBrandEntry *entry = [self entryForProvider:providerId ?: @""];
     if (entry == NULL) return @"•";             // unmapped provider: neutral mark
     if ([self colorFontActive]) {
-        // The two-cell-wide badge twin (codepoint + 0x200).
-        unichar wide = entry->codepoint + 0x200;
+        // The three-cell badge twin, which is the one show_panels.py uses:
+        //   cp = ord(g) + CELLS * 0x100   with CELLS = 3
+        // Copied rather than chosen. StormCode's panel proportions come from this
+        // width, and picking the two-cell twin instead is why the logos here
+        // never looked like the reference.
+        unichar wide = entry->codepoint + 0x300;
         return [NSString stringWithCharacters:&wide length:1];
     }
     return entry->mark;
@@ -323,8 +329,12 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
 /// The badge for a panel row, always kMarkColumns wide in either mode.
 + (NSString *)paddedMarkForProvider:(NSString *)providerId {
     NSString *mark = [self markForProvider:providerId];
-    if ([self colorFontActive]) return mark;      // the glyph advances 2 cells itself
-    return [mark stringByAppendingString:@" "];
+    // show_panels.py: `chr(cp) + " " * (CELLS - 1)` — a terminal paints the wide
+    // bitmap but only advances one cell, so it pads. AppKit advances the whole
+    // glyph itself, so the padding here would be counted twice. Same intent,
+    // and the only line of theirs that cannot be copied literally.
+    if ([self colorFontActive]) return mark;
+    return [mark stringByAppendingString:@"  "];   // their fallback: mark + 2
 }
 
 /// The striped IBM wordmark face lives at U+E800, in the order A-Z, a-z, 0-9.

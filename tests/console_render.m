@@ -27,20 +27,11 @@ int main(int argc, const char *argv[]) {
             return 2;
         }
 
-        // Measure first: how wide is each row really, once the escapes are out?
-        NSString *one = [SlopNetBrand panelANSIForProvider:@"anthropic" title:nil
-                                                    detail:@[@"not signed in yet"]
-                                                    action:nil frame:0 width:40];
-        NSRegularExpression *escapes =
-            [NSRegularExpression regularExpressionWithPattern:@"\x1B\\[[0-9;]*m"
-                                                      options:0 error:nil];
-        int row = 0;
-        for (NSString *line in [one componentsSeparatedByString:@"\n"]) {
-            NSString *bare = [escapes stringByReplacingMatchesInString:line options:0
-                                 range:NSMakeRange(0, line.length) withTemplate:@""];
-            fprintf(stderr, "row %d: %2lu cells (asked for 40)\n",
-                    row++, (unsigned long)bare.length);
-        }
+        // The cell-width measurement that used to live here has been taken
+        // out. It stripped the escape sequences and counted characters, which
+        // says nothing about how anything is drawn — and it was used seven
+        // times to report a panel as correct while it was visibly wrong.
+        // The picture below is the only evidence this tool produces.
 
         SlopNetConsole *console =
             [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0, 0, 900, 420)];
