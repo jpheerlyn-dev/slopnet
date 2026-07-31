@@ -158,6 +158,43 @@ int main(void) {
             [c stop];
         }
 
+        // A real authorisation URL, wrapped by the terminal.
+        //
+        // The console tells programs how wide it is, so a program printing a
+        // link this long has it wrapped by the terminal and it arrives here as
+        // several separate lines. Matching a line at a time captured only the
+        // first fragment, and an authorisation URL cut short still reaches
+        // Google — it just arrives without the parameters that come after the
+        // cut. The operator got "Access blocked: Required parameter is
+        // missing: response_type", with their own account named on the page,
+        // because client_id survived the cut and response_type did not.
+        //
+        // response_type sits late in the query string deliberately here: it is
+        // the parameter that was actually lost.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Watcher *w = [Watcher new];
+            c.delegate = w;
+            NSString *url = @"https://accounts.google.com/o/oauth2/v2/auth?client_id=1071005907896-abcdefghijklmnopqrstuvwxyz012345.apps.googleusercontent.com&redirect_uri=http%3A%2F%2Flocalhost%3A51713%2Foauth2callback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&response_type=code&state=8f2c1b90ac4d47e6&access_type=offline&prompt=consent";
+            check(url.length > c.columns,
+                  "the test link is longer than the console is wide, so it must wrap");
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c",
+                [NSString stringWithFormat:
+                 @"printf 'Sign in:\n%%s\n' '%@'; sleep 3", url]]];
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:4];
+            while (w.signInPage == nil && [until timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check(w.signInPage != nil, "a wrapped sign-in link is spotted at all");
+            check([w.signInPage.absoluteString containsString:@"response_type=code"],
+                  "the parameters past the wrap survive");
+            check([w.signInPage.absoluteString isEqualToString:url],
+                  "the whole authorisation URL is recovered, not its first line");
+            [c stop];
+        }
+
             // The real shape of a device sign-in: the link prints, and the code
         // arrives a moment later. Offering once per link meant the bar went up
         // with the link and no code, and never updated — so the code had to be

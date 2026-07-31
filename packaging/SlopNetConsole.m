@@ -183,6 +183,7 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 @property(nonatomic, assign) BOOL redrawQueued;
 /// A redraw is already scheduled for the next turn of the run loop.
 @property(nonatomic, assign) BOOL redrawScheduled;
+@property(nonatomic, assign) BOOL applicationCursorKeys;
 /// Follow the newest line, the way a terminal does — until somebody scrolls
 /// up to read something, and again once they come back to the bottom.
 @property(nonatomic, assign) BOOL followingTail;
@@ -687,7 +688,25 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                     final = f;
                     break;
                 }
-                if (prefix != 0) continue;
+                if (prefix != 0) {
+                    // Application cursor key mode. A full-screen program turns
+                    // this on and from then on expects an arrow as ESC O A
+                    // rather than ESC [ A. Both are "the up arrow"; a program
+                    // in this mode simply ignores the other one.
+                    //
+                    // This console parsed the mode and threw it away, so it
+                    // always sent ESC [ A — which is why Antigravity's menu sat
+                    // there while the arrows were pressed, and why Enter worked
+                    // anyway: carriage return is the same byte in both modes.
+                    if (prefix == '?' && (final == 'h' || final == 'l')) {
+                        for (NSString *one in [parameters componentsSeparatedByString:@";"]) {
+                            if (one.integerValue == 1) {
+                                self.applicationCursorKeys = (final == 'h');
+                            }
+                        }
+                    }
+                    continue;
+                }
                 NSInteger value = parameters.length ? [parameters intValue] : 1;
                 switch (final) {
                     case 'm':                              // colours and weight
@@ -818,11 +837,27 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
 
 - (void)noticeASignInPage {
     if (!self.running) return;
-    NSString *recent = @"";
+    // Put hard-wrapped lines back together before looking for a link.
+    //
+    // This console tells programs how wide it is, so a program printing a long
+    // line gets it wrapped by the terminal and it arrives here as several
+    // lines. An OAuth authorisation URL is three hundred characters or more,
+    // so it always wraps — and matching line by line captured only its first
+    // fragment. A truncated authorisation URL is what produces Google's
+    // "Required parameter is missing: response_type", and the operator saw
+    // exactly that.
+    //
+    // A line filling the full width was wrapped rather than ended, so it joins
+    // the line after it with no newline between.
+    NSMutableString *joined = [NSMutableString string];
     NSUInteger from = self.lines.count > 12 ? self.lines.count - 12 : 0;
     for (NSUInteger i = from; i < self.lines.count; i++) {
-        recent = [recent stringByAppendingFormat:@"%@\n", self.lines[i].string];
+        NSString *line = self.lines[i].string;
+        [joined appendString:line];
+        BOOL wrapped = (self.columns > 0 && line.length >= self.columns);
+        if (!wrapped) [joined appendString:@"\n"];
     }
+    NSString *recent = joined;
     static NSRegularExpression *link;
     static NSRegularExpression *shortCode;
     static dispatch_once_t once;
@@ -1330,6 +1365,22 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     if ([self.delegate respondsToSelector:@selector(console:finishedWithStatus:)]) {
         [self.delegate console:self finishedWithStatus:status];
     }
+}
+
+- (void)sendKey:(SlopNetKey)key {
+    NSString *letter = nil;
+    switch (key) {
+        case SlopNetKeyUp:    letter = @"A"; break;
+        case SlopNetKeyDown:  letter = @"B"; break;
+        case SlopNetKeyRight: letter = @"C"; break;
+        case SlopNetKeyLeft:  letter = @"D"; break;
+        case SlopNetKeyEscape:    [self sendKeys:@"\033"]; return;
+        case SlopNetKeyTab:       [self sendKeys:@"\t"];   return;
+        case SlopNetKeyEnter:     [self sendKeys:@"\r"];   return;
+        case SlopNetKeyInterrupt: [self sendKeys:@"\003"]; return;
+    }
+    [self sendKeys:[NSString stringWithFormat:@"\033%@%@",
+                    self.applicationCursorKeys ? @"O" : @"[", letter]];
 }
 
 - (void)sendKeys:(NSString *)raw {

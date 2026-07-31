@@ -57,6 +57,12 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 /// a check wider than the view.
 @property(nonatomic, readonly) NSUInteger columns;
 
+/// Keys a running program expects as escape sequences rather than characters.
+typedef NS_ENUM(NSInteger, SlopNetKey) {
+    SlopNetKeyUp, SlopNetKeyDown, SlopNetKeyRight, SlopNetKeyLeft,
+    SlopNetKeyEscape, SlopNetKeyTab, SlopNetKeyEnter, SlopNetKeyInterrupt,
+};
+
 /// Run a program with arguments. Any previous run must have finished.
 /// Returns NO and shows a plain-English line if it cannot start.
 /// Say nothing when the next run ends cleanly.
@@ -107,6 +113,11 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 /// escape sequences and Enter as a carriage return, so anything that only ever
 /// sent finished lines could show such a program but never answer it.
 - (void)sendKeys:(NSString *)raw;
+
+/// Sends a key as the running program expects it, which depends on the mode
+/// that program has put the terminal in. Prefer this to sendKeys: for anything
+/// with an escape sequence — callers should not have to track terminal modes.
+- (void)sendKey:(SlopNetKey)key;
 
 /// Write a secret the person typed into a real password field. It goes
 /// straight to the program and is never put in the console buffer, never

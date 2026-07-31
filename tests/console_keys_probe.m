@@ -19,37 +19,58 @@ static void check(BOOL ok, const char *what) {
 - (void)console:(SlopNetConsole *)c finishedWithStatus:(int)s { self.finished = YES; }
 @end
 
+/// Runs a program that reports the exact bytes it read, optionally after
+/// putting the terminal into a mode first, and returns what arrived.
+static NSString *arrival(NSString *setup, SlopNetKey key) {
+    SlopNetConsole *console =
+        [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0, 0, 900, 400)];
+    [console layoutSubtreeIfNeeded];
+    Silent *silent = [Silent new];
+    console.delegate = silent;
+    [console runExecutable:@"/bin/bash" arguments:@[@"-c",
+        [NSString stringWithFormat:
+         @"%@IFS= read -r -n 3 -s k; "
+         @"printf 'got:%%s\\n' \"$(printf %%s \"$k\" | od -An -c | tr -d ' \\n')\"",
+         setup]]];
+    NSDate *settle = [NSDate dateWithTimeIntervalSinceNow:0.8];
+    while ([settle timeIntervalSinceNow] > 0) {
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    }
+    if (!console.running) return @"the program never started";
+    [console sendKey:key];
+    NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:3];
+    while (!silent.finished && [limit timeIntervalSinceNow] > 0) {
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    }
+    NSString *shown = console.textForTesting;
+    [console stop];
+    NSRange at = [shown rangeOfString:@"got:"];
+    if (at.location == NSNotFound) return @"nothing arrived";
+    NSString *rest = [shown substringFromIndex:NSMaxRange(at)];
+    NSRange end = [rest rangeOfString:@"\n"];
+    return end.location == NSNotFound ? rest : [rest substringToIndex:end.location];
+}
+
 int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
-        SlopNetConsole *console =
-            [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0, 0, 900, 400)];
-        [console layoutSubtreeIfNeeded];
-        Silent *silent = [Silent new];
-        console.delegate = silent;
 
-        // A program that reads raw bytes and reports what it saw, so the exact
-        // escape sequence is checked rather than assumed.
-        [console runExecutable:@"/bin/bash" arguments:@[@"-c",
-            @"IFS= read -r -n 3 -s k; printf 'got:%s\\n' \"$(printf %s \"$k\" | od -An -c | tr -d ' \\n')\""]];
+        check([arrival(@"", SlopNetKeyDown) isEqualToString:@"033[B"],
+              "an ordinary program gets a down arrow as ESC [ B");
 
-        NSDate *settle = [NSDate dateWithTimeIntervalSinceNow:0.6];
-        while ([settle timeIntervalSinceNow] > 0) {
-            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-                                     beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-        }
-        check(console.running, "a program is running and can be typed at");
-
-        [console sendKeys:@"\033[B"];             // down arrow
-        NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:3];
-        while (!silent.finished && [limit timeIntervalSinceNow] > 0) {
-            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-                                     beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-        }
-        NSString *shown = console.textForTesting;
-        check([shown containsString:@"033"] && [shown containsString:@"["],
-              "a down arrow arrives as its escape sequence, not as text");
-        check(![shown containsString:@"\n\n\n"], "and nothing extra is sent with it");
+        // What a full-screen program does. Antigravity's sign-in menu turns
+        // this mode on, and until now it was parsed and thrown away, so the
+        // arrows it was sent were ones it does not listen for.
+        check([arrival(@"printf '\\033[?1h'; ", SlopNetKeyUp) isEqualToString:@"033OA"],
+              "in application cursor key mode an up arrow arrives as ESC O A");
+        check([arrival(@"printf '\\033[?1h\\033[?1l'; ", SlopNetKeyUp)
+               isEqualToString:@"033[A"],
+              "and turning the mode back off restores ESC [ A");
+        // A program that hides its cursor must not be read as changing it.
+        check([arrival(@"printf '\\033[?25l'; ", SlopNetKeyDown) isEqualToString:@"033[B"],
+              "an unrelated private mode leaves cursor keys alone");
 
         fprintf(stderr, failures == 0 ? "\nKEYS PROBE DONE — all ok\n"
                                       : "\nKEYS PROBE DONE — %d failed\n", failures);

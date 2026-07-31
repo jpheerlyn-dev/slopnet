@@ -86,27 +86,28 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
 /// anything typed, so an ordinary question is unaffected.
 - (void)keyDown:(NSEvent *)event {
     if (!self.console.running) { [super keyDown:event]; return; }
-    NSString *pressed = nil;
+    SlopNetKey key; BOOL send = YES;
     switch (event.keyCode) {
-        case 126: pressed = @"\033[A"; break;   // up
-        case 125: pressed = @"\033[B"; break;   // down
-        case 124: pressed = @"\033[C"; break;   // right
-        case 123: pressed = @"\033[D"; break;   // left
-        case 53:  pressed = @"\033";   break;   // escape
-        case 48:  pressed = @"\t";     break;   // tab
+        case 126: key = SlopNetKeyUp;     break;
+        case 125: key = SlopNetKeyDown;   break;
+        case 124: key = SlopNetKeyRight;  break;
+        case 123: key = SlopNetKeyLeft;   break;
+        case 53:  key = SlopNetKeyEscape; break;
+        case 48:  key = SlopNetKeyTab;    break;
         case 36:                                  // return
         case 76:
-            if (self.string.length == 0) pressed = @"\r";
+            key = SlopNetKeyEnter;
+            send = (self.string.length == 0);
             break;
-        default: break;
+        default: send = NO; key = SlopNetKeyEnter; break;
     }
     // Ctrl-C, so a program can be interrupted the way it expects.
     if ((event.modifierFlags & NSEventModifierFlagControl) &&
         [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"c"]) {
-        pressed = @"\003";
+        key = SlopNetKeyInterrupt; send = YES;
     }
-    if (pressed == nil) { [super keyDown:event]; return; }
-    [self.console sendKeys:pressed];
+    if (!send) { [super keyDown:event]; return; }
+    [self.console sendKey:key];
 }
 
 - (void)didChangeText { [super didChangeText]; [self setNeedsDisplay:YES]; }
