@@ -45,6 +45,10 @@ if [ -d /opt/slopnet ]; then
 else
   echo "[OK] there was no /opt/slopnet"
 fi
+# Working files from setup and from the model benchmark. Each is created with
+# mktemp under a slopnet- prefix, and an interrupted run leaves one behind.
+rm -f -- /tmp/slopnet-* 2>/dev/null || true
+echo "[OK] removed any leftover SlopNet working files in /tmp"
 keys="$HOME/.ssh/authorized_keys"
 if [ -f "$keys" ] && grep -q "slopnet-vps" "$keys"; then
   tmp=$(mktemp)

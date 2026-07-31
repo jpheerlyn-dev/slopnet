@@ -34,7 +34,11 @@ trap 'rm -rf "$work"' EXIT
 # so you can always go back to it.
 previous=""
 if [ -e "$app" ]; then
-  previous="$destination/SlopNet-previous-$(date +%Y%m%d-%H%M%S).app"
+  # One backup, always the same name. A timestamped copy per build left 38
+  # bundles and 405 MB in Applications, which is litter this script made and
+  # nothing ever cleaned up.
+  previous="$destination/SlopNet-previous.app"
+  rm -rf "$previous"
   mv "$app" "$previous" || {
     printf 'Could not move the existing app aside: %s\n' "$app" >&2
     printf 'Close SlopNet if it is running, then build again.\n' >&2

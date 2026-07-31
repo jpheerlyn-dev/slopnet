@@ -35,6 +35,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 
 // Server step
 @property(nonatomic, strong) NSTextField *hostField;
+@property(nonatomic, strong) NSTextField *nameField;
 @property(nonatomic, strong) NSTextField *userField;
 @property(nonatomic, strong) NSTextField *portField;
 @property(nonatomic, strong) NSTextField *serverNote;
@@ -131,6 +132,21 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     button.action = action;
     button.translatesAutoresizingMaskIntoConstraints = NO;
     return button;
+}
+
+/// The saved name, or nothing on a first run.
+- (NSString *)savedName {
+    return [NSUserDefaults.standardUserDefaults stringForKey:@"SlopNetServerName"] ?: @"";
+}
+
+/// Like -field:placeholder: but the characters are dots.
+- (NSTextField *)secureField:(NSString *)value placeholder:(NSString *)placeholder {
+    NSSecureTextField *field = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
+    field.stringValue = value ?: @"";
+    field.placeholderString = placeholder;
+    field.translatesAutoresizingMaskIntoConstraints = NO;
+    [field.heightAnchor constraintEqualToConstant:24].active = YES;
+    return field;
 }
 
 - (NSTextField *)field:(NSString *)value placeholder:(NSString *)placeholder {
@@ -281,13 +297,21 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 }
 
 - (NSArray<NSView *> *)serverViews {
-    self.hostField = [self field:self.host placeholder:@"address or name of your server"];
+    // A name the person chooses, and the address hidden as it is typed.
+    //
+    // The address is the one thing on this screen that identifies a machine
+    // somebody owns, and it was sitting in plain view — on this screen, in the
+    // sidebar, and in every screenshot taken of either. It is masked like a
+    // password now, and the name is what the app shows from here on.
+    self.nameField = [self field:[self savedName] placeholder:@"what you want to call it"];
+    self.hostField = [self secureField:self.host placeholder:@"address of your server"];
     self.userField = [self field:self.user placeholder:@"root"];
     self.portField = [self field:self.port placeholder:@"22"];
     [self.userField.widthAnchor constraintEqualToConstant:170].active = YES;
     [self.portField.widthAnchor constraintEqualToConstant:70].active = YES;
 
     NSGridView *grid = [NSGridView gridViewWithViews:@[
+        @[[self body:@"Name"], self.nameField],
         @[[self body:@"Address"], self.hostField],
         @[[self body:@"Login name"], self.userField],
         @[[self body:@"Port"], self.portField],
@@ -658,6 +682,12 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     self.host = host;
     self.user = user;
     self.port = port;
+    // Their own name for it. Falls back to the login name and nothing more —
+    // never the address, which is the thing being kept off the screen.
+    NSString *name = [self.nameField.stringValue
+        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (name.length == 0) name = @"My server";
+    [NSUserDefaults.standardUserDefaults setObject:name forKey:@"SlopNetServerName"];
     [self.delegate wizard:self rememberHost:host port:port user:user];
     return YES;
 }

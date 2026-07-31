@@ -596,7 +596,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     BOOL guide = [self guideReady];
     if (ready && guide) {
         self.statusDot.textColor = [NSColor systemGreenColor];
-        self.statusText.stringValue = [NSString stringWithFormat:@"Ready — %@", self.host];
+        // The name they gave it, never the address. An IP on screen is a
+        // machine somebody owns, readable in every screenshot of this window.
+        NSString *named = [NSUserDefaults.standardUserDefaults
+            stringForKey:@"SlopNetServerName"] ?: @"My server";
+        self.statusText.stringValue = [NSString stringWithFormat:@"Ready — %@", named];
     } else if (ready) {
         self.statusDot.textColor = [NSColor systemOrangeColor];
         self.statusText.stringValue = @"Server ready — guide not installed";
@@ -1573,9 +1577,27 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 }
 
 /// Forget everything SlopNet put on this Mac, then say what is left to do.
+/// Drop a server's fingerprint from known_hosts.
+///
+/// ssh-keygen -R does the editing, so the file's format and its hashed
+/// entries are handled by the tool that owns it rather than by string
+/// matching here.
+- (void)forgetHostKeyFor:(NSString *)host {
+    if (host.length == 0) return;
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh-keygen"];
+    task.arguments = @[@"-R", host];
+    task.standardOutput = [NSFileHandle fileHandleWithNullDevice];
+    task.standardError = [NSFileHandle fileHandleWithNullDevice];
+    [task launchAndReturnError:nil];
+    [task waitUntilExit];
+}
+
 - (void)removeLocalTraces {
     NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey, kGuideKey, kWizardKey]) {
+    NSString *removedHost = [self.host copy];
+    for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey, kGuideKey, kWizardKey,
+                            @"SlopNetServerName", kSignedInProvidersKey, kLimitUntilKey]) {
         [store removeObjectForKey:key];
     }
     NSFileManager *files = NSFileManager.defaultManager;
@@ -1584,6 +1606,19 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                      @".ssh/slopnet_vps_ed25519"];
     [files removeItemAtPath:key error:nil];
     [files removeItemAtPath:[key stringByAppendingString:@".pub"] error:nil];
+
+    // The server's fingerprint, put in known_hosts the first time SlopNet
+    // connected. Left behind it is a record of a machine somebody has just
+    // asked to be forgotten, and it makes reconnecting to a rebuilt server at
+    // the same address fail with a key-changed warning.
+    [self forgetHostKeyFor:removedHost];
+
+    // The preferences file itself, not just the keys inside it. Clearing the
+    // keys left an empty plist with SlopNet's name on it.
+    NSString *preferences = [NSHomeDirectory() stringByAppendingPathComponent:
+        @"Library/Preferences/com.slopnet.app.plist"];
+    [store synchronize];
+    [files removeItemAtPath:preferences error:nil];
 
     self.host = @"";
     self.username = @"root";
