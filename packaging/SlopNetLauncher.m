@@ -1563,6 +1563,45 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
             encoded, root ? @"" : @"sudo ", runuser];
 }
 
+/// The release this copy of the app expects on a server, read from the
+/// installer it ships with so there is one place it is written down.
+- (NSString *)pinnedRelease {
+    NSString *script = [self helper:@"slopnet-vps-onboard"];
+    NSString *text = script ? [NSString stringWithContentsOfFile:script
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:nil] : nil;
+    if (text == nil) return @"";
+    NSRegularExpression *pin = [NSRegularExpression regularExpressionWithPattern:
+        @"slopnet_release=\"([^\"]+)\"" options:0 error:nil];
+    NSTextCheckingResult *found = [pin firstMatchInString:text options:0
+                                                    range:NSMakeRange(0, text.length)];
+    return found ? [text substringWithRange:[found rangeAtIndex:1]] : @"";
+}
+
+- (void)settings:(SlopNetSettings *)settings signInToProvider:(NSString *)provider {
+    if (self.busy || ![self connectionValid]) return;
+    NSString *script = [self helper:@"slopnet-vps-coding-app"];
+    if (script == nil) {
+        [self.console note:@"The part of SlopNet that signs in to a coding app is "
+                           @"missing from this copy. Download SlopNet again."];
+        return;
+    }
+    NSString *name = [SlopNetBrand displayNameForProvider:provider] ?: provider;
+    [self.console note:[SlopNetBrand headerANSI:[NSString stringWithFormat:@"Setting up %@", name]
+                                          width:[self panelWidth]]];
+    self.signingIn = provider;
+    [self showSkipControl:name];
+    [self beginActivity:@"search"
+                caption:[NSString stringWithFormat:@"Setting up %@…", name]];
+    [self setBusy:YES];
+    if (![self.console runExecutable:@"/bin/bash"
+                           arguments:@[script, self.host, self.port, self.username,
+                                       provider, [self pinnedRelease]]]) {
+        self.signingIn = nil;
+        [self setBusy:NO];
+    }
+}
+
 - (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
            title:(NSString *)title {
     if (self.busy || ![self connectionValid]) return;

@@ -436,12 +436,7 @@
         // sign-in, and it is the one proved on a real server.
         NSString *provider = [SlopNetBrand providerForTool:toolID];
         if ([SlopNetSettings signInSupportedForProvider:provider]) {
-            NSString *command = [NSString stringWithFormat:
-                @"cd /opt/slopnet && ./slopnet setup --vps --coding-app-only "
-                @"--approved --provider %@", provider];
-            [self.delegate settings:self runOnServer:command
-                              title:[NSString stringWithFormat:@"Setting up %@",
-                                     tool[@"name"] ?: toolID]];
+            [self.delegate settings:self signInToProvider:provider];
             [self closePressed:nil];
             return;
         }

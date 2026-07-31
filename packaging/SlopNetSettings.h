@@ -19,6 +19,10 @@
             port:(NSString *)port
             user:(NSString *)user;
 /// Run one command on the server, visibly, in the main console.
+/// Install and sign in to one coding app, through the same path the wizard
+/// uses — which also brings the server's copy of SlopNet up to the release
+/// this app expects.
+- (void)settings:(SlopNetSettings *)settings signInToProvider:(NSString *)provider;
 - (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
            title:(NSString *)title;
 /// Forget this Mac's memory of the server (never touches the server).

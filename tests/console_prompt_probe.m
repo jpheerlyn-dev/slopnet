@@ -339,6 +339,21 @@ int main(void) {
                   "verifying a checksum is not an invitation to sign in");
         }
 
+        // Real output: npm prints its changelog link, then the sign-in starts.
+        // Taking the first link opened npm's release notes in the operator's
+        // browser and called it a sign-in page.
+        {
+            Watcher *w = signInFor(
+                @"printf 'npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2\n'; "
+                @"printf 'Signing in to Google Gemini. Your browser does the approving.\n'; "
+                @"printf '  https://accounts.example.invalid/oauth2/device?user_code=WDJB-MJHT\n'; sleep 1");
+            check(w.signInPage != nil, "a sign-in is offered");
+            check(![w.signInPage.absoluteString containsString:@"npm/cli"],
+                  "and it is not the npm changelog that happened to print first");
+            check([w.signInPage.absoluteString containsString:@"oauth2/device"],
+                  "it is the authorisation page");
+        }
+
     fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }

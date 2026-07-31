@@ -836,15 +836,35 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
         shortCode = [NSRegularExpression regularExpressionWithPattern:
                      @"\\b[A-Z0-9]{3,6}-[A-Z0-9]{3,6}\\b" options:0 error:nil];
     });
-    NSTextCheckingResult *found =
-        [link firstMatchInString:recent options:0 range:NSMakeRange(0, recent.length)];
-    if (found == nil) return;
-    NSString *address = [recent substringWithRange:found.range];
-    // Trim trailing punctuation a sentence may have left on the end.
-    while (address.length > 0 &&
-           [@".,);:" rangeOfString:[address substringFromIndex:address.length - 1]].location != NSNotFound) {
-        address = [address substringToIndex:address.length - 1];
+    // Every link in the recent output, not just the first.
+    //
+    // An install prints npm's upgrade notice — "Changelog: https://github.com/
+    // npm/cli/releases/tag/v12.0.2" — and then the sign-in starts. Taking the
+    // first link opened that changelog in the operator's browser and called it
+    // a sign-in page. The last link that looks like an authorisation endpoint
+    // wins; a plain link is only used when nothing better is on screen.
+    NSArray<NSTextCheckingResult *> *all =
+        [link matchesInString:recent options:0 range:NSMakeRange(0, recent.length)];
+    if (all.count == 0) return;
+
+    NSString *address = nil;
+    for (NSTextCheckingResult *candidate in all) {
+        NSString *found = [recent substringWithRange:candidate.range];
+        while (found.length > 0 &&
+               [@".,);:" rangeOfString:[found substringFromIndex:found.length - 1]].location
+               != NSNotFound) {
+            found = [found substringToIndex:found.length - 1];
+        }
+        NSString *lowered = found.lowercaseString;
+        BOOL authish = [lowered containsString:@"/device"] || [lowered containsString:@"/oauth"]
+                    || [lowered containsString:@"/auth"]   || [lowered containsString:@"/login"]
+                    || [lowered containsString:@"/activate"]
+                    || [lowered containsString:@"user_code"];
+        if (authish) address = found;                 // keep the last such link
+        else if (address == nil) address = found;     // a fallback, until a better one
     }
+    if (address == nil) return;
+
     NSURL *page = [NSURL URLWithString:address];
     if (page == nil) return;
 
