@@ -202,6 +202,19 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     dispatch_once(&once, ^{
         NSURL *url = [[NSBundle mainBundle] URLForResource:kColorFontFile
                                              withExtension:@"ttf"];
+        if (url == nil) {
+            // Outside an .app there is no bundle to read from, so probes and
+            // the renderer fell back to plain Unicode marks — and the fallback
+            // is a DIFFERENT WIDTH from the real badge, which quietly changed
+            // the column arithmetic in every picture used to check a layout.
+            // A checkout-relative copy keeps those tools honest. The bundle
+            // always wins when there is one, so the shipped app is unaffected.
+            NSString *inTree = [NSString stringWithFormat:
+                @"packaging/terminal-visuals/packaging-fonts/%@.ttf", kColorFontFile];
+            if ([NSFileManager.defaultManager fileExistsAtPath:inTree]) {
+                url = [NSURL fileURLWithPath:inTree];
+            }
+        }
         if (url == nil) return;                 // font not bundled: plain marks
         CFErrorRef error = NULL;
         bool registered = CTFontManagerRegisterFontsForURL(

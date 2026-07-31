@@ -28,10 +28,22 @@ int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
 
-        // Without the bundled face, striped text must come back untouched.
-        // This process has no app bundle, so that is the path under test here.
-        check([[SlopNetBrand stripedText:@"SLOPNET"] isEqualToString:@"SLOPNET"],
-              "no colour font means plain text, never tofu");
+        // With the face available — which is now true for probes as well as
+        // the app — every letter must land in the striped range. This used to
+        // assert the opposite, because a bare binary had no bundle to load the
+        // font from, so the only path these tests ever ran was the fallback.
+        // The path the app actually takes went unchecked entirely.
+        NSString *striped = [SlopNetBrand stripedText:@"SLOPNET"];
+        BOOL allStriped = striped.length == 7;
+        for (NSUInteger i = 0; i < striped.length && allStriped; i++) {
+            unichar c = [striped characterAtIndex:i];
+            if (c < 0xE800 || c > 0xE83D) allStriped = NO;
+        }
+        check(allStriped, "letters are drawn in the striped face");
+        // Punctuation was never built, so it must pass through untouched
+        // rather than land on some unrelated glyph.
+        check([[SlopNetBrand stripedText:@"a-b."] hasSuffix:@"."],
+              "punctuation passes through, since none was drawn");
 
         // Now the font itself, loaded straight from the repository.
         NSURL *url = [NSURL fileURLWithPath:
@@ -80,7 +92,8 @@ int main(void) {
 
         NSString *theirs = [SlopNetBrand guideRepliesANSIForProvider:@"ibm_granite"
                                                                 name:@"Granite"];
-        check([theirs containsString:@"Granite"], "the reply is attributed to the guide");
+        check([theirs containsString:[SlopNetBrand stripedText:@"Granite"]],
+              "the reply is attributed to the guide");
 
 
         // Granite is green on black, which the operator asked for twice. The
