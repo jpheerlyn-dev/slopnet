@@ -1010,11 +1010,16 @@ CODING_APPS = {
         "status": None,
     },
     "google": {
-        "name": "Google Gemini",
-        "package": "@google/gemini-cli",
-        "binary": "gemini",
-        # No login subcommand exists — `gemini --help` lists none. It signs in
-        # when launched, so launching it IS the sign-in.
+        # Gemini CLI stopped serving individual Google AI plans; its sign-in now
+        # answers "This client is no longer supported... migrate to the
+        # Antigravity suite". Google's replacement is a native binary with its
+        # own installer, not an npm package.
+        "name": "Antigravity",
+        "installer": "https://antigravity.google/cli/install.sh",
+        "binary": "agy",
+        # No login subcommand: `agy help` lists agent, changelog, install,
+        # models, plugin and update, and nothing else. It signs in when
+        # launched, so launching it is the sign-in.
         "login": [],
         "status": None,
     },
@@ -1060,7 +1065,7 @@ def install_coding_app_for_current_user(home, provider="openai"):
     ensure_private_directory(prefix, os.geteuid(), "The local tool directory")
 
     if app.get("installer"):
-        return _install_from_vendor_script(app, prefix)
+        return _install_from_vendor_script(app, prefix, home)
     return _install_from_npm(app, prefix)
 
 
@@ -1087,7 +1092,7 @@ def _install_from_npm(app, prefix):
     return _installed_executable(app, prefix / "node_modules" / ".bin" / app["binary"])
 
 
-def _install_from_vendor_script(app, prefix):
+def _install_from_vendor_script(app, prefix, home):
     """Run a vendor's own installer, with its output pinned inside the account.
 
     The script is downloaded in full and then run, rather than piped straight
@@ -1128,7 +1133,10 @@ def _install_from_vendor_script(app, prefix):
                  "Check this server can reach the internet, then re-run: "
                  "slopnet setup --vps")
         environment = dict(os.environ)
+        # Grok reads this; other installers ignore it and use ~/.local/bin,
+        # which is the same place. Nothing here needs a flag per vendor.
         environment["GROK_BIN_DIR"] = str(bin_dir)
+        environment["HOME"] = str(home)
         installed = subprocess.run([bash, str(script)], env=environment)
     if installed.returncode != 0:
         fail(f"{app['name']} installation failed.",
@@ -1218,7 +1226,7 @@ def cmd_vps_setup(root, args):
     # Each app keeps its credential in its own directory; lock down whichever
     # one this app uses rather than always Codex's.
     credential_dirs = {"openai": ".codex", "anthropic": ".claude",
-                       "google": ".gemini", "xai": ".grok"}
+                       "google": ".antigravity", "xai": ".grok"}
     folder = credential_dirs.get(provider)
     if folder:
         credential_dir = home / folder

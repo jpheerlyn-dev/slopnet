@@ -277,11 +277,13 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     static NSDictionary<NSString *, NSString *> *map;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        map = @{ @"codex":  @"openai",
-                 @"claude": @"anthropic",
-                 @"kimi":   @"moonshot",
-                 @"gemini": @"google",
-                 @"grok":   @"xai" };
+        map = @{ @"codex":       @"openai",
+                 @"claude":      @"anthropic",
+                 @"kimi":        @"moonshot",
+                 // Google retired Gemini CLI for individual plans in favour of
+                 // Antigravity; the provider is still google.
+                 @"antigravity": @"google",
+                 @"grok":        @"xai" };
     });
     return toolId ? map[toolId] : nil;
 }

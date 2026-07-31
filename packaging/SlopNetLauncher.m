@@ -2138,9 +2138,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.codeButton.hidden = (code.length == 0);
 
     // Open the browser rather than asking somebody to press a button to open
-    // the browser. The page is opened once per sign-in, not again when the
-    // code turns up a moment later.
-    if (!alreadyShown) [NSWorkspace.sharedWorkspace openURL:page];
+    // the browser — but only when the link is plainly an authorisation page.
+    // A terms-of-service link printed beside a sign-in prompt was launched at
+    // the operator once, and opening a browser is a side effect that should
+    // never happen on a guess. Anything less certain waits behind the button.
+    if (!alreadyShown && console.signInLinkIsAuthorisation) {
+        [NSWorkspace.sharedWorkspace openURL:page];
+    }
 
     // As few words as will do. The code is already on the clipboard, the page
     // is already open, and the only thing left is the paste.

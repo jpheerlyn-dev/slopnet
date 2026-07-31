@@ -29,11 +29,11 @@
       "source": "operator's own install, 2026-07-29"
     },
     {
-      "id": "gemini",
-      "name": "Gemini CLI",
-      "subscription": "Google AI Pro",
-      "check": "gemini",
-      "install": "npm install --prefix ~/.local @google/gemini-cli",
+      "id": "antigravity",
+      "name": "Antigravity CLI",
+      "subscription": "Google AI Pro or Ultra",
+      "check": "agy",
+      "install": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
       "login": "gemini",
       "source": ""
     },

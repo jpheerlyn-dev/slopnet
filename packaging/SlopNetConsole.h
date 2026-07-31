@@ -89,6 +89,12 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 /// reading, never a handle on the terminal.
 - (NSString *)recentLinesForContext:(NSUInteger)count;
 
+/// Whether the link last offered was plainly an authorisation endpoint, rather
+/// than the only link that happened to be on screen. Opening a browser is a
+/// side effect, so it is only done when this is YES — a terms-of-service page
+/// printed beside a sign-in prompt is not something to launch at somebody.
+@property(nonatomic, readonly) BOOL signInLinkIsAuthorisation;
+
 - (BOOL)runExecutable:(NSString *)path
             arguments:(NSArray<NSString *> *)arguments;
 

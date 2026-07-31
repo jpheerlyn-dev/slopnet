@@ -354,6 +354,16 @@ int main(void) {
                   "it is the authorisation page");
         }
 
+        // Real output: Gemini printed its terms-of-service link beside a
+        // sign-in prompt, and that page was launched in the operator's browser.
+        {
+            Watcher *w = signInFor(
+                @"printf 'How would you like to authenticate for this project?\n'; "
+                @"printf 'Terms of Services and Privacy Notice\n'; "
+                @"printf '  https://geminicli.com/docs/resources/tos-privacy/\n'; sleep 1");
+            check(w.signInPage != nil, "the link is still offered as a button");
+        }
+
     fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }

@@ -169,6 +169,7 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 /// not raise the same offer on every redraw.
 @property(nonatomic, copy) NSString *announcedSignIn;
 @property(nonatomic, copy) NSString *announcedCode;
+@property(nonatomic, assign) BOOL signInLinkIsAuthorisation;
 @property(nonatomic, strong) NSMutableString *collected;
 /// How many lines each replaceable block currently occupies, by token. A block
 /// that grows has to make room rather than refuse.
@@ -848,6 +849,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
     if (all.count == 0) return;
 
     NSString *address = nil;
+    BOOL authorisation = NO;
     for (NSTextCheckingResult *candidate in all) {
         NSString *found = [recent substringWithRange:candidate.range];
         while (found.length > 0 &&
@@ -860,7 +862,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
                     || [lowered containsString:@"/auth"]   || [lowered containsString:@"/login"]
                     || [lowered containsString:@"/activate"]
                     || [lowered containsString:@"user_code"];
-        if (authish) address = found;                 // keep the last such link
+        if (authish) { address = found; authorisation = YES; }
         else if (address == nil) address = found;     // a fallback, until a better one
     }
     if (address == nil) return;
@@ -926,6 +928,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
     }
     self.announcedSignIn = address;
     self.announcedCode = code;
+    self.signInLinkIsAuthorisation = authorisation;
 
     if ([self.delegate respondsToSelector:@selector(console:needsSignIn:code:)]) {
         [self.delegate console:self needsSignIn:page code:code];
