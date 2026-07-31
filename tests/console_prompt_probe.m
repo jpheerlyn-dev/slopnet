@@ -235,7 +235,10 @@ int main(void) {
                 [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
                                          beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
             }
-            check([f.textForTesting containsString:@"stopped, code 3"],
+            // What matters is that a failure is announced at all, not the
+            // exact wording — "stopped, code 3" was replaced because an exit
+            // code means nothing to the person reading it.
+            check([f.textForTesting containsString:@"did not work"],
                   "a turn that failed still says so");
         }
 
