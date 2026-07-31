@@ -123,5 +123,5 @@ encoded_chat=$(printf '%s' "$remote_chat" | base64 | tr -d '\n')
 if [ "$username" = "root" ]; then
   ssh -T -i "$key_path" -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$question_b64' '$context_b64'"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$question_b64' '$context_b64' </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_chat' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$question_b64' '$context_b64' </dev/tty"
 fi

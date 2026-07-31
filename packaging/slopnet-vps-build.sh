@@ -70,7 +70,7 @@ exec runuser -u slopnet -- env HOME="$runtime_home" \
 encoded_build=$(printf '%s' "$remote_build" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_build' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$project_b64' </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_build' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$project_b64' </dev/tty"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_build' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$project_b64' </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_build' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$project_b64' </dev/tty"
 fi

@@ -217,9 +217,9 @@ echo "[OK] Local helper passed. Selected model is private to the slopnet account
 encoded_setup=$(printf '%s' "$remote_setup" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$model_b64' '$remote_approved' </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && chmod 700 \"\$f\" && sh \"\$f\" '$model_b64' '$remote_approved' </dev/tty"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$model_b64' '$remote_approved' </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo chmod 700 \"\$f\" && sudo sh \"\$f\" '$model_b64' '$remote_approved' </dev/tty"
 fi
 
 # Only say it finished if it did. This line printed after a remote half that

@@ -1530,8 +1530,12 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.setupRunning = YES;
     [self beginActivity:@"search" caption:@"Checking your server…"];
     [self setBusy:YES];
+    // The name goes with it, so the setup output can talk about the server
+    // without printing its address.
+    NSString *named = [NSUserDefaults.standardUserDefaults
+        stringForKey:@"SlopNetServerName"] ?: @"your server";
     if (![self.console runExecutable:@"/bin/bash"
-                           arguments:@[script, self.host, self.port, self.username]]) {
+                           arguments:@[script, self.host, self.port, self.username, named]]) {
         self.setupRunning = NO;
         [self setBusy:NO];
     }

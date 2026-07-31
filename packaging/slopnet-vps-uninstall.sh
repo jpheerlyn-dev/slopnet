@@ -69,9 +69,9 @@ fi
 
 # shellcheck disable=SC2086
 if [ "$username" = "root" ]; then
-  ssh $ssh_opts "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded' | base64 -d > \"\$f\" && sh \"\$f\" </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new $ssh_opts "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded' | base64 -d > \"\$f\" && sh \"\$f\" </dev/tty"
 else
-  ssh $ssh_opts "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded' | base64 -d > \"\$f\" && sudo sh \"\$f\" </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new $ssh_opts "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded' | base64 -d > \"\$f\" && sudo sh \"\$f\" </dev/tty"
 fi
 
 say "SlopNet has been removed from your server."

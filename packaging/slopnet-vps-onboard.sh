@@ -7,10 +7,11 @@ set -euo pipefail
 host="$1"
 port="$2"
 username="$3"
+server_name="${4:-your server}"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.25"
+slopnet_release="v0.9.27"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 repo_url="https://github.com/jpheerlyn-dev/slopnet.git"
 
@@ -41,11 +42,11 @@ fi
 
 
 say "Step 2 of 3 — confirm your server"
-say "If SSH asks whether you trust this server, continue only when ${host} is the IP address from your server provider. Then enter the server password if asked. It is not saved."
-cat "$key_path.pub" | ssh -o LogLevel=ERROR -p "$port" "$username@$host" \
+say "Connecting to ${server_name}. Enter the server password if asked. It is not saved."
+cat "$key_path.pub" | ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -p "$port" "$username@$host" \
   'key=$(cat); umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf "%s\n" "$key" >> "$HOME/.ssh/authorized_keys"'
 
-ssh -o LogLevel=ERROR -i "$key_path" -p "$port" "$username@$host" true
+ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -i "$key_path" -p "$port" "$username@$host" true
 
 say "Your protected connection is ready."
 say "Step 3 of 3 — prepare the server"
@@ -124,9 +125,9 @@ fi
 
 encoded_setup=$(printf '%s' "$remote_setup" | base64)
 if [ "$username" = "root" ]; then
-  ssh -tt -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sh \"\$f\" '$slopnet_release' </dev/tty"
+  ssh -tt -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sh \"\$f\" '$slopnet_release' </dev/tty"
 else
-  ssh -tt -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo sh \"\$f\" '$slopnet_release' </dev/tty"
+  ssh -tt -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo sh \"\$f\" '$slopnet_release' </dev/tty"
 fi
 
 say "SlopNet Server setup finished. Read the result above before starting any project work."

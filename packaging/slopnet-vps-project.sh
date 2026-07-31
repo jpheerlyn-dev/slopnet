@@ -158,9 +158,9 @@ echo "[OK] Plan recorded locally. No coding agent has run."'
 encoded_project=$(printf '%s' "$remote_project" | base64 | tr -d '\n')
 
 if [ "$username" = "root" ]; then
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_project' | base64 -d > \"\$f\" && chown slopnet:slopnet \"\$f\" && chmod 700 \"\$f\" && runuser -u slopnet -- env HOME=/home/slopnet sh \"\$f\" '$name_b64' '$idea_b64' </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_project' | base64 -d > \"\$f\" && chown slopnet:slopnet \"\$f\" && chmod 700 \"\$f\" && runuser -u slopnet -- env HOME=/home/slopnet sh \"\$f\" '$name_b64' '$idea_b64' </dev/tty"
 else
-  ssh -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_project' | base64 -d > \"\$f\" && sudo chown slopnet:slopnet \"\$f\" && sudo chmod 700 \"\$f\" && sudo -u slopnet env HOME=/home/slopnet sh \"\$f\" '$name_b64' '$idea_b64' </dev/tty"
+  ssh -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new -tt -i "$key_path" -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_project' | base64 -d > \"\$f\" && sudo chown slopnet:slopnet \"\$f\" && sudo chmod 700 \"\$f\" && sudo -u slopnet env HOME=/home/slopnet sh \"\$f\" '$name_b64' '$idea_b64' </dev/tty"
 fi
 
 say "Project planning finished. Read the plan shown above before choosing whether agents should start coding."

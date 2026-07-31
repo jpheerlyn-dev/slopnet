@@ -998,25 +998,32 @@ CODING_APPS = {
         "name": "ChatGPT",
         "package": "@openai/codex",
         "binary": "codex",
-        "login": ["login"],
+        # Device auth, because this runs on a server with no browser on it.
+        "login": ["login", "--device-auth"],
+        "status": ["login", "status"],
     },
     "anthropic": {
         "name": "Claude",
         "package": "@anthropic-ai/claude-code",
         "binary": "claude",
-        "login": ["/login"],
+        "login": ["setup-token"],
+        "status": None,
     },
     "google": {
         "name": "Google Gemini",
         "package": "@google/gemini-cli",
         "binary": "gemini",
+        # No login subcommand exists — `gemini --help` lists none. It signs in
+        # when launched, so launching it IS the sign-in.
         "login": [],
+        "status": None,
     },
     "xai": {
         "name": "Grok",
         "installer": "https://x.ai/cli/install.sh",
         "binary": "grok",
         "login": ["login"],
+        "status": None,
     },
 }
 
@@ -1185,28 +1192,41 @@ def cmd_vps_setup(root, args):
         print(f"[OK] The {app['name']} tool is already installed for this "
               f"private server account.")
 
-    if not codex_login_ok(executable):
-        # No question here. Somebody running this step has already said they
-        # want it; asking "start sign-in now?" in the middle is a decision
-        # with one sensible answer, and every one of those makes setup feel
-        # like an interrogation. Sign-in still cannot complete without the
-        # person approving it in their own browser, which is the consent that
-        # actually matters.
-        print("Signing in to Codex. Your browser does the approving; SlopNet "
-              "never sees or stores the credential, and no port is opened.")
-        login = subprocess.run([executable, "login", "--device-auth"])
-        if login.returncode != 0 or not codex_login_ok(executable):
-            fail("Codex sign-in did not complete.",
-                 "The provider did not confirm a usable session on this server.",
-                 "Complete the device sign-in, then re-run: slopnet setup --vps")
-        print("[OK] Codex device sign-in confirmed for this private server account.")
-    else:
-        print("[OK] Codex is already signed in for this private server account.")
+    # Each coding app signs in its own way, and until now this ran Codex's
+    # exact command against whichever one had been chosen — so Gemini was
+    # handed a --device-auth flag it has never had and refused the lot.
+    def already_signed_in():
+        check = app.get("status")
+        if not check:
+            return False        # no way to ask; sign in and let it say
+        done = subprocess.run([executable] + check,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return done.returncode == 0
 
-    credential_dir = home / ".codex"
-    ensure_private_directory(credential_dir, os.geteuid(), "The Codex credential directory")
-    print("[OK] Codex login confirmed; its credential directory is private to this server user.")
-    print("Running one disposable edit proof with workspace-only Codex sandboxing and resource limits.")
+    if not already_signed_in():
+        print(f"Signing in to {app['name']}. Your browser does the approving; "
+              f"SlopNet never sees or stores the credential, and no port is opened.")
+        login = subprocess.run([executable] + app.get("login", []))
+        if login.returncode != 0:
+            fail(f"{app['name']} sign-in did not complete.",
+                 "The coding app did not confirm a usable session on this server.",
+                 f"Finish the sign-in it showed, then try {app['name']} again.")
+        print(f"[OK] {app['name']} sign-in confirmed for this private server account.")
+    else:
+        print(f"[OK] {app['name']} is already signed in for this private server account.")
+
+    # Each app keeps its credential in its own directory; lock down whichever
+    # one this app uses rather than always Codex's.
+    credential_dirs = {"openai": ".codex", "anthropic": ".claude",
+                       "google": ".gemini", "xai": ".grok"}
+    folder = credential_dirs.get(provider)
+    if folder:
+        credential_dir = home / folder
+        if credential_dir.exists():
+            ensure_private_directory(credential_dir, os.geteuid(),
+                                     f"The {app['name']} credential directory")
+    print(f"[OK] {app['name']} is signed in, and its credential stays on this server "
+          f"in this account only.")
     try:
         crew.setup(root, ask_operator, print, automatic=True,
                    resource_limits=VPS_AGENT_LIMITS)
@@ -1836,7 +1856,12 @@ def main():
     if args.command == "init":
         cmd_init(root, args)
         return
-    if root is None and args.command != "go":
+    # Commands that act on the server rather than on a project. Requiring a
+    # git repository for these meant pressing Install in Settings failed with
+    # "Not inside a git repository" — a message about project folders, shown
+    # to somebody who was installing a coding tool and had no project at all.
+    ELSEWHERE = {"go", "setup", "doctor", "adapt", "mcp"}
+    if root is None and args.command not in ELSEWHERE:
         fail("Not inside a git repository.",
              "SlopNet needs a project folder that git knows about.",
              "cd into your project, or start one with: slopnet init")

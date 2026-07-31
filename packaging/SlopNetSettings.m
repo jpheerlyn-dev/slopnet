@@ -437,8 +437,8 @@
         NSString *provider = [SlopNetBrand providerForTool:toolID];
         if ([SlopNetSettings signInSupportedForProvider:provider]) {
             NSString *command = [NSString stringWithFormat:
-                @"/opt/slopnet/slopnet setup --vps --coding-app-only --approved --provider %@",
-                provider];
+                @"cd /opt/slopnet && ./slopnet setup --vps --coding-app-only "
+                @"--approved --provider %@", provider];
             [self.delegate settings:self runOnServer:command
                               title:[NSString stringWithFormat:@"Setting up %@",
                                      tool[@"name"] ?: toolID]];

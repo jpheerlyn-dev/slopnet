@@ -1292,10 +1292,13 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
         [self note:@"\n— stopped —"];
     } else {
         [self setStatusText:[NSString stringWithFormat:
-            @"Stopped with a problem (code %d). The last lines above say why.", status]
+            @"That did not work. The lines above say what happened."]
                       glyph:nil
                        tint:nil];
-        [self note:[NSString stringWithFormat:@"\n— stopped, code %d —", status]];
+        // "code 2" is a number for a developer. The lines above already say
+        // what went wrong in the program's own words; this just has to say
+        // that it did not work, and not pretend to know why.
+        [self note:@"\n— that did not work —"];
     }
     // Draw the last of it now rather than on a queued tick, so the final
     // lines — which are the ones saying what to do next — are on screen the
