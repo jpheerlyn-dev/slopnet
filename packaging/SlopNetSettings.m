@@ -1,4 +1,5 @@
 #import "SlopNetSettings.h"
+#import "SlopNetBrand.h"
 
 @interface SlopNetSettings ()
 @property(nonatomic, strong) NSTextField *host;      // shown when revealed
@@ -412,10 +413,39 @@
     [self closePressed:nil];
 }
 
+/// Which providers SlopNet can carry through a browser sign-in.
+///
+/// The same four the engine knows. Moonshot signs in with a pasted key rather
+/// than a browser, so its button installs the tool and stops there.
++ (BOOL)signInSupportedForProvider:(NSString *)provider {
+    static NSSet *supported;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        supported = [NSSet setWithArray:@[@"openai", @"anthropic", @"google", @"xai"]];
+    });
+    return provider != nil && [supported containsObject:provider];
+}
+
 - (void)installPressed:(NSButton *)sender {
     NSString *toolID = sender.identifier;
     for (NSDictionary *tool in self.tools) {
         if (![tool[@"id"] isEqualToString:toolID]) continue;
+        // Install and sign in are one action. Pressing Install and then being
+        // left with a tool you cannot use is not an install — SlopNet already
+        // has a step that fetches the tool and takes you through the browser
+        // sign-in, and it is the one proved on a real server.
+        NSString *provider = [SlopNetBrand providerForTool:toolID];
+        if ([SlopNetSettings signInSupportedForProvider:provider]) {
+            NSString *command = [NSString stringWithFormat:
+                @"/opt/slopnet/slopnet setup --vps --coding-app-only --approved --provider %@",
+                provider];
+            [self.delegate settings:self runOnServer:command
+                              title:[NSString stringWithFormat:@"Setting up %@",
+                                     tool[@"name"] ?: toolID]];
+            [self closePressed:nil];
+            return;
+        }
+        // Anything SlopNet cannot sign in to yet is installed and no more.
         NSString *install = tool[@"install"] ?: @"";
         if (install.length == 0) return;
         [self.delegate settings:self runOnServer:install

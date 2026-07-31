@@ -536,9 +536,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.approveButton = [self promptButton:@"Yes" action:@selector(approvePressed:)];
     self.declineButton = [self promptButton:@"No" action:@selector(declinePressed:)];
     self.continueButton = [self promptButton:@"Continue" action:@selector(continuePressed:)];
-    self.openPageButton = [self promptButton:@"Open the sign-in page"
+    self.openPageButton = [self promptButton:@"Open page again"
                                      action:@selector(openSignInPage:)];
-    self.codeButton = [self promptButton:@"Copy the code again"
+    self.codeButton = [self promptButton:@"Copy code"
                                      action:@selector(putCodeOnClipboard:)];
     self.skipButton = [self promptButton:@"Skip this one"
                                   action:@selector(skipThisSignIn:)];
@@ -2027,18 +2027,20 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.continueButton.hidden = YES;
     self.openPageButton.hidden = NO;
     self.codeButton.hidden = (code.length == 0);
+
+    // Open the browser rather than asking somebody to press a button to open
+    // the browser. The page is opened once per sign-in, not again when the
+    // code turns up a moment later.
+    if (!alreadyShown) [NSWorkspace.sharedWorkspace openURL:page];
+
+    // As few words as will do. The code is already on the clipboard, the page
+    // is already open, and the only thing left is the paste.
     self.promptLabel.stringValue = code.length > 0
-        ? [NSString stringWithFormat:
-           @"%@ needs you to sign in. Your code %@ is copied — press the button, "
-           @"then paste it on the page that opens.", @"A coding app", code]
-        : [NSString stringWithFormat:@"A coding app needs you to sign in at %@",
-           page.absoluteString];
+        ? [NSString stringWithFormat:@"Paste this in your browser:   %@", code]
+        : @"Finish signing in in your browser.";
     self.promptLabel.textColor = [NSColor labelColor];
-    if (!alreadyShown) {
-        [self.console note:[NSString stringWithFormat:@"\nSign-in page: %@",
-                            page.absoluteString]];
-    }
-    [self.window makeFirstResponder:self.openPageButton];
+    [self.window makeFirstResponder:self.codeButton.hidden
+        ? self.openPageButton : self.codeButton];
 }
 
 - (void)openSignInPage:(id)sender {
