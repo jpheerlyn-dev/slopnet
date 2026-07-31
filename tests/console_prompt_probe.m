@@ -324,6 +324,18 @@ int main(void) {
             check([w.signInCode isEqualToString:@"AB12-CD34"], "with its code");
         }
 
+        // Real output from installing the Kimi CLI. It prints "Verifying
+        // checksum" and its own download URLs, and every one of them was
+        // offered to the operator as a page to sign in at.
+        {
+            Watcher *w = signInFor(
+                @"printf '==> Downloading https://code.kimi.com/kimi-code/binaries/0.31.1/kimi-code-linux-x64\n'; "
+                @"printf '==> Verifying checksum\n'; "
+                @"printf '==> Installed to /home/slopnet/.kimi-code/bin/kimi\n'; sleep 1");
+            check(w.signInPage == nil,
+                  "verifying a checksum is not an invitation to sign in");
+        }
+
     fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }

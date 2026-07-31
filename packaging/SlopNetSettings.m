@@ -425,8 +425,16 @@
     for (NSDictionary *tool in self.tools) {
         NSString *check = tool[@"check"] ?: @"";
         if (check.length == 0) continue;
+        // Looked for on the runtime account's PATH, because that is where the
+        // installs go. Checking root's PATH found only the one tool whose
+        // installer had symlinked itself machine-wide, so the list said "not
+        // installed" for things that were.
         [probe appendFormat:
-            @"if command -v %@ >/dev/null 2>&1; then echo '%@ yes'; else echo '%@ no'; fi; ",
+            @"if runuser -u slopnet -- env HOME=/home/slopnet "
+            @"PATH=/home/slopnet/.local/bin:/home/slopnet/.local/node_modules/.bin:"
+            @"/usr/local/bin:/usr/bin:/bin "
+            @"sh -c 'command -v %@' >/dev/null 2>&1; then echo '%@ yes'; "
+            @"else echo '%@ no'; fi; ",
             check, tool[@"id"], tool[@"id"]];
     }
 

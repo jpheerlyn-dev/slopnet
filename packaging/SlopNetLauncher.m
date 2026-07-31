@@ -1490,9 +1490,33 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     }
 }
 
+/// Wrap a command so it runs as the locked runtime account, never as root.
+///
+/// This is the whole point of that account: a coding tool and the credential
+/// it stores belong to it, not to root and not to the machine. Settings ran
+/// installs straight down the SSH connection instead, so npm went to
+/// /root/.local, Kimi to /root/.kimi-code, and Grok symlinked itself into
+/// /usr/local/bin pointing at root's home. None of it was visible to the
+/// account that actually runs agents, which is why the list never updated.
+///
+/// The command goes over base64 so quoting, pipes and apostrophes inside it
+/// cannot break the wrapper — the same approach the setup scripts use.
++ (NSString *)asRuntimeAccount:(NSString *)command asRoot:(BOOL)root {
+    NSData *raw = [command dataUsingEncoding:NSUTF8StringEncoding];
+    NSString *encoded = [raw base64EncodedStringWithOptions:0];
+    NSString *runuser =
+        @"runuser -u slopnet -- env HOME=/home/slopnet "
+        @"PATH=/home/slopnet/.local/bin:/home/slopnet/.local/node_modules/.bin:"
+        @"/usr/local/bin:/usr/bin:/bin sh";
+    return [NSString stringWithFormat:@"printf %%s '%@' | base64 -d | %@%@",
+            encoded, root ? @"" : @"sudo ", runuser];
+}
+
 - (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
            title:(NSString *)title {
     if (self.busy || ![self connectionValid]) return;
+    command = [SlopNetAppDelegate asRuntimeAccount:command
+                                            asRoot:[self.username isEqualToString:@"root"]];
     [self.console note:[SlopNetBrand headerANSI:title width:[self panelWidth]]];
     [self beginActivity:@"search" caption:title];
     [self setBusy:YES];

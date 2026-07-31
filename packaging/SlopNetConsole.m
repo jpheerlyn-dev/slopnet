@@ -857,7 +857,13 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
                 || [lower containsString:@"log in"]  || [lower containsString:@"login"]
                 || [lower containsString:@"authorize"] || [lower containsString:@"authorise"]
                 || [lower containsString:@"authenticate"]
-                || [lower containsString:@"verification"] || [lower containsString:@"verify"]
+                // Not a bare "verify": an installer printing "Verifying
+                // checksum" offered its own download URL as a page to sign in
+                // at, three times in one install. Same shape as a bare "code"
+                // matching Codex.
+                || [lower containsString:@"verification code"]
+                || [lower containsString:@"verify your"]
+                || [lower containsString:@"to verify"]
                 // Not a bare "code": the Codex CLI has it in its name, and
                 // installing it was enough to raise a false sign-in.
                 || [lower containsString:@"one-time code"]
