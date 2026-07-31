@@ -1654,8 +1654,6 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                            @"this copy of the app. Download SlopNet again."];
         return;
     }
-    NSString *provider =
-        [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
     // The person's line, then the guide's name, then its reply streams in
     // underneath. The question used to be wrapped in a Granite panel with a
     // thinking glyph, so the screen showed Granite's mark above words Granite
@@ -1663,8 +1661,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [self.console note:[SlopNetBrand youSaidANSI:question width:[self panelWidth]]];
     NSString *context = [self guideContext];
     [self remember:[NSString stringWithFormat:@"You: %@", question]];
-    [self.console note:[SlopNetBrand guideRepliesANSIForProvider:provider
-                                                            name:@"Granite"]];
+    // No bare name line here. The reply is drawn as a panel when the turn
+    // ends, and printing this as well put a loose "Granite" above the panel.
     self.entry.string = @"";
     [self resizeEntry];
     [self beginActivity:@"think" caption:@"Your guide is thinking…"];

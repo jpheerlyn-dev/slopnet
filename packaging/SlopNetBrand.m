@@ -390,7 +390,8 @@ static const unichar kStripedBase = 0xE800;
     [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐" label:@""]];
 
     NSString *mark = [self colorFontActive]
-        ? [self actionGlyph:@"user-message" frame:0 cells:2] : @"▶ ";
+        ? [self actionGlyph:@"user-message" frame:0 cells:kMarkColumns]
+        : [@"▶" stringByPaddingToLength:kMarkColumns withString:@" " startingAtIndex:0];
     NSString *head = [NSString stringWithFormat:@" %@ \033[1mYou\033[22m", mark];
     [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink
                                        body:head columns:2 + kMarkColumns + 3]];
@@ -440,11 +441,13 @@ static const unichar kStripedBase = 0xE800;
 
     NSString *mark = [self markForProvider:providerId] ?: @"◆";
     NSString *icon = [self colorFontActive]
-        ? [self actionGlyph:@"message" frame:0 cells:2] : @"  ";
+        ? [self actionGlyph:@"message" frame:0 cells:kMarkColumns]
+        : [@"" stringByPaddingToLength:kMarkColumns withString:@" " startingAtIndex:0];
     NSString *head = [NSString stringWithFormat:@" %@ \033[1m%@\033[22m  %@ \033[2mMessage\033[22m",
                       mark, name, icon];
     [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink body:head
-                                    columns:2 + kMarkColumns + name.length + 4 + 8]];
+                                    columns:2 + kMarkColumns + name.length
+                                            + 2 + kMarkColumns + 7]];
 
     for (NSString *line in [self wrapText:text toColumns:(NSInteger)panelWidth - 6]) {
         NSString *body = [NSString stringWithFormat:@"  %@", line];
