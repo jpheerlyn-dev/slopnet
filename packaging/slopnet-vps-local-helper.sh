@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Set up one optional, local Llama.cpp helper on a VPS prepared by SlopNet.
+# Set up one optional, local Llama.cpp helper on a server prepared by SlopNet.
 #
 # This is intentionally not a service.  It runs one finite test under the
 # locked `slopnet` account, stores only the selected public model identifier,
@@ -40,7 +40,7 @@ confirm() {
 }
 # A request-rewriter never needs a model's enormous advertised context. This
 # deliberately small bound prevents its KV cache from consuming an otherwise
-# healthy VPS. It is not an agent-runtime limit and does not affect paid CLIs.
+# healthy server. It is not an agent-runtime limit and does not affect paid CLIs.
 helper_context="4096"
 
 say() {
@@ -56,7 +56,7 @@ if ! valid_model "$model"; then
   exit 2
 fi
 if [ ! -f "$key_path" ]; then
-  printf '%s\n' 'SlopNet cannot find the protected VPS key from setup. Run Connect and prepare this server first.' >&2
+  printf '%s\n' 'SlopNet cannot find the protected server key from setup. Run Connect and prepare this server first.' >&2
   exit 1
 fi
 
@@ -73,7 +73,7 @@ else
 fi
 say "Llama.cpp and the model will belong only to the locked slopnet account. No API key is requested or saved, no external model port is opened, and the one test exits when it is done."
 if ! confirm "Continue?"; then
-  say "Nothing changed on your VPS."
+  say "Nothing changed on your server."
   exit 0
 fi
 
@@ -150,14 +150,14 @@ if [ "$model" = "$default_model" ]; then
   if [ "$memory_free" != "unknown" ] && [ "$memory_free" -lt 6000 ]; then
     echo "RULE: IBM Granite 4.1 3B needs more available memory than this server has right now."
     echo "WHY:  Its real bounded proof used about 3.9 GiB RSS; SlopNet keeps room for the server and other work."
-    echo "FIX:  Stop other workloads or use a VPS with at least 6000 MiB available memory. Nothing changed."
+    echo "FIX:  Stop other workloads or use a server with at least 6000 MiB available memory. Nothing changed."
     exit 1
   fi
 fi
 echo
 echo "Llama.cpp will be installed from its official installer into the slopnet account."
 echo "The selected public model will download now and answer one harmless word. This can take a while."
-echo "SlopNet limits this helper to a 4,096-token context and modest batches so a short draft cannot take over the VPS."
+echo "SlopNet limits this helper to a 4,096-token context and modest batches so a short draft cannot take over the server."
 if ! confirm "Install and test it?"; then
   echo "Nothing changed."
   exit 3

@@ -783,7 +783,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 // History intentionally records only an idle project request. It never
 // captures console output or an answer to a live prompt: either could contain
-// a VPS password or provider information.
+// a server password or provider information.
 - (void)rememberRequest:(NSString *)idea project:(NSString *)name {
     NSFileManager *files = NSFileManager.defaultManager;
     NSURL *directory = [self historyDirectory];
@@ -1707,7 +1707,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         return;
     }
     // A quiet read-only check. It never starts a model, calls a coding CLI,
-    // asks for a password, or changes the VPS. A non-root login may not be
+    // asks for a password, or changes the server. A non-root login may not be
     // able to read this private file; chat itself will then explain what is
     // missing in the visible console.
     NSTask *task = [[NSTask alloc] init];
@@ -1835,7 +1835,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"Start coding agents?";
         alert.informativeText = [NSString stringWithFormat:
-            @"You approved the plan for %@. This starts the multi-agent coding run on your VPS and spends from the proved coding subscription. Agents may edit only that project; checks and its test command decide what can merge.",
+            @"You approved the plan for %@. This starts the multi-agent coding run on your server and spends from the proved coding subscription. Agents may edit only that project; checks and its test command decide what can merge.",
             self.plannedProjectName];
         [alert addButtonWithTitle:@"Start coding agents"];
         [alert addButtonWithTitle:@"Keep plan only"];

@@ -1,7 +1,9 @@
 #import "SlopNetSettings.h"
 
 @interface SlopNetSettings ()
-@property(nonatomic, strong) NSTextField *host;
+@property(nonatomic, strong) NSTextField *host;      // shown when revealed
+@property(nonatomic, strong) NSSecureTextField *hiddenHost;
+@property(nonatomic, strong) NSButton *revealHost;
 @property(nonatomic, strong) NSTextField *port;
 @property(nonatomic, strong) NSTextField *user;
 @property(nonatomic, strong) NSTextField *connectionNote;
@@ -103,7 +105,33 @@
 #pragma mark - layout
 
 - (void)buildWithHost:(NSString *)host port:(NSString *)port user:(NSString *)user {
+    // The address is masked by default, with a button to look at it.
+    //
+    // Two fields rather than one that changes mode: AppKit draws bullets from
+    // the cell, and swapping a live field's cell loses the selection and the
+    // undo stack. Whichever is visible carries the value, and the other is
+    // kept in step, so either can be typed into.
     self.host = [self field:host placeholder:@"address or name of your server"];
+    self.hiddenHost = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
+    self.hiddenHost.stringValue = host ?: @"";
+    self.hiddenHost.placeholderString = @"address or name of your server";
+    self.hiddenHost.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.hiddenHost.heightAnchor constraintEqualToConstant:24].active = YES;
+    [self.hiddenHost.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
+    self.host.hidden = YES;
+
+    self.revealHost = [NSButton buttonWithTitle:@"Show"
+                                          target:self
+                                          action:@selector(toggleHostVisible:)];
+    self.revealHost.bezelStyle = NSBezelStyleRounded;
+    self.revealHost.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.revealHost.widthAnchor constraintEqualToConstant:60].active = YES;
+
+    NSStackView *addressRow = [NSStackView stackViewWithViews:
+        @[self.hiddenHost, self.host, self.revealHost]];
+    addressRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    addressRow.spacing = 6;
+    addressRow.translatesAutoresizingMaskIntoConstraints = NO;
     self.user = [self field:user.length ? user : @"root" placeholder:@"root"];
     self.port = [self field:port.length ? port : @"22" placeholder:@"22"];
     [self.host.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
@@ -116,7 +144,7 @@
     // A grid keeps labels and fields aligned at any window size — hand-built
     // rows of fixed widths never manage that.
     NSGridView *connection = [NSGridView gridViewWithViews:@[
-        @[[self label:@"Address" size:12 grey:NO bold:NO], self.host],
+        @[[self label:@"Address" size:12 grey:NO bold:NO], addressRow],
         @[[self label:@"Login name" size:12 grey:NO bold:NO], self.user],
         @[[self label:@"Port" size:12 grey:NO bold:NO], self.port],
     ]];
@@ -198,7 +226,7 @@
     NSString *serverTitle = @"Your server";
     NSString *serverHelp = self.connected
         ? @"Any computer you can reach over SSH: a rented server, a dedicated machine, a home server, or a Raspberry Pi. Your password is never stored — it goes straight from the console to your server."
-        : @"Enter the address, login name, and port from your VPS provider. SlopNet will show every change in its own window and never saves the VPS password. The setup guide in the sidebar walks through this in order.";
+        : @"Enter the address, login name, and port from your server provider. SlopNet will show every change in its own window and never saves the server password. The setup guide in the sidebar walks through this in order.";
     NSString *helperTitle = @"Private local guide";
     NSString *helperHelp = self.connected
         ? @"This small model runs only on your server for ordinary setup chat and request drafting. It cannot start coding, make a decision, or spend from a coding subscription. SlopNet shows capacity, downloads only after you approve, limits it to a small 4K context and a 15-minute test, and never opens a model port."
@@ -303,6 +331,20 @@
     }
 }
 
+/// Copy the typed value across, so either field can be the one edited.
+- (void)syncHostFields {
+    if (self.host.hidden) self.host.stringValue = self.hiddenHost.stringValue;
+    else self.hiddenHost.stringValue = self.host.stringValue;
+}
+
+- (void)toggleHostVisible:(id)sender {
+    [self syncHostFields];
+    BOOL showing = self.host.hidden;          // about to become visible
+    self.host.hidden = !showing;
+    self.hiddenHost.hidden = showing;
+    self.revealHost.title = showing ? @"Hide" : @"Show";
+}
+
 - (void)updateConnectionNote {
     if (self.connected) {
         self.connectionNote.stringValue = @"●  This server is set up and ready.";
@@ -329,6 +371,7 @@
 }
 
 - (void)connectPressed:(id)sender {
+    [self syncHostFields];
     if (self.host.stringValue.length == 0) {
         self.connectionNote.stringValue = @"Type your server's address first.";
         self.connectionNote.textColor = [NSColor systemRedColor];

@@ -16,7 +16,7 @@ project_name="$4"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 
 if [ ! -f "$key_path" ]; then
-  printf '%s\n' 'SlopNet cannot find the protected VPS key. Run Connect and prepare this server first.' >&2
+  printf '%s\n' 'SlopNet cannot find the protected server key. Run Connect and prepare this server first.' >&2
   exit 1
 fi
 case "$project_name" in

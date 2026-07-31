@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The interactive second step of the Mac app: one user-named VPS project and
-# one plan. The app keeps the VPS details only in its current window; this
+# The interactive second step of the Mac app: one user-named server project and
+# one plan. The app keeps the server details only in its current window; this
 # helper does not save them and never receives a provider password or token.
 set -euo pipefail
 
@@ -16,15 +16,15 @@ say() {
 }
 
 if [ ! -f "$key_path" ]; then
-  printf '%s\n' 'SlopNet cannot find the protected VPS key from setup. Run Set up my VPS first.' >&2
+  printf '%s\n' 'SlopNet cannot find the protected server key from setup. Run Set up my server first.' >&2
   exit 1
 fi
 
 clear
 printf '\033]0;SlopNet project plan\007'
 say "SlopNet project plan"
-say "Your project will live only on your VPS. SlopNet will create exactly the folder named ${project_name}."
-say "It will reuse the one coding app already proved on that VPS, make a plan, and stop for your approval before any coding agents run."
+say "Your project will live only on your server. SlopNet will create exactly the folder named ${project_name}."
+say "It will reuse the one coding app already proved on that server, make a plan, and stop for your approval before any coding agents run."
 read -r -p "Continue? [y/N] " answer
 answer_lower=$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')
 case "$answer_lower" in
@@ -46,7 +46,7 @@ case "$project_name" in
     ;;
 esac
 if ! id -u slopnet >/dev/null 2>&1; then
-  echo "The protected SlopNet runtime account is missing. Run Set up my VPS first."
+  echo "The protected SlopNet runtime account is missing. Run Set up my server first."
   exit 1
 fi
 runtime_home=$(getent passwd slopnet | cut -d: -f6)
@@ -55,7 +55,7 @@ if [ -z "$runtime_home" ] || [ ! -d "$runtime_home" ]; then
   exit 1
 fi
 if [ ! -f /opt/slopnet/.slopnet/crew.json ]; then
-  echo "No proved coding app is available yet. Run Set up my VPS first."
+  echo "No proved coding app is available yet. Run Set up my server first."
   exit 1
 fi
 helper_config="$runtime_home/.local/share/slopnet/local-helper.env"

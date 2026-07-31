@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Remove SlopNet from a server, and nothing else.
 #
-# A VPS usually has other things on it — a website, a database, another model
+# A server usually has other things on it — a website, a database, another model
 # runner. This removes the private SlopNet account and its home, the SlopNet
 # install directory, and the key SlopNet itself added. Every other account,
 # service and file is left exactly as it was. There is no wildcard here that

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The interactive half of the Mac app's first VPS connection.
+# The interactive half of the Mac app's first server connection.
 # Password prompts stay inside macOS OpenSSH; this script never receives or
-# stores a VPS password.
+# stores a server password.
 set -euo pipefail
 
 host="$1"
@@ -19,9 +19,9 @@ say() {
 }
 
 clear
-printf '\033]0;SlopNet VPS setup\007'
-say "SlopNet VPS setup"
-say "You are setting up a protected connection between this Mac and your VPS. SlopNet will never save your VPS password."
+printf '\033]0;SlopNet Server setup\007'
+say "SlopNet Server setup"
+say "You are setting up a protected connection between this Mac and your server. SlopNet will never save your server password."
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
@@ -40,20 +40,20 @@ elif [ ! -f "$key_path.pub" ]; then
 fi
 
 
-say "Step 2 of 3 — confirm your VPS"
-say "If SSH asks whether you trust this server, continue only when ${host} is the IP address from your VPS provider. Then enter the VPS password if asked. It is not saved."
+say "Step 2 of 3 — confirm your server"
+say "If SSH asks whether you trust this server, continue only when ${host} is the IP address from your server provider. Then enter the server password if asked. It is not saved."
 cat "$key_path.pub" | ssh -o LogLevel=ERROR -p "$port" "$username@$host" \
   'key=$(cat); umask 077; mkdir -p "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf "%s\n" "$key" >> "$HOME/.ssh/authorized_keys"'
 
 ssh -o LogLevel=ERROR -i "$key_path" -p "$port" "$username@$host" true
 
 say "Your protected connection is ready."
-say "Step 3 of 3 — prepare the VPS"
+say "Step 3 of 3 — prepare the server"
 # Everything that changes, said once, here — the only place in this flow with
 # a terminal the person actually opened. Setup used to repeat six variations
 # of this question over the SSH connection, where an unanswered one stops the
 # run with nothing on screen.
-say "This is everything SlopNet changes on your VPS:"
+say "This is everything SlopNet changes on your server:"
 printf '%s\n' \
   "  - creates a locked account called slopnet, with a private home folder" \
   "  - installs SlopNet into /opt/slopnet and gives that account ownership of it" \
@@ -61,11 +61,11 @@ printf '%s\n' \
   "" \
   "It does not touch root SSH access, password SSH access, firewall rules or ports." \
   "It does not install a coding app, sign you in to anything, or download the guide yet."
-say "If you did not sign in as root, your VPS may ask for your sudo password now."
+say "If you did not sign in as root, your server may ask for your sudo password now."
 read -r -p "Make those changes? [y/N] " ready
 case "$(printf %s "$ready" | tr "[:upper:]" "[:lower:]")" in
   y|yes) ;;
-  *) say "Nothing changed on your VPS."; exit 0 ;;
+  *) say "Nothing changed on your server."; exit 0 ;;
 esac
 
 remote_setup='set -e
@@ -75,7 +75,7 @@ if ! command -v git >/dev/null 2>&1; then
     apt-get update
     apt-get install -y git
   else
-    echo "Git is missing and this VPS has no supported automatic installer. Install git, then start SlopNet again."
+    echo "Git is missing and this server has no supported automatic installer. Install git, then start SlopNet again."
     exit 1
   fi
 fi
@@ -129,4 +129,4 @@ else
   ssh -tt -p "$port" "$username@$host" "umask 077; f=\$(mktemp /tmp/slopnet-XXXXXXXX) || exit 1; trap 'rm -f -- \"\$f\"' EXIT HUP INT TERM; printf %s '$encoded_setup' | base64 -d > \"\$f\" && sudo sh \"\$f\" '$slopnet_release' </dev/tty"
 fi
 
-say "SlopNet VPS setup finished. Read the result above before starting any project work."
+say "SlopNet Server setup finished. Read the result above before starting any project work."

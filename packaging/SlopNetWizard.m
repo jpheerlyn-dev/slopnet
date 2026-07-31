@@ -285,7 +285,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
         [self body:@"You describe what you want. The work happens on a server you own, "
                    @"not on this Mac, and you watch every step in the window behind this one."],
         [self body:@"Two things make that possible:"],
-        [self body:@"  •  A server you can reach — a rented VPS, a machine you already pay "
+        [self body:@"  •  A server you can reach — a rented server, a machine you already pay "
                    @"for, or a small computer at home.\n"
                    @"  •  Later, one coding subscription you already have. SlopNet never "
                    @"asks for a card and never stores a password on this Mac."],

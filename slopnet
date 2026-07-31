@@ -12,7 +12,7 @@
   slopnet adapt            wire up the coding tools found in this checkout
   slopnet mcp              serve SlopNet over MCP stdio (the universal adapter)
 
-  slopnet setup [--vps]    meet your crew, or guide one Linux VPS Codex proof
+  slopnet setup [--vps]    meet your crew, or guide one Linux server Codex proof
   slopnet plan "IDEA"      the planner turns your idea into WAVES.md
   slopnet run [--wave N]   the crew works: parallel worktrees, checks + tests
                            as judge, only proven work merged
@@ -61,7 +61,7 @@ VPS_AGENT_LIMITS = {
 def repo_root():
     try:
         command = ["git"]
-        # The one-time VPS bootstrap begins as root so it can create the
+        # The one-time server bootstrap begins as root so it can create the
         # non-root runtime account. Docker's prior numeric owner can make Git
         # reject that same checkout as dubious. Trust only the current working
         # directory for this one discovery command; never write a global Git
@@ -144,15 +144,15 @@ def require_python():
 
 def print_welcome():
     print(
-        "SlopNet — VPS-first software building with checks that block junk.\n"
+        "SlopNet — server-first software building with checks that block junk.\n"
         "\n"
-        "Current status: the strict VPS safety gate is proved; the first guided\n"
-        "Linux VPS Codex proof is ready for live verification. A local `go` run\n"
+        "Current status: the strict server safety gate is proved; the first guided\n"
+        "Linux server Codex proof is ready for live verification. A local `go` run\n"
         "is a developer check, not the beginner product flow.\n"
         "\n"
         "  slopnet doctor      Check this project is healthy.\n"
         "  slopnet check       Run the safety checks right now.\n"
-        "  slopnet setup --vps Guided Linux VPS Codex setup and edit proof.\n"
+        "  slopnet setup --vps Guided Linux server Codex setup and edit proof.\n"
         "  slopnet go \"idea\"   Historical local development path.\n"
         "\n"
         "Read the opening of README.md for the honest current path."
@@ -690,7 +690,7 @@ ASSUME_APPROVED = False
 
 
 def ask_yes_no(question):
-    """Ask for an explicit affirmative answer before changing a VPS."""
+    """Ask for an explicit affirmative answer before changing a server."""
     if ASSUME_APPROVED:
         # Still shown, so the transcript records what was agreed to and when.
         print(f"\n{question} [y/N] y   (approved in SlopNet before setup started)")
@@ -699,9 +699,9 @@ def ask_yes_no(question):
         try:
             raw = input(f"\n{question} [y/N] ").strip().lower()
         except EOFError:
-            fail("Setup needs your answer before it changes the VPS.",
+            fail("Setup needs your answer before it changes the server.",
                  "The connection did not leave an interactive Terminal input for this confirmation.",
-                 "Reopen SlopNet and try the guided VPS setup again")
+                 "Reopen SlopNet and try the guided Server setup again")
         if raw in ("", "n", "no"):
             return False
         if raw in ("y", "yes"):
@@ -715,9 +715,9 @@ def vps_current_home():
         import pwd
         return pathlib.Path(pwd.getpwuid(os.geteuid()).pw_dir)
     except (ImportError, KeyError, AttributeError):
-        fail("Could not identify this VPS user home.",
+        fail("Could not identify this server user home.",
              "Provider credentials need a private, user-owned home directory.",
-             "Sign in as a normal VPS user, then re-run: slopnet setup --vps")
+             "Sign in as a normal server user, then re-run: slopnet setup --vps")
 
 
 def ensure_private_directory(path, uid, label):
@@ -729,7 +729,7 @@ def ensure_private_directory(path, uid, label):
     info = path.stat()
     if info.st_uid != uid:
         fail(f"{label} belongs to a different account.",
-             "Credentials must belong to the non-root VPS user that runs agents.",
+             "Credentials must belong to the non-root server user that runs agents.",
              "Fix ownership, then re-run: slopnet setup --vps")
     if info.st_mode & 0o077:
         path.chmod(0o700)
@@ -746,11 +746,11 @@ def ensure_vps_sandbox_prerequisite():
         return
     installer = shutil.which("apt-get")
     if not installer:
-        fail("Codex's workspace sandbox needs bubblewrap, but this VPS has no supported installer.",
+        fail("Codex's workspace sandbox needs bubblewrap, but this server has no supported installer.",
              "SlopNet will not weaken Codex to bypass its sandbox.",
-             "Install bubblewrap with this VPS distribution's package manager, then re-run: slopnet setup --vps")
+             "Install bubblewrap with this server distribution's package manager, then re-run: slopnet setup --vps")
     print("Codex's workspace-only sandbox needs the Linux bubblewrap package.")
-    print("SlopNet can run: apt-get install -y bubblewrap. This changes only that VPS package.")
+    print("SlopNet can run: apt-get install -y bubblewrap. This changes only that server package.")
     if not ask_yes_no("Install bubblewrap now?"):
         fail("Bubblewrap was not installed.",
              "Codex cannot make its safe disposable edit without its sandbox prerequisite.",
@@ -808,7 +808,7 @@ def enable_ubuntu_bwrap_profile(account):
         except OSError:
             profile_matches = False
         if not profile_matches:
-            fail("An unknown Bubblewrap AppArmor profile already exists on this VPS.",
+            fail("An unknown Bubblewrap AppArmor profile already exists on this server.",
                  "SlopNet will not load or replace a security policy it did not verify.",
                  "Inspect /etc/apparmor.d/bwrap-userns-restrict, then re-run setup")
         parser = shutil.which("apparmor_parser")
@@ -822,7 +822,7 @@ def enable_ubuntu_bwrap_profile(account):
         print("It keeps the global restriction enabled and changes no SSH, firewall, or Docker setting.")
         if not ask_yes_no("Load that Bubblewrap-only profile now?"):
             fail("The Bubblewrap AppArmor profile was not enabled.",
-                 "This VPS keeps blocking Codex's workspace-only sandbox.",
+                 "This server keeps blocking Codex's workspace-only sandbox.",
                  "When ready, re-run: slopnet setup --vps and approve the narrow profile")
         loaded = subprocess.run([parser, "-r", str(target)])
         if loaded.returncode != 0:
@@ -834,7 +834,7 @@ def enable_ubuntu_bwrap_profile(account):
     installer = shutil.which("apt-get")
     if not installer:
         return
-    print("This Ubuntu VPS blocks Bubblewrap's private sandbox with AppArmor.")
+    print("This Ubuntu server blocks Bubblewrap's private sandbox with AppArmor.")
     print("Codex's documented Ubuntu 24.04 repair is one Bubblewrap-only profile.")
     print("SlopNet can install apparmor-profiles and apparmor-utils, then load only")
     print("the bwrap-userns-restrict profile. Ubuntu grants /usr/bin/bwrap the setup")
@@ -842,7 +842,7 @@ def enable_ubuntu_bwrap_profile(account):
     print("disable the global restriction, change SSH access, firewall rules, or Docker.")
     if not ask_yes_no("Install and load that Bubblewrap-only profile now?"):
         fail("The Bubblewrap AppArmor profile was not enabled.",
-             "This VPS keeps blocking Codex's workspace-only sandbox.",
+             "This server keeps blocking Codex's workspace-only sandbox.",
              "When ready, re-run: slopnet setup --vps and approve the narrow profile")
     installed = subprocess.run([installer, "install", "-y", "apparmor-profiles", "apparmor-utils"])
     if installed.returncode != 0 or not source.is_file():
@@ -860,7 +860,7 @@ def enable_ubuntu_bwrap_profile(account):
     except OSError:
         fail("Could not place Ubuntu's Bubblewrap AppArmor profile.",
              "SlopNet stopped before changing the active AppArmor policy.",
-             "Check the VPS filesystem permissions, then re-run: slopnet setup --vps")
+             "Check the server filesystem permissions, then re-run: slopnet setup --vps")
     loaded = subprocess.run([parser, "-r", str(target)])
     if loaded.returncode != 0:
         fail("Ubuntu's Bubblewrap AppArmor profile did not load.",
@@ -870,7 +870,7 @@ def enable_ubuntu_bwrap_profile(account):
     if retest is None or retest.returncode != 0:
         fail("The narrow Bubblewrap profile did not make the Codex sandbox available.",
              "SlopNet left the global AppArmor restriction enabled and stopped before any agent work.",
-             "Use the output above to choose a compatible VPS or inspect this profile")
+             "Use the output above to choose a compatible server or inspect this profile")
     print("[OK] Ubuntu's Bubblewrap-only profile is active; the global restriction remains enabled.")
 
 
@@ -879,8 +879,8 @@ def ensure_vps_sandbox_capable():
     bwrap = shutil.which("bwrap")
     if not bwrap:
         fail("Codex's workspace sandbox needs the bubblewrap package.",
-             "This non-root setup cannot install a VPS system package on its own.",
-             "Sign in as the VPS root and run: slopnet setup --vps, then approve the bubblewrap install")
+             "This non-root setup cannot install a server system package on its own.",
+             "Sign in as the server root and run: slopnet setup --vps, then approve the bubblewrap install")
     try:
         probe = subprocess.run(
             [bwrap, "--unshare-user", "--ro-bind", "/", "/", "--", "/bin/true"],
@@ -888,22 +888,22 @@ def ensure_vps_sandbox_capable():
             text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
         fail("Could not start Codex's private Linux sandbox.",
-             "SlopNet stopped before the agent proof because the VPS sandbox capability is unknown.",
-             "Use a VPS that permits rootless user namespaces, then re-run: slopnet setup --vps")
+             "SlopNet stopped before the agent proof because the server sandbox capability is unknown.",
+             "Use a server that permits rootless user namespaces, then re-run: slopnet setup --vps")
     if probe.returncode != 0:
         detail = (probe.stderr or probe.stdout).strip().splitlines()
         detail = detail[0] if detail else "bubblewrap user-namespace test failed"
-        fail("This VPS blocks Codex's private Linux sandbox: " + detail,
+        fail("This server blocks Codex's private Linux sandbox: " + detail,
              "The non-root runtime account cannot create the user namespace Codex needs for workspace-only writes.",
-             "Use a VPS that permits rootless user namespaces, or make the isolated Docker gate available; SlopNet did not change host security policy")
+             "Use a server that permits rootless user namespaces, or make the isolated Docker gate available; SlopNet did not change host security policy")
 
 
 def bootstrap_vps_account(root):
     """One-time root step: create a locked runtime user, then drop privilege."""
     if os.name != "posix" or not sys.platform.startswith("linux"):
-        fail("VPS setup currently supports Linux VPS hosts only.",
+        fail("Server setup currently supports Linux servers only.",
              "The safe runtime-account bootstrap uses standard Linux tools.",
-             "Run normal slopnet setup here, or use a supported Linux VPS")
+             "Run normal slopnet setup here, or use a supported Linux server")
     try:
         import pwd
         entry = pwd.getpwnam(VPS_AGENT_ACCOUNT)
@@ -911,8 +911,8 @@ def bootstrap_vps_account(root):
         entry = None
     except ImportError:
         fail("This host cannot manage a Unix runtime account.",
-             "VPS setup needs a non-root account for provider credentials.",
-             "Use a standard Linux VPS, then re-run: slopnet setup --vps")
+             "Server setup needs a non-root account for provider credentials.",
+             "Use a standard Linux server, then re-run: slopnet setup --vps")
 
     target = root.resolve()
     if target == pathlib.Path("/"):
@@ -923,7 +923,7 @@ def bootstrap_vps_account(root):
         f"create the locked local account {VPS_AGENT_ACCOUNT} (if missing), "
         f"make its home private, and change ownership only of {target}"
     )
-    print("VPS setup runs agents as a non-root account. It will " + action + ".")
+    print("Server setup runs agents as a non-root account. It will " + action + ".")
     print("It does not change root SSH access, password SSH access, firewall rules, or ports.")
     if not ask_yes_no("Continue?"):
         print("Nothing changed.")
@@ -1061,7 +1061,7 @@ def _install_from_npm(app, prefix):
     npm = shutil.which("npm")
     if not npm:
         fail(f"The {app['name']} tool is not installed and npm is unavailable.",
-             "Installing it needs Node.js and npm on this VPS.",
+             "Installing it needs Node.js and npm on this server.",
              "Install Node.js 20 or newer, then re-run: slopnet setup --vps")
     print(f"SlopNet can install the official {app['name']} command-line tool")
     print(f"for this account only at {prefix}. It runs: "
@@ -1092,7 +1092,7 @@ def _install_from_vendor_script(app, prefix):
     if not curl:
         fail(f"The {app['name']} tool is installed with curl, which is unavailable.",
              "Its publisher ships an install script rather than an npm package.",
-             "Install curl on this VPS, then re-run: slopnet setup --vps")
+             "Install curl on this server, then re-run: slopnet setup --vps")
     # Bash, not sh. These installers use arrays and other bash-only syntax, and
     # on Debian and Ubuntu /bin/sh is dash — running one there dies on line 20
     # with a syntax error that looks like a corrupt download.
@@ -1100,7 +1100,7 @@ def _install_from_vendor_script(app, prefix):
     if not bash:
         fail(f"The {app['name']} installer needs bash, which is unavailable.",
              "Its publisher's install script uses bash syntax that dash refuses.",
-             "Install bash on this VPS, then re-run: slopnet setup --vps")
+             "Install bash on this server, then re-run: slopnet setup --vps")
     bin_dir = prefix / "bin"
     bin_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     print(f"SlopNet can install the official {app['name']} command-line tool")
@@ -1140,14 +1140,14 @@ def _installed_executable(app, executable):
 
 
 def cmd_vps_setup(root, args):
-    """One guided Linux VPS setup and real Codex workspace-write proof."""
+    """One guided Linux Server setup and real Codex workspace-write proof."""
     if hasattr(os, "geteuid") and os.geteuid() == 0 and not args.vps_account_ready:
         bootstrap_vps_account(root)
         return
     if os.name != "posix" or not sys.platform.startswith("linux"):
-        fail("VPS setup currently supports Linux VPS hosts only.",
+        fail("Server setup currently supports Linux servers only.",
              "This guided path uses Linux account and permission checks.",
-             "Use a supported Linux VPS, then re-run: slopnet setup --vps")
+             "Use a supported Linux server, then re-run: slopnet setup --vps")
 
     ensure_vps_sandbox_capable()
 
@@ -1180,10 +1180,10 @@ def cmd_vps_setup(root, args):
     executable = crew.find_exe(app["binary"])
     if not executable:
         executable = install_coding_app_for_current_user(home, provider)
-        print(f"[OK] The {app['name']} tool is installed for this private VPS account.")
+        print(f"[OK] The {app['name']} tool is installed for this private server account.")
     else:
         print(f"[OK] The {app['name']} tool is already installed for this "
-              f"private VPS account.")
+              f"private server account.")
 
     if not codex_login_ok(executable):
         # No question here. Somebody running this step has already said they
@@ -1197,23 +1197,23 @@ def cmd_vps_setup(root, args):
         login = subprocess.run([executable, "login", "--device-auth"])
         if login.returncode != 0 or not codex_login_ok(executable):
             fail("Codex sign-in did not complete.",
-                 "The provider did not confirm a usable session on this VPS.",
+                 "The provider did not confirm a usable session on this server.",
                  "Complete the device sign-in, then re-run: slopnet setup --vps")
-        print("[OK] Codex device sign-in confirmed for this private VPS account.")
+        print("[OK] Codex device sign-in confirmed for this private server account.")
     else:
-        print("[OK] Codex is already signed in for this private VPS account.")
+        print("[OK] Codex is already signed in for this private server account.")
 
     credential_dir = home / ".codex"
     ensure_private_directory(credential_dir, os.geteuid(), "The Codex credential directory")
-    print("[OK] Codex login confirmed; its credential directory is private to this VPS user.")
+    print("[OK] Codex login confirmed; its credential directory is private to this server user.")
     print("Running one disposable edit proof with workspace-only Codex sandboxing and resource limits.")
     try:
         crew.setup(root, ask_operator, print, automatic=True,
                    resource_limits=VPS_AGENT_LIMITS)
     except crew.CrewError as exc:
         die(str(exc))
-    print("\n[OK] VPS setup passed: Codex edited the disposable workspace and the proof was removed.")
-    print("Codex is now the one approved coding app for this VPS.")
+    print("\n[OK] Server setup passed: Codex edited the disposable workspace and the proof was removed.")
+    print("Codex is now the one approved coding app for this server.")
     print("SlopNet did not install or sign into any other coding app without your choice.")
     print("Next: create a project from the SlopNet app, then review its plan before any code runs.")
 
@@ -1796,9 +1796,9 @@ def main():
     sub.add_parser("adapt", help="wire up detected coding tools")
     sub.add_parser("mcp", help="serve SlopNet over MCP stdio")
 
-    p = sub.add_parser("setup", help="meet your crew or guide one VPS proof")
+    p = sub.add_parser("setup", help="meet your crew or guide one server proof")
     p.add_argument("--vps", action="store_true",
-                   help="guided Linux VPS setup, Codex login, and real edit proof")
+                   help="guided Linux Server setup, Codex login, and real edit proof")
     p.add_argument("--coding-app-only", action="store_true",
                    help="only sign in to the coding app and prove it "
                         "(server preparation already done)")
