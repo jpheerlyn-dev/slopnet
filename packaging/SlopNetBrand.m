@@ -122,10 +122,6 @@ static const NSUInteger kActionCount = sizeof(kActions) / sizeof(kActions[0]);
 /// Both modes cost the same columns, so a panel's edges line up whether or
 /// not the colour font loaded: a badge glyph advances two cells on its own,
 /// and a fallback mark is one character plus a space.
-/// The frame. A full block fills its cell edge to edge, unlike the
-/// box-drawing hairlines, so the brand colour meets red and not black.
-static NSString *const kBlockEdge = @"█";
-
 static const NSUInteger kMarkColumns = 2;
 
 static NSColor *SlopNetColorFromHex(uint32_t hex) {
@@ -453,44 +449,25 @@ static const unichar kStripedBase = 0xE800;
                            body:(NSString *)body
                         columns:(NSUInteger)columns {
     NSInteger pad = (NSInteger)width - 2 - (NSInteger)columns;
-    // A solid block on each side. The whole cell is red, so the brand fill
-    // begins immediately against it with nothing black in between.
-    NSString *edge = [NSString stringWithFormat:@"%@%@%@",
-                      SlopNetFieldSGR([self voidColor]),
-                      SlopNetInkSGR([self crimsonColor]), kBlockEdge];
-    return [NSString stringWithFormat:@"%@%@%@%@%@%@%@",
-            edge, SlopNetFieldSGR(panel), SlopNetInkSGR(text), body,
-            SlopNetRepeat(@" ", pad), edge, kReset];
+    return [NSString stringWithFormat:@"%@%@│%@%@%@%@%@%@│%@",
+            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self crimsonColor]),
+            SlopNetFieldSGR(panel), SlopNetInkSGR(text), body, SlopNetRepeat(@" ", pad),
+            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self crimsonColor]),
+            kReset];
 }
 
-/// A solid red band, not a thin outline.
-///
-/// A box-drawing character is a hairline in the middle of its cell, so a
-/// bordered panel always had a black cell between the brand colour and the red
-/// — the colour stopped one cell short of the frame, which is what the
-/// operator kept pointing at. Filling behind the hairline was worse: the cell
-/// went coloured with a red thread through it, and the frame appeared to float
-/// inside the panel.
-///
-/// A full block occupies its whole cell. The frame is solid red, the fill
-/// meets it directly, and no black remains between them. `left` and `right`
-/// are ignored deliberately — a solid band has no corners to distinguish.
 + (NSString *)panelRuleWithWidth:(NSUInteger)width
                             left:(NSString *)left
                            right:(NSString *)right
                            label:(NSString *)label {
-    (void)left; (void)right;
-    NSString *frame = SlopNetInkSGR([self crimsonColor]);
     NSString *field = SlopNetFieldSGR([self voidColor]);
-    if (label.length > 0) {
-        NSString *head = [NSString stringWithFormat:@"%@ \033[1m%@\033[22m%@ ",
-                          kBlockEdge, label, frame];
-        NSInteger blocks = (NSInteger)width - (NSInteger)label.length - 3;
-        return [NSString stringWithFormat:@"%@%@%@%@%@",
-                field, frame, head, SlopNetRepeat(kBlockEdge, blocks), kReset];
-    }
-    return [NSString stringWithFormat:@"%@%@%@%@",
-            field, frame, SlopNetRepeat(kBlockEdge, (NSInteger)width), kReset];
+    NSString *frame = SlopNetInkSGR([self crimsonColor]);
+    NSString *head = label.length > 0
+        ? [NSString stringWithFormat:@"─ \033[1m%@\033[22m ", label] : @"";
+    NSUInteger headColumns = label.length > 0 ? label.length + 3 : 0;
+    NSInteger dashes = (NSInteger)width - 2 - (NSInteger)headColumns;
+    return [NSString stringWithFormat:@"%@%@%@%@%@%@%@",
+            field, frame, left, head, SlopNetRepeat(@"─", dashes), right, kReset];
 }
 
 + (NSString *)panelANSIForProvider:(NSString *)providerId
