@@ -630,7 +630,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     } else if (self.turn == SlopNetTurnNeedsName) {
         self.entry.prompt = @"A short name for it — lowercase letters, numbers and hyphens";
     } else {
-        self.entry.prompt = @"Ask anything, or say what you want built…";
+        self.entry.prompt = @"Ask anything, or start with $ to run a command…";
     }
     [self resizeEntry];
     [self rebuildHistory];
@@ -1794,6 +1794,22 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         return;
     }
     if (idea.length == 0) return;
+
+    // A line beginning with $ is a command for the server, not a question for
+    // the guide. Explicit on purpose: guessing which is which from the words
+    // would eventually run something somebody meant as a sentence. It runs as
+    // the locked account, like everything else SlopNet does on a server.
+    if ([idea hasPrefix:@"$"]) {
+        NSString *command = [[idea substringFromIndex:1]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (command.length == 0) return;
+        self.entry.string = @"";
+        [self resizeEntry];
+        [self.console note:[SlopNetBrand youSaidANSI:idea width:[self panelWidth]]];
+        [self settings:nil runOnServer:command
+                  title:[NSString stringWithFormat:@"Running %@", command]];
+        return;
+    }
 
     // They were asked whether to build the last thing they described.
     if (self.turn == SlopNetTurnOfferedBuild) {

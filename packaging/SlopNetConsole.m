@@ -170,6 +170,9 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 @property(nonatomic, copy) NSString *announcedSignIn;
 @property(nonatomic, copy) NSString *announcedCode;
 @property(nonatomic, strong) NSMutableString *collected;
+/// How many lines each replaceable block currently occupies, by token. A block
+/// that grows has to make room rather than refuse.
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSNumber *> *blockHeights;
 /// One fixed line box for every row, so painted backgrounds tile vertically.
 @property(nonatomic, strong) NSParagraphStyle *cellParagraph;
 /// Whether the view should stay pinned to the newest output. Set false the
@@ -1102,6 +1105,8 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
         self.lines[self.row] = block[index];
         [self newline];
     }
+    if (self.blockHeights == nil) self.blockHeights = [NSMutableDictionary dictionary];
+    self.blockHeights[@(token)] = @(block.count);
     [self setNeedsRedrawSoon];
     return token;
 }
@@ -1109,11 +1114,32 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
 - (BOOL)replaceLinesFromToken:(NSInteger)token with:(NSString *)text {
     NSInteger start = token - self.droppedLines;
     if (start < 0) return NO;                       // scrolled out of the buffer
+    if ((NSUInteger)start > self.lines.count) return NO;
+
+    // A block can change height. A reply being typed into a panel starts as
+    // three lines — two rules and a header — and grows as the words wrap, and
+    // this used to refuse the moment the new block was taller than the old
+    // one. The reply simply stopped mid-sentence, and the header kept its
+    // thinking glyph because the finished frame never landed either.
     NSArray<NSMutableAttributedString *> *block = [self renderBlock:text];
-    if ((NSUInteger)start + block.count > self.lines.count) return NO;
-    for (NSUInteger index = 0; index < block.count; index++) {
-        self.lines[(NSUInteger)start + index] = block[index];
+    if (self.blockHeights == nil) self.blockHeights = [NSMutableDictionary dictionary];
+    NSNumber *known = self.blockHeights[@(token)];
+    NSUInteger was = known ? known.unsignedIntegerValue : block.count;
+    NSUInteger end = MIN(self.lines.count, (NSUInteger)start + was);
+
+    NSRange old = NSMakeRange((NSUInteger)start, end - (NSUInteger)start);
+    [self.lines replaceObjectsInRange:old withObjectsFromArray:block];
+    self.blockHeights[@(token)] = @(block.count);
+
+    // The cursor sits after the block; keep it there as the block changes size.
+    if (self.row >= (NSUInteger)start) {
+        NSInteger moved = (NSInteger)block.count - (NSInteger)old.length;
+        NSInteger row = (NSInteger)self.row + moved;
+        self.row = (NSUInteger)MAX(0, row);
     }
+    if (self.lines.count == 0) [self.lines addObject:[[NSMutableAttributedString alloc] init]];
+    if (self.row >= self.lines.count) self.row = self.lines.count - 1;
+
     [self setNeedsRedrawSoon];
     return YES;
 }
