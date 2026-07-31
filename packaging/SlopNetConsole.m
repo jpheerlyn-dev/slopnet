@@ -48,6 +48,9 @@
 /// height for every run on the row, which is what a terminal cell does.
 static NSString *const kCellFill = @"SlopNetCellFill";
 
+/// How big a badge is drawn next to the text. Chosen by rendering it.
+static const CGFloat kBadgeScale = 0.85;
+
 @interface SlopNetTextView : NSTextView
 @end
 
@@ -511,10 +514,10 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 - (void)settleBadgesIn:(NSMutableAttributedString *)piece {
     NSFont *font = self.output.font;
     if (font == nil) return;
-    CGFloat line = ceil([self.output.layoutManager defaultLineHeightForFont:font]);
-    if (line <= 0) return;
+    NSFont *smaller = [NSFont fontWithName:font.fontName
+                                      size:font.pointSize * kBadgeScale];
+    if (smaller == nil) return;
     NSString *text = piece.string;
-    CTFontRef measured = (__bridge CTFontRef)font;
 
     for (NSUInteger i = 0; i < text.length; i++) {
         unichar c = [text characterAtIndex:i];
@@ -522,17 +525,9 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                      (c >= 0xE900 && c <= 0xEC45);       // action frames + twins
         if (!badge) continue;
 
-        CGGlyph glyph = 0;
-        if (!CTFontGetGlyphsForCharacters(measured, &c, &glyph, 1) || glyph == 0) continue;
-        CGRect box = CTFontGetBoundingRectsForGlyphs(measured, kCTFontOrientationHorizontal,
-                                                     &glyph, NULL, 1);
-        if (CGRectIsNull(box) || box.size.height <= 0) continue;
-        if (box.size.height <= line) continue;           // already fits: leave it alone
-
-        CGFloat scale = line / box.size.height;
-        NSFont *smaller = [NSFont fontWithName:font.fontName size:font.pointSize * scale];
-        if (smaller == nil) continue;
-
+        // Applied without asking the glyph how tall it is. sbix bitmaps report
+        // their vector bounds, which are empty, so a measured version of this
+        // scaled nothing at all and looked identical at every setting.
         NSRange one = NSMakeRange(i, 1);
         NSString *single = [text substringWithRange:one];
         CGFloat wanted = [single sizeWithAttributes:@{NSFontAttributeName: font}].width;
