@@ -79,6 +79,12 @@
 /// Keep the console light even during a long build.
 static const NSUInteger kMaxLines = 4000;
 
+/// How far to drop a badge so its bitmap sits inside the line box
+/// rather than above it. Found by rendering, not by arithmetic.
+/// How much smaller a badge is drawn so its box fits the line. Found by
+/// rendering and looking, not by arithmetic.
+static const CGFloat kBadgeScale = 0.90;
+
 #pragma mark - ANSI colour
 
 /// The xterm 256-colour palette: 16 named colours, a 6x6x6 cube, then greys.
@@ -434,6 +440,39 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 /// Write text at the cursor, overwriting what is already there — this is
 /// what makes a progress line update in place instead of repeating. The
 /// replaced span takes the current pen; untouched spans keep theirs.
+/// Sit a colour badge inside the same box as the text beside it.
+///
+/// The badges are sbix bitmaps whose box is taller than the letters they sit
+/// next to. A run's background is painted to that box, so a badge pushed a tab
+/// of colour up above the panel fill — the logo was not level with its own
+/// background. A baseline offset does not help: it moves the glyph and its box
+/// together, so the tab travels with it.
+///
+/// Drawing the badge a little smaller brings its box inside the line. That
+/// shrinks its advance too, which would pull every column left, so the exact
+/// difference is added back as kerning. The grid does not move.
+- (void)settleBadgesIn:(NSMutableAttributedString *)piece {
+    NSFont *font = self.output.font;
+    if (font == nil) return;
+    NSFont *smaller = [NSFont fontWithName:font.fontName size:font.pointSize * kBadgeScale];
+    if (smaller == nil) return;
+    NSString *text = piece.string;
+    for (NSUInteger i = 0; i < text.length; i++) {
+        unichar c = [text characterAtIndex:i];
+        BOOL badge = (c >= 0xE000 && c <= 0xE7FF) ||     // provider logos + twins
+                     (c >= 0xE900 && c <= 0xEC45);       // action frames + twins
+        if (!badge) continue;
+        NSRange one = NSMakeRange(i, 1);
+        NSString *single = [text substringWithRange:one];
+        CGFloat wanted = [single sizeWithAttributes:@{NSFontAttributeName: font}].width;
+        CGFloat drawn  = [single sizeWithAttributes:@{NSFontAttributeName: smaller}].width;
+        [piece addAttribute:NSFontAttributeName value:smaller range:one];
+        if (wanted > drawn) {
+            [piece addAttribute:NSKernAttributeName value:@(wanted - drawn) range:one];
+        }
+    }
+}
+
 - (void)putText:(NSString *)text {
     if (text.length == 0) return;
     NSMutableAttributedString *line = [self currentLine];
@@ -443,9 +482,10 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
         [line appendAttributedString:
             [[NSAttributedString alloc] initWithString:gap attributes:[self fieldAttributes]]];
     }
-    NSAttributedString *piece =
-        [[NSAttributedString alloc] initWithString:text
-                                        attributes:[self attributesForInk:self.ink]];
+    NSMutableAttributedString *piece =
+        [[NSMutableAttributedString alloc] initWithString:text
+                                              attributes:[self attributesForInk:self.ink]];
+    [self settleBadgesIn:piece];
     NSUInteger end = self.column + text.length;
     if (end <= line.length) {
         [line replaceCharactersInRange:NSMakeRange(self.column, text.length)
