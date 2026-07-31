@@ -1114,7 +1114,18 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 }
 
 - (void)skipThisSignIn:(id)sender {
-    if (self.signingIn == nil) return;
+    // No queued provider means this bar came from something the console
+    // spotted rather than from a sign-in this app started. The button must
+    // still do what it says: put the bar away and give the person their
+    // typing box back. It used to return here and look broken.
+    if (self.signingIn == nil) {
+        self.skipButton.hidden = YES;
+        [self endActivity];
+        [self setBusy:NO];
+        [self showTypingBar];
+        [self.window makeFirstResponder:self.entry];
+        return;
+    }
     [self.skipped addObject:self.signingIn];
     [self.console note:[NSString stringWithFormat:@"\nSkipped %@. You can sign in to it "
                                                   @"later from Settings.",

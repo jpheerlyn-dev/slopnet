@@ -301,6 +301,29 @@ int main(void) {
             check([seen containsString:@"[redacted]"], "and it can see that something was removed");
         }
 
+        // Real output from installing a coding app. npm prints an upgrade
+        // notice with a changelog link, and that link was offered to the
+        // operator as "a coding app needs you to sign in" — complete with a
+        // Skip button belonging to a queue that was not running.
+        {
+            Watcher *w = signInFor(
+                @"printf 'npm notice New major version of npm available!\n'; "
+                @"printf 'npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2\n'; "
+                @"printf '[OK] Codex CLI installed for this private VPS account.\n'; sleep 1");
+            check(w.signInPage == nil,
+                  "a link with no invitation around it is not a sign-in");
+        }
+
+        // The same link, with words that do mean sign in, must still work.
+        {
+            Watcher *w = signInFor(
+                @"printf 'Sign in to continue:\n'; "
+                @"printf '  https://auth.example.invalid/device\n'; "
+                @"printf 'Enter the code AB12-CD34\n'; sleep 1");
+            check(w.signInPage != nil, "a real invitation is still offered");
+            check([w.signInCode isEqualToString:@"AB12-CD34"], "with its code");
+        }
+
     fprintf(stderr, failures == 0 ? "\nPROMPT PROBE DONE — all ok\n"
                                       : "\nPROMPT PROBE DONE — %d failed\n", failures);
     }

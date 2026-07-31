@@ -7,6 +7,19 @@
 # contains a provider token or a VPS password.
 set -euo pipefail
 
+# The version shown in the app comes from the release the installer pins, so
+# the two can never disagree. It read 0.9.0 for twenty releases because it was
+# typed here by hand and never touched again.
+# The tag this build came from, so the number in the window is the number in
+# the repository. The pinned server release is a different thing and moves at a
+# different rate, so it cannot stand in for this.
+slopnet_version=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+if [ -z "$slopnet_version" ]; then
+  slopnet_version=$(sed -n 's/^slopnet_release="v\(.*\)"$/\1/p' \
+      "$(dirname "${BASH_SOURCE[0]}")/slopnet-vps-onboard.sh" | head -1)
+fi
+[ -n "$slopnet_version" ] || slopnet_version="0.0.0"
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pkg="$root/packaging"
 destination="${1:-/Applications}"
@@ -95,8 +108,8 @@ cat > "$contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>SlopNet</string>
   <key>CFBundleDisplayName</key><string>SlopNet</string>
   <key>CFBundleIdentifier</key><string>com.slopnet.app</string>
-  <key>CFBundleVersion</key><string>0.9.0</string>
-  <key>CFBundleShortVersionString</key><string>0.9.0</string>
+  <key>CFBundleVersion</key><string>${slopnet_version}</string>
+  <key>CFBundleShortVersionString</key><string>${slopnet_version}</string>
   <key>SlopNetBuiltAt</key><string>${built_at}</string>
   <key>CFBundleExecutable</key><string>SlopNet</string>
   <key>CFBundlePackageType</key><string>APPL</string>

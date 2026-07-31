@@ -712,6 +712,34 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
     NSURL *page = [NSURL URLWithString:address];
     if (page == nil) return;
 
+    // A link on its own is not a sign-in. Installing a coding app prints an
+    // npm upgrade notice carrying a changelog link, and that link was offered
+    // to the operator as "a coding app needs you to sign in" — with a Skip
+    // button belonging to a queue that was not running, so nothing happened
+    // when it was pressed.
+    //
+    // The words around the link have to say what it is for.
+    NSString *lower = recent.lowercaseString;
+    BOOL saysSo = [lower containsString:@"sign in"] || [lower containsString:@"signin"]
+                || [lower containsString:@"log in"]  || [lower containsString:@"login"]
+                || [lower containsString:@"authorize"] || [lower containsString:@"authorise"]
+                || [lower containsString:@"authenticate"]
+                || [lower containsString:@"verification"] || [lower containsString:@"verify"]
+                // Not a bare "code": the Codex CLI has it in its name, and
+                // installing it was enough to raise a false sign-in.
+                || [lower containsString:@"one-time code"]
+                || [lower containsString:@"enter the code"]
+                || [lower containsString:@"enter code"]
+                || [lower containsString:@"confirm this code"];
+    // Or the address itself is plainly an authorisation endpoint. Providers
+    // word the surrounding sentence differently; the path rarely lies.
+    NSString *where = address.lowercaseString;
+    BOOL looksLikeAuth = [where containsString:@"/device"] || [where containsString:@"/oauth"]
+                      || [where containsString:@"/auth"]   || [where containsString:@"/login"]
+                      || [where containsString:@"/activate"]
+                      || [where containsString:@"user_code"];
+    if (!saysSo && !looksLikeAuth) return;
+
     // The code first, because whether this is worth announcing depends on it.
     // Some sign-in pages carry it in the address, which is exact; otherwise
     // read it out of the surrounding text.
