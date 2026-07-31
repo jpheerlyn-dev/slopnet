@@ -62,6 +62,8 @@
 @property(nonatomic, copy) NSString *announcedSignIn;
 @property(nonatomic, copy) NSString *announcedCode;
 @property(nonatomic, strong) NSMutableString *collected;
+/// One fixed line box for every row, so painted backgrounds tile vertically.
+@property(nonatomic, strong) NSParagraphStyle *cellParagraph;
 /// Whether the view should stay pinned to the newest output. Set false the
 /// moment somebody scrolls up, true again when they come back to the bottom.
 @property(nonatomic, assign) BOOL followTail;
@@ -317,13 +319,40 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     NSMutableDictionary *attributes = [NSMutableDictionary dictionaryWithCapacity:3];
     attributes[NSFontAttributeName] = (ink.bold && self.boldFont) ? self.boldFont : self.output.font;
     attributes[NSForegroundColorAttributeName] = foreground;
+    attributes[NSParagraphStyleAttributeName] = [self cellParagraph];
     if (background != nil) attributes[NSBackgroundColorAttributeName] = background;
     return attributes;
 }
 
+/// A terminal cell is a rectangle that tiles. A text view's line box is not:
+/// it carries leading, so consecutive rows leave an unpainted sliver between
+/// their backgrounds — which draws a seam straight through a panel — and a
+/// bitmap badge taller than the box spills out of the top of its fill.
+///
+/// Pinning the line height to exactly the font's own line height, with no
+/// spacing, makes the rows tile the way cells do.
+- (NSParagraphStyle *)cellParagraph {
+    if (_cellParagraph == nil) {
+        NSFont *font = self.output.font ?: [NSFont userFixedPitchFontOfSize:13.5];
+        CGFloat height = ceil([self.output.layoutManager defaultLineHeightForFont:font]);
+        NSMutableParagraphStyle *style =
+            [[NSMutableParagraphStyle alloc] init];
+        style.minimumLineHeight = height;
+        style.maximumLineHeight = height;
+        style.lineSpacing = 0;
+        style.paragraphSpacing = 0;
+        style.paragraphSpacingBefore = 0;
+        style.lineHeightMultiple = 1;
+        style.lineBreakMode = NSLineBreakByClipping;
+        _cellParagraph = [style copy];
+    }
+    return _cellParagraph;
+}
+
 - (NSDictionary *)fieldAttributes {
     return @{ NSFontAttributeName: self.output.font,
-              NSForegroundColorAttributeName: [SlopNetBrand inkColor] };
+              NSForegroundColorAttributeName: [SlopNetBrand inkColor],
+              NSParagraphStyleAttributeName: [self cellParagraph] };
 }
 
 /// Push the line buffer into the view. Called after each chunk, not per
