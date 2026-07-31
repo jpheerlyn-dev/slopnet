@@ -1332,6 +1332,18 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     }
 }
 
+- (void)sendKeys:(NSString *)raw {
+    if (!self.running || self.master < 0 || raw.length == 0) return;
+    const char *bytes = raw.UTF8String;
+    size_t remaining = strlen(bytes);
+    while (remaining > 0) {
+        ssize_t wrote = write(self.master, bytes, remaining);
+        if (wrote <= 0) break;
+        bytes += wrote;
+        remaining -= (size_t)wrote;
+    }
+}
+
 - (void)sendLine:(NSString *)line {
     if (!self.running || self.master < 0) return;
     NSString *withReturn = [line stringByAppendingString:@"\n"];

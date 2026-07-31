@@ -101,6 +101,13 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 /// Write one line (plus Return) to the running program, as if typed.
 - (void)sendLine:(NSString *)line;
 
+/// Write bytes to the running program exactly as given — no newline added.
+///
+/// This is what a key press is. A full-screen program reads arrow keys as
+/// escape sequences and Enter as a carriage return, so anything that only ever
+/// sent finished lines could show such a program but never answer it.
+- (void)sendKeys:(NSString *)raw;
+
 /// Write a secret the person typed into a real password field. It goes
 /// straight to the program and is never put in the console buffer, never
 /// logged, and never kept after this call.

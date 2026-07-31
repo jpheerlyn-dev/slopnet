@@ -45,8 +45,12 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
 // NSTextView has no native placeholder on the oldest macOS version SlopNet
 // supports. Keep the tiny drawing behaviour here instead of putting a fake
 // label over the editor (which would steal clicks and accessibility focus).
+@class SlopNetConsole;
+
 @interface SlopNetEntryView : NSTextView
 @property(nonatomic, copy) NSString *prompt;
+/// The running program these keys belong to, when there is one.
+@property(nonatomic, weak) SlopNetConsole *console;
 @end
 
 @implementation SlopNetEntryView
@@ -70,6 +74,41 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
                    withAttributes:attributes];
     }
 }
+/// Send a key straight to the running program instead of editing text.
+///
+/// A full-screen program — a login menu, a file browser — reads arrow keys as
+/// escape sequences and Enter as a carriage return. Without this the operator
+/// could see such a menu and had no way to move in it, which is what made a
+/// sign-in look frozen.
+///
+/// Only while something is running, and only for keys that mean nothing in a
+/// half-typed sentence. Enter still sends what has been typed when there is
+/// anything typed, so an ordinary question is unaffected.
+- (void)keyDown:(NSEvent *)event {
+    if (!self.console.running) { [super keyDown:event]; return; }
+    NSString *pressed = nil;
+    switch (event.keyCode) {
+        case 126: pressed = @"\033[A"; break;   // up
+        case 125: pressed = @"\033[B"; break;   // down
+        case 124: pressed = @"\033[C"; break;   // right
+        case 123: pressed = @"\033[D"; break;   // left
+        case 53:  pressed = @"\033";   break;   // escape
+        case 48:  pressed = @"\t";     break;   // tab
+        case 36:                                  // return
+        case 76:
+            if (self.string.length == 0) pressed = @"\r";
+            break;
+        default: break;
+    }
+    // Ctrl-C, so a program can be interrupted the way it expects.
+    if ((event.modifierFlags & NSEventModifierFlagControl) &&
+        [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"c"]) {
+        pressed = @"\003";
+    }
+    if (pressed == nil) { [super keyDown:event]; return; }
+    [self.console sendKeys:pressed];
+}
+
 - (void)didChangeText { [super didChangeText]; [self setNeedsDisplay:YES]; }
 @end
 
@@ -482,6 +521,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [self.modelLabel.widthAnchor constraintLessThanOrEqualToConstant:220].active = YES;
     [self refreshModelLabel];
     self.entry = [[SlopNetEntryView alloc] initWithFrame:NSZeroRect];
+    // So a key press can reach whatever is running, not just the text view.
+    self.entry.console = self.console;
     self.entry.delegate = self;
     self.entry.richText = NO;
     self.entry.allowsUndo = YES;
