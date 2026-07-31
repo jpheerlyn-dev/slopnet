@@ -184,6 +184,9 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 /// A redraw is already scheduled for the next turn of the run loop.
 @property(nonatomic, assign) BOOL redrawScheduled;
 @property(nonatomic, assign) BOOL applicationCursorKeys;
+@property(nonatomic, assign) NSUInteger savedRow;
+@property(nonatomic, assign) NSUInteger savedColumn;
+@property(nonatomic, assign) BOOL hasSavedCursor;
 /// Follow the newest line, the way a terminal does — until somebody scrolls
 /// up to read something, and again once they come back to the bottom.
 @property(nonatomic, assign) BOOL followingTail;
@@ -572,6 +575,16 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     }
 }
 
+/// Where the visible screen starts inside the scrollback.
+///
+/// Rows in an absolute move are counted from the top of the screen, not the
+/// top of everything the person has scrolled past. Without this, a program
+/// asking for row 1 would land on the first line of the session.
+- (NSUInteger)screenTop {
+    NSUInteger rows = self.visibleRows > 0 ? self.visibleRows : 24;
+    return self.lines.count > rows ? self.lines.count - rows : 0;
+}
+
 - (NSMutableAttributedString *)currentLine {
     while (self.lines.count <= self.row) {
         [self.lines addObject:[[NSMutableAttributedString alloc] init]];
@@ -727,14 +740,66 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                     case 'G':                              // column
                         self.column = value > 0 ? (NSUInteger)(value - 1) : 0;
                         break;
-                    case 'H': case 'f':                    // home
-                        self.row = 0; self.column = 0;
+                    case 'E':                              // next line, column 1
+                        self.row += (NSUInteger)value;
+                        self.column = 0;
+                        [self currentLine];
                         break;
+                    case 'F':                              // previous line, column 1
+                        self.row = (self.row >= (NSUInteger)value) ? self.row - value : 0;
+                        self.column = 0;
+                        break;
+                    case 'd': {                            // row, counted from the top
+                        NSInteger want = value > 0 ? value : 1;
+                        self.row = [self screenTop] + (NSUInteger)(want - 1);
+                        [self currentLine];
+                        break;
+                    }
+                    case 's':                              // remember the cursor
+                        self.savedRow = self.row;
+                        self.savedColumn = self.column;
+                        self.hasSavedCursor = YES;
+                        break;
+                    case 'u':                              // and go back to it
+                        if (self.hasSavedCursor) {
+                            self.row = self.savedRow;
+                            self.column = self.savedColumn;
+                            [self currentLine];
+                        }
+                        break;
+                    case 'H': case 'f': {                  // row and column
+                        // Both parameters were being thrown away, so every
+                        // absolute move went to the same corner.
+                        NSArray<NSString *> *parts =
+                            [parameters componentsSeparatedByString:@";"];
+                        NSInteger wantRow = parts.count > 0 ? [parts[0] integerValue] : 1;
+                        NSInteger wantColumn = parts.count > 1 ? [parts[1] integerValue] : 1;
+                        if (wantRow < 1) wantRow = 1;
+                        if (wantColumn < 1) wantColumn = 1;
+                        self.row = [self screenTop] + (NSUInteger)(wantRow - 1);
+                        self.column = (NSUInteger)(wantColumn - 1);
+                        [self currentLine];
+                        break;
+                    }
                     case 'K': {                            // erase in line
                         NSMutableAttributedString *line = [self currentLine];
-                        if (self.column < line.length) {
-                            [line deleteCharactersInRange:
-                                NSMakeRange(self.column, line.length - self.column)];
+                        NSInteger part = parameters.length ? [parameters intValue] : 0;
+                        if (part == 1 || part == 2) {
+                            NSUInteger upto = MIN(self.column, line.length);
+                            if (part == 2) upto = line.length;
+                            NSString *blank = [@"" stringByPaddingToLength:upto
+                                                                withString:@" "
+                                                           startingAtIndex:0];
+                            [line replaceCharactersInRange:NSMakeRange(0, upto)
+                                      withAttributedString:
+                                [[NSAttributedString alloc] initWithString:blank
+                                                                attributes:[self fieldAttributes]]];
+                        }
+                        if (part == 0 || part == 2) {
+                            if (self.column < line.length) {
+                                [line deleteCharactersInRange:
+                                    NSMakeRange(self.column, line.length - self.column)];
+                            }
                         }
                         break;
                     }
@@ -751,7 +816,26 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                 while (i < n && [raw characterAtIndex:i] != 0x07) i++;   // title
                 if (i < n) i++;
             } else if (i < n) {
+                // Escapes with no bracket. Two of these move the cursor, and
+                // skipping them is what made a menu walk down the screen: the
+                // program said "come back to where the menu started", the
+                // console heard nothing, and the next frame landed below the
+                // last one instead of on top of it.
+                unichar next = [raw characterAtIndex:i];
                 i++;
+                if (next == '7') {
+                    self.savedRow = self.row;
+                    self.savedColumn = self.column;
+                    self.hasSavedCursor = YES;
+                } else if (next == '8') {
+                    if (self.hasSavedCursor) {
+                        self.row = self.savedRow;
+                        self.column = self.savedColumn;
+                        [self currentLine];
+                    }
+                } else if (next == 'M') {               // up one line
+                    if (self.row > 0) self.row -= 1;
+                }
             }
             continue;
         }

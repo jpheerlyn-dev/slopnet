@@ -460,7 +460,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     return @[
         @{@"id": @"anthropic", @"name": @"Claude",        @"note": @"Claude Pro or Max"},
         @{@"id": @"openai",    @"name": @"ChatGPT",       @"note": @"ChatGPT Plus, Pro or Team"},
-        @{@"id": @"google",    @"name": @"Google Gemini", @"note": @"a Google account"},
+        @{@"id": @"google",    @"name": @"Google Antigravity", @"note": @"a Google account"},
         @{@"id": @"xai",       @"name": @"Grok",          @"note": @"X Premium or an xAI plan"},
     ];
 }

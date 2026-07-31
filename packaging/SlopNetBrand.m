@@ -40,9 +40,9 @@ typedef struct {
 
 static const SlopNetBrandEntry kBrands[] = {
     { @"anthropic",   @"Claude",       0xE000, @"✳", 0xB15C40, 0xFFFFFF, 0,        0xD97757 },
-    // Gemini keeps its single mark and a plain panel: no multicolour
+    // Antigravity keeps its single mark and a plain panel: no multicolour
     // per-letter Google wordmark (operator decision, 2026-07-30).
-    { @"google",      @"Gemini",       0xE001, @"✦", 0xFFFFFF, 0x202124, 0,        0x4285F4 },
+    { @"google",      @"Antigravity",  0xE001, @"✦", 0xFFFFFF, 0x202124, 0,        0x4285F4 },
     { @"openai",      @"ChatGPT",      0xE002, @"❋", 0x343541, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF },
     { @"xai",         @"Grok",         0xE003, @"⦸", 0x000000, 0xFFFFFF, 0,        0xBDBDBD },
     { @"moonshot",    @"Moonshot",     0xE004, @"☾", 0x1D1D1F, 0xFFFFFF, 0,        0xE2E3EA },
