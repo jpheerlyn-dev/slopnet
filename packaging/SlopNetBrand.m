@@ -506,9 +506,30 @@ static const unichar kStripedBase = 0xE800;
     NSString *shownName = name.length > nameRoom ? [name substringToIndex:nameRoom] : name;
     NSString *header = [NSString stringWithFormat:@" %@ %@",
                         [self paddedMarkForProvider:providerId], shownName];
-    [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:text
-                                       body:header
-                                    columns:2 + kMarkColumns + shownName.length]];
+    // A state word, right-aligned on the header row. show_panels.py puts DONE
+    // / RUN / WAIT there, and it is what stops a tile reading as a bare label:
+    // the eye lands on the name, then on where it stands.
+    NSString *state = nil;
+    if (detail.count > 0) {
+        NSString *first = detail.firstObject;
+        if ([first hasPrefix:@"signed in"]) state = @"READY";
+        else if ([first hasPrefix:@"not signed in"]) state = @"SET UP";
+    }
+    if (state.length > 0) {
+        NSInteger gap = (NSInteger)panelWidth - 2
+            - (NSInteger)(2 + kMarkColumns + shownName.length) - (NSInteger)state.length - 1;
+        if (gap < 1) gap = 1;
+        NSString *withState = [NSString stringWithFormat:@"%@%@\033[2m%@\033[22m ",
+                               header, SlopNetRepeat(@" ", gap), state];
+        [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:text
+                                           body:withState
+                                        columns:2 + kMarkColumns + shownName.length
+                                                + gap + state.length + 1]];
+    } else {
+        [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:text
+                                           body:header
+                                        columns:2 + kMarkColumns + shownName.length]];
+    }
 
     if (action.length > 0 && [self frameCountForAction:action] > 0) {
         // The action row is the panel's live pulse: the glyph animates, and

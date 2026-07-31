@@ -56,6 +56,7 @@
 /// bundled font is active, a plain Unicode approximation otherwise, and a
 /// neutral "•" for a provider nobody has mapped yet.
 + (NSString *)markForProvider:(NSString *)providerId;
++ (NSString *)paddedMarkForProvider:(NSString *)providerId;
 
 /// Recognised display name ("Claude", "Granite", …); the id itself when unknown.
 + (NSString *)displayNameForProvider:(NSString *)providerId;
