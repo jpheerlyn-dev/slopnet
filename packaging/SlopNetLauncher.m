@@ -1309,8 +1309,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 /// Without this, one coding app refusing a login strands the whole first run.
 - (void)showSkipControl:(NSString *)name {
     self.promptBar.hidden = NO;
-    self.entryScroller.hidden = YES;
-    self.sendButton.hidden = YES;
+    // The typing box STAYS. A coding app signing in asks its own questions —
+    // Gemini opens with "Do you trust the files in this folder?" and a numbered
+    // menu — and hiding the box left the operator looking at a question with
+    // nothing to answer it with, and one button offering to give up. Whatever
+    // is on screen is a real program waiting for a real keystroke.
+    self.entryScroller.hidden = NO;
+    self.sendButton.hidden = NO;
     self.secretField.hidden = YES;
     self.secretSend.hidden = YES;
     self.approveButton.hidden = YES;
@@ -1320,9 +1325,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.codeButton.hidden = YES;
     self.skipButton.hidden = NO;
     self.promptLabel.stringValue =
-        [NSString stringWithFormat:@"Signing in to %@. A page and a code appear here when "
-                                   @"it is ready.", name];
+        [NSString stringWithFormat:@"Setting up %@. Answer anything it asks below.", name];
     self.promptLabel.textColor = [NSColor labelColor];
+    [self.window makeFirstResponder:self.entry];
 }
 
 - (void)skipThisSignIn:(id)sender {
@@ -2119,8 +2124,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         [NSPasteboard.generalPasteboard setString:code forType:NSPasteboardTypeString];
     }
     self.promptBar.hidden = NO;
-    self.entryScroller.hidden = YES;
-    self.sendButton.hidden = YES;
+    // The box stays here too. A device sign-in usually wants a keypress on the
+    // server as well — "press Enter to continue" — and the program is still
+    // running while the browser page is open.
+    self.entryScroller.hidden = NO;
+    self.sendButton.hidden = NO;
     self.secretField.hidden = YES;
     self.secretSend.hidden = YES;
     self.approveButton.hidden = YES;
