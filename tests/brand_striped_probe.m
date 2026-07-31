@@ -94,6 +94,27 @@ int main(void) {
         check([reply containsString:@"48;2;0;0;0"],
               "on the black field, not a vendor fill");
 
+
+        // The fill must reach the red frame. Every rule and every border cell
+        // used to draw on the field, so a brand surface was a block of colour
+        // floating inside a black gutter — the operator pointed at this more
+        // than once before I looked in the right place.
+        //
+        // Claude's fill is not black, so any black background inside its panel
+        // is a gutter. Checked on every line, because the top and bottom rules
+        // were the worst of it.
+        NSString *tile = [SlopNetBrand panelANSIForProvider:@"anthropic"
+                                                      title:nil
+                                                     detail:@[@"not signed in yet"]
+                                                     action:nil frame:0 width:40];
+        BOOL gutter = NO;
+        for (NSString *row in [tile componentsSeparatedByString:@"\n"]) {
+            if ([row containsString:@"48;2;0;0;0"]) gutter = YES;
+        }
+        check(!gutter, "a branded panel has no black gutter inside its frame");
+        check([tile componentsSeparatedByString:@"\n"].count >= 4,
+              "and still has a rule, a name, a status and a closing rule");
+
         fprintf(stderr, failures == 0 ? "\nSTRIPED PROBE DONE — all ok\n"
                                       : "\nSTRIPED PROBE DONE — %d failed\n", failures);
     }

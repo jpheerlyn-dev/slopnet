@@ -364,7 +364,8 @@ static const unichar kStripedBase = 0xE800;
     NSColor *panel = [self voidColor];
     NSColor *ink = [self inkColor];
     NSMutableArray<NSString *> *rows = [NSMutableArray array];
-    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐" label:@""]];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐"
+                                     label:@"" fill:panel]];
 
     NSString *mark = [self colorFontActive]
         ? [self actionGlyph:@"user-message" frame:0 cells:2] : @"▶ ";
@@ -377,7 +378,8 @@ static const unichar kStripedBase = 0xE800;
         [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink
                                            body:body columns:2 + line.length]];
     }
-    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘" label:@""]];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘"
+                                     label:@"" fill:panel]];
     return [NSString stringWithFormat:@"\n%@", [rows componentsJoinedByString:@"\n"]];
 }
 
@@ -413,7 +415,8 @@ static const unichar kStripedBase = 0xE800;
     NSColor *panel = [self backgroundColorForProvider:providerId] ?: [self voidColor];
     NSColor *ink = [self foregroundColorForProvider:providerId] ?: [self inkColor];
     NSMutableArray<NSString *> *rows = [NSMutableArray array];
-    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐" label:@""]];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐"
+                                     label:@"" fill:panel]];
 
     NSString *mark = [self markForProvider:providerId] ?: @"◆";
     NSString *icon = [self colorFontActive]
@@ -428,7 +431,8 @@ static const unichar kStripedBase = 0xE800;
         [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink
                                            body:body columns:2 + line.length]];
     }
-    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘" label:@""]];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘"
+                                     label:@"" fill:panel]];
     return [NSString stringWithFormat:@"\n%@", [rows componentsJoinedByString:@"\n"]];
 }
 
@@ -449,18 +453,36 @@ static const unichar kStripedBase = 0xE800;
                            body:(NSString *)body
                         columns:(NSUInteger)columns {
     NSInteger pad = (NSInteger)width - 2 - (NSInteger)columns;
-    return [NSString stringWithFormat:@"%@%@│%@%@%@%@%@%@│%@",
-            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self crimsonColor]),
-            SlopNetFieldSGR(panel), SlopNetInkSGR(text), body, SlopNetRepeat(@" ", pad),
-            SlopNetFieldSGR([self voidColor]), SlopNetInkSGR([self crimsonColor]),
-            kReset];
+    // The border cells take the panel's own fill, so the colour reaches the
+    // frame on both sides instead of leaving a black gutter inside it.
+    NSString *edge = [NSString stringWithFormat:@"%@%@",
+                      SlopNetFieldSGR(panel), SlopNetInkSGR([self crimsonColor])];
+    return [NSString stringWithFormat:@"%@│%@%@%@%@%@│%@",
+            edge, SlopNetFieldSGR(panel), SlopNetInkSGR(text), body,
+            SlopNetRepeat(@" ", pad), edge, kReset];
 }
 
 + (NSString *)panelRuleWithWidth:(NSUInteger)width
                             left:(NSString *)left
                            right:(NSString *)right
                            label:(NSString *)label {
-    NSString *field = SlopNetFieldSGR([self voidColor]);
+    return [self panelRuleWithWidth:width left:left right:right label:label
+                               fill:[self voidColor]];
+}
+
+/// The frame, drawn ON the panel colour rather than beside it.
+///
+/// Every rule and every border cell used to sit on the field, so a brand
+/// surface was a block of colour floating inside a black gutter — the colour
+/// stopped short of the red frame at the top, the bottom and both sides. The
+/// fill runs under the frame now, which is what makes a tile read as one solid
+/// object with a red outline instead of two shapes that nearly line up.
++ (NSString *)panelRuleWithWidth:(NSUInteger)width
+                            left:(NSString *)left
+                           right:(NSString *)right
+                           label:(NSString *)label
+                            fill:(NSColor *)fill {
+    NSString *field = SlopNetFieldSGR(fill ?: [self voidColor]);
     NSString *frame = SlopNetInkSGR([self crimsonColor]);
     NSString *head = label.length > 0
         ? [NSString stringWithFormat:@"─ \033[1m%@\033[22m ", label] : @"";
@@ -486,7 +508,8 @@ static const unichar kStripedBase = 0xE800;
     NSString *name = title.length > 0 ? title : [self displayNameForProvider:providerId];
 
     NSMutableArray<NSString *> *rows = [NSMutableArray array];
-    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐" label:@""]];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"┌" right:@"┐"
+                                     label:@"" fill:panel]];
 
     // Header row: the badge, then the recognised name.
     NSUInteger nameRoom = room > kMarkColumns + 3 ? room - kMarkColumns - 3 : 1;
@@ -518,7 +541,8 @@ static const unichar kStripedBase = 0xE800;
                                         columns:1 + shown.length]];
     }
 
-    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘" label:@""]];
+    [rows addObject:[self panelRuleWithWidth:panelWidth left:@"└" right:@"┘"
+                                     label:@"" fill:panel]];
     return [rows componentsJoinedByString:@"\n"];
 }
 
