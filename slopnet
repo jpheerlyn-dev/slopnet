@@ -1157,10 +1157,25 @@ def cmd_vps_setup(root, args):
     local_bin = home / ".local" / "node_modules" / ".bin"
     os.environ["PATH"] = str(local_bin) + os.pathsep + os.environ.get("PATH", "")
     crew = load_crew_module(root)
-    # Preparing the server installs the default coding app so the tool is
-    # already there when somebody chooses to sign in. Signing in to a
-    # different one installs that one at the time.
     provider = getattr(args, "provider", "openai") or "openai"
+
+    # Preparing the server installs NO coding app.
+    #
+    # It used to fetch the default one here, so somebody who had asked for the
+    # private local guide first got ChatGPT's tool downloaded onto their server
+    # before the guide existed — a tool for a service they may not even pay
+    # for. The operator asked for the guide to come first and this was the half
+    # that never moved.
+    #
+    # A coding app is installed when somebody picks it, in the step that signs
+    # in to it, and not before.
+    if not getattr(args, "coding_app_only", False):
+        print("\n[OK] Your server is prepared.")
+        print("Next: the private local guide. A coding app is installed later, "
+              "when you pick one, and only when you want to build something.")
+        return 0
+
+    # From here on somebody has chosen this coding app, so now it is fetched.
     app = coding_app_or_refuse(provider)
     executable = crew.find_exe(app["binary"])
     if not executable:
@@ -1169,20 +1184,6 @@ def cmd_vps_setup(root, args):
     else:
         print(f"[OK] The {app['name']} tool is already installed for this "
               f"private VPS account.")
-
-    # Preparing the server stops here by default.
-    #
-    # Signing in to a coding app needs a browser, a link and a one-time code —
-    # the slowest, most interruptible thing in setup. Putting it in the middle
-    # meant the private local guide, which is the thing that helps somebody
-    # understand the rest, sat behind it. The guide comes first now, and this
-    # runs afterwards as its own step.
-    if not getattr(args, "coding_app_only", False):
-        print(f"\n[OK] Your server is prepared, and the {app['name']} tool is "
-              f"installed on it, ready to sign in.")
-        print("Next: the private local guide. Signing in to a coding app "
-              "comes after that, and only when you want to build something.")
-        return 0
 
     if not codex_login_ok(executable):
         # No question here. Somebody running this step has already said they

@@ -10,7 +10,7 @@ username="$3"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.8"
+slopnet_release="v0.9.25"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 repo_url="https://github.com/jpheerlyn-dev/slopnet.git"
 
@@ -58,10 +58,9 @@ printf '%s\n' \
   "  - creates a locked account called slopnet, with a private home folder" \
   "  - installs SlopNet into /opt/slopnet and gives that account ownership of it" \
   "  - installs bubblewrap, so coding agents run boxed in rather than loose" \
-  "  - installs the coding app's command-line tool, ready to sign in later" \
   "" \
   "It does not touch root SSH access, password SSH access, firewall rules or ports." \
-  "It does not sign you in to anything, and it does not download the guide yet."
+  "It does not install a coding app, sign you in to anything, or download the guide yet."
 say "If you did not sign in as root, your VPS may ask for your sudo password now."
 read -r -p "Make those changes? [y/N] " ready
 case "$(printf %s "$ready" | tr "[:upper:]" "[:lower:]")" in
