@@ -1,21 +1,21 @@
 {
-  "_comment": "Coding tools SlopNet can check for and install on your server. 'check' is the command name looked for on the server; 'install' is run on the SERVER, in the console, so you can see exactly what happens. An empty 'install' means nobody has verified that tool's install command yet — SlopNet says so rather than guessing, because a wrong install command runs as you, on your machine. Add one and it appears in Settings; no rebuild needed beyond copying this file into the app.",
+  "_comment": "Coding tools SlopNet can check for and install on your server. 'check' is the command name looked for on the server; 'install' is run on the SERVER, in the console, so you can see exactly what happens. An empty 'install' means nobody has verified that tool's install command yet \u2014 SlopNet says so rather than guessing, because a wrong install command runs as you, on your machine. Add one and it appears in Settings; no rebuild needed beyond copying this file into the app.",
   "tools": [
     {
       "id": "codex",
       "name": "Codex CLI",
       "subscription": "ChatGPT paid plan",
       "check": "codex",
-      "install": "",
+      "install": "npm install --prefix ~/.local @openai/codex",
       "login": "codex",
       "source": ""
     },
     {
       "id": "claude",
       "name": "Claude Code",
-      "subscription": "Claude paid plan (also hosts the zAI GLM plan)",
+      "subscription": "Claude paid plan",
       "check": "claude",
-      "install": "npm install -g @anthropic-ai/claude-code",
+      "install": "npm install --prefix ~/.local @anthropic-ai/claude-code",
       "login": "claude  (then /login)",
       "source": "Z.AI's own Claude Code setup page, 2026-07-29"
     },
@@ -33,7 +33,7 @@
       "name": "Gemini CLI",
       "subscription": "Google AI Pro",
       "check": "gemini",
-      "install": "",
+      "install": "npm install --prefix ~/.local @google/gemini-cli",
       "login": "gemini",
       "source": ""
     },
@@ -42,7 +42,7 @@
       "name": "Grok Build",
       "subscription": "Grok paid plan",
       "check": "grok",
-      "install": "",
+      "install": "curl -fsSL https://x.ai/cli/install.sh | bash",
       "login": "grok",
       "source": ""
     }

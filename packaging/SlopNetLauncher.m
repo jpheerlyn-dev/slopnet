@@ -25,6 +25,13 @@ static NSString *const kHostKey     = @"SlopNetVPSHost";
 static NSString *const kUserKey     = @"SlopNetVPSUser";
 static NSString *const kPortKey     = @"SlopNetVPSPort";
 static NSString *const kSignedInProvidersKey = @"SlopNetSignedInProviders";
+/// When a coding app's usage limit is expected to lift, keyed by provider.
+static NSString *const kLimitUntilKey = @"SlopNetLimitUntil";
+/// What to assume when the provider does not say when it resets. Most plans
+/// roll on a few hours; a weekly cap will outlast this and the countdown will
+/// simply reach zero and the app will be tried again. Better than claiming a
+/// precision nothing here has.
+static const NSTimeInterval kDefaultLimitWait = 5 * 60 * 60;
 static NSString *const kReadyKey    = @"SlopNetVPSReady";   // setup finished cleanly
 // The private local guide passed its own READY proof on the server. Set only
 // from a real outcome: a clean local-helper run, or reading the model back out
@@ -54,8 +61,12 @@ static NSString *const kWizardKey   = @"SlopNetWizardDone";
             NSFontAttributeName: self.font ?: [NSFont systemFontOfSize:12],
             NSForegroundColorAttributeName: [NSColor placeholderTextColor],
         };
-        [self.prompt drawAtPoint:NSMakePoint(self.textContainerInset.width,
-                                             self.textContainerInset.height + 1)
+        // Line-fragment padding sits inside the container on top of the inset,
+        // and typed text begins after both. Drawing the placeholder at the
+        // inset alone put it five points to the left of where the caret rests,
+        // so the insertion point appeared to sit inside the first word.
+        CGFloat left = self.textContainerInset.width + self.textContainer.lineFragmentPadding;
+        [self.prompt drawAtPoint:NSMakePoint(left, self.textContainerInset.height + 1)
                    withAttributes:attributes];
     }
 }
@@ -820,11 +831,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.port = [store stringForKey:kPortKey] ?: @"22";
 
     if ([self isReady]) {
-        [self.console note:[NSString stringWithFormat:
-            @"Your server (%@) is ready.\n"
-            @"Just talk to your guide below. Ask it anything, or say what you want built "
-            @"and it will offer to build it. Nothing costs money until you say yes.",
-            self.host]];
+        // Nothing. The board below already says which server this is and what
+        // is loaded; a paragraph explaining how to use a text box, and a line
+        // about money nobody asked for, were both invented here.
     } else {
         [self.console note:@"Welcome. The setup guide is opening now.\n"
                            @"First connect your server; then SlopNet can install and prove its private local guide."];
@@ -877,6 +886,81 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
             [me endActivity];
         }
     }];
+}
+
+/// What a tile should say instead of "ready", or nil when it is usable.
+///
+/// A countdown rather than a flat "limited", so a person can see whether to
+/// wait or go and do something else.
+- (NSString *)limitWordForProvider:(NSString *)providerId {
+    NSDictionary *limits = [NSUserDefaults.standardUserDefaults dictionaryForKey:kLimitUntilKey];
+    NSNumber *when = limits[providerId];
+    if (when == nil) return nil;
+    NSTimeInterval left = when.doubleValue - NSDate.date.timeIntervalSince1970;
+    if (left <= 0) {
+        // Lifted. Forget it rather than leaving a stale badge on the board.
+        NSMutableDictionary *kept = [limits mutableCopy];
+        [kept removeObjectForKey:providerId];
+        [NSUserDefaults.standardUserDefaults setObject:kept forKey:kLimitUntilKey];
+        return nil;
+    }
+    NSInteger hours = (NSInteger)(left / 3600);
+    NSInteger minutes = ((NSInteger)left % 3600) / 60;
+    if (hours > 0) return [NSString stringWithFormat:@"back in %ldh %02ldm", (long)hours, (long)minutes];
+    return [NSString stringWithFormat:@"back in %ldm", (long)MAX(1, minutes)];
+}
+
+/// Record that a coding app has hit its usage limit.
+///
+/// `text` is whatever the app printed. Providers usually say when the limit
+/// lifts — "try again in 4 hours", "resets at 15:40" — and that is worth far
+/// more than a guess, so it is read out of the message when it is there. The
+/// five-hour default is only for when the message says nothing, and it is
+/// deliberately a plain wait rather than a claim about which cap was hit:
+/// nothing here can tell a daily limit from a weekly one.
+- (void)noteLimitFor:(NSString *)providerId from:(NSString *)text {
+    NSTimeInterval wait = [self waitStatedIn:text];
+    if (wait <= 0) wait = kDefaultLimitWait;
+    NSMutableDictionary *limits =
+        [([NSUserDefaults.standardUserDefaults dictionaryForKey:kLimitUntilKey] ?: @{}) mutableCopy];
+    limits[providerId] = @(NSDate.date.timeIntervalSince1970 + wait);
+    [NSUserDefaults.standardUserDefaults setObject:limits forKey:kLimitUntilKey];
+    [self showReadyBlock];
+}
+
+/// Change how long is left, in seconds from now. The hook the guide will use
+/// once it is allowed to act on a person's behalf; nothing calls it yet.
+- (void)setLimitFor:(NSString *)providerId secondsFromNow:(NSTimeInterval)seconds {
+    NSMutableDictionary *limits =
+        [([NSUserDefaults.standardUserDefaults dictionaryForKey:kLimitUntilKey] ?: @{}) mutableCopy];
+    if (seconds <= 0) [limits removeObjectForKey:providerId];
+    else limits[providerId] = @(NSDate.date.timeIntervalSince1970 + seconds);
+    [NSUserDefaults.standardUserDefaults setObject:limits forKey:kLimitUntilKey];
+    [self showReadyBlock];
+}
+
+/// A wait the provider stated itself, in seconds, or 0 when it said nothing.
+- (NSTimeInterval)waitStatedIn:(NSString *)text {
+    if (text.length == 0) return 0;
+    NSString *lower = text.lowercaseString;
+    static NSRegularExpression *relative;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // "try again in 4 hours", "retry after 35 minutes", "wait 90 seconds"
+        relative = [NSRegularExpression regularExpressionWithPattern:
+            @"(?:in|after|wait)\\s+(\\d+)\\s*(second|sec|minute|min|hour|hr|day)"
+                                                            options:0 error:nil];
+    });
+    NSTextCheckingResult *m = [relative firstMatchInString:lower options:0
+                                                     range:NSMakeRange(0, lower.length)];
+    if (m == nil) return 0;
+    double amount = [[lower substringWithRange:[m rangeAtIndex:1]] doubleValue];
+    NSString *unit = [lower substringWithRange:[m rangeAtIndex:2]];
+    if ([unit hasPrefix:@"sec"]) return amount;
+    if ([unit hasPrefix:@"min"]) return amount * 60;
+    if ([unit hasPrefix:@"hour"] || [unit hasPrefix:@"hr"]) return amount * 3600;
+    if ([unit hasPrefix:@"day"]) return amount * 86400;
+    return 0;
 }
 
 - (void)remember:(NSString *)line {
@@ -954,19 +1038,34 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                                                  width:width]];
 
     NSArray<NSString *> *tools = [self codingToolProviders];
-    if (tools.count > 0) {
+    NSArray *connected = [NSUserDefaults.standardUserDefaults
+        arrayForKey:kSignedInProvidersKey] ?: @[];
+    BOOL anyConnected = NO;
+    for (NSString *identifier in tools) {
+        if ([connected containsObject:identifier]) { anyConnected = YES; break; }
+    }
+    if (tools.count > 0 && anyConnected) {
         [parts addObject:[SlopNetBrand headerANSI:@"Coding apps" width:width]];
         NSArray *signedIn = [NSUserDefaults.standardUserDefaults
             arrayForKey:kSignedInProvidersKey] ?: @[];
+        // Only apps that are actually installed and signed in. A row of tiles
+        // saying SET UP read as a claim rather than an instruction — nobody
+        // could tell whether it meant "this is set up" or "set this up" — and
+        // an app you have not connected is not a thing you can use. Until one
+        // is connected there is only the guide, which is what walks somebody
+        // through connecting one.
+        NSMutableArray<NSString *> *ready = [NSMutableArray array];
         NSMutableDictionary<NSString *, NSString *> *status = [NSMutableDictionary dictionary];
         for (NSString *identifier in tools) {
-            status[identifier] = [signedIn containsObject:identifier]
-                ? @"signed in · can build"
-                : @"not signed in yet";
+            if (![signedIn containsObject:identifier]) continue;
+            [ready addObject:identifier];
+            status[identifier] = [self limitWordForProvider:identifier] ?: @"ready";
         }
-        [parts addObject:[SlopNetBrand panelStripANSIForProviders:tools
-                                                           status:status
-                                                            width:width]];
+        if (ready.count > 0) {
+            [parts addObject:[SlopNetBrand panelStripANSIForProviders:ready
+                                                               status:status
+                                                                width:width]];
+        }
     }
     return [parts componentsJoinedByString:@"\n"];
 }

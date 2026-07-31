@@ -566,8 +566,12 @@ static const unichar kStripedBase = 0xE800;
     NSString *state = nil;
     if (detail.count > 0) {
         NSString *first = detail.firstObject;
-        if ([first hasPrefix:@"signed in"]) state = @"READY";
-        else if ([first hasPrefix:@"not signed in"]) state = @"SET UP";
+        // One word for what the app can do right now. "SET UP" was ambiguous
+        // in the worst way — it read equally as "this is set up" and "set this
+        // up" — and tiles are only drawn for apps that are connected, so the
+        // only two states left are usable, or waiting out a usage limit.
+        if ([first isEqualToString:@"ready"]) state = @"READY";
+        else if ([first hasPrefix:@"back in"]) state = @"LIMIT";
         // The guide's own words, so a local model reads the same way a coding
         // app does: one word, right-aligned, saying whether it can be used.
         else if ([first isEqualToString:@"loaded"]) state = @"LOADED";
