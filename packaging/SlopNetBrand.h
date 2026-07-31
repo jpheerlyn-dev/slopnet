@@ -103,6 +103,14 @@
 /// A finished reply, framed the way demo_agency.py frames a turn: the vendor's
 /// logo and name, the message icon beside it, then the words on that vendor's
 /// own surface.
+/// The same panel, with an action glyph in its header — `think` while the
+/// guide is working, `message` once it has spoken.
++ (NSString *)guideSaidANSI:(NSString *)text
+                   provider:(NSString *)providerId
+                       name:(NSString *)name
+                     action:(NSString *)action
+                      frame:(NSUInteger)frame
+                      width:(NSUInteger)width;
 + (NSString *)guideSaidANSI:(NSString *)text
                    provider:(NSString *)providerId
                        name:(NSString *)name

@@ -361,6 +361,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     _status.font = [NSFont systemFontOfSize:11];
     _status.textColor = [NSColor secondaryLabelColor];
     _status.translatesAutoresizingMaskIntoConstraints = NO;
+    _status.hidden = YES;   // the window carries this now
     [self addSubview:_status];
 
     _stopButton = [[NSButton alloc] initWithFrame:NSZeroRect];
@@ -370,14 +371,17 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     _stopButton.action = @selector(stopPressed:);
     _stopButton.enabled = NO;
     _stopButton.translatesAutoresizingMaskIntoConstraints = NO;
+    // Folded into the send button, the way a chat app does it.
+    _stopButton.hidden = YES;
     [self addSubview:_stopButton];
 
     [NSLayoutConstraint activateConstraints:@[
         [_scroller.topAnchor constraintEqualToAnchor:self.topAnchor],
         [_scroller.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
         [_scroller.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
-        [_status.topAnchor constraintEqualToAnchor:_scroller.bottomAnchor constant:6],
+        [_status.topAnchor constraintEqualToAnchor:_scroller.bottomAnchor constant:0],
         [_status.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:2],
+        [_status.heightAnchor constraintEqualToConstant:0],
         [_status.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
         [_status.trailingAnchor constraintLessThanOrEqualToAnchor:_stopButton.leadingAnchor constant:-8],
         [_stopButton.leadingAnchor constraintGreaterThanOrEqualToAnchor:_status.trailingAnchor constant:8],

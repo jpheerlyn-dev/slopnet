@@ -136,6 +136,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 /// Kept on the Mac and handed to the guide with each question, because the
 /// model runs one finite process per turn and remembers nothing by itself.
 @property(nonatomic, strong) NSMutableArray<NSString *> *conversation;
+/// The reply panel being typed into, and how much of it has appeared.
+@property(nonatomic, assign) NSInteger replyToken;
+@property(nonatomic, copy) NSString *replyText;
+@property(nonatomic, assign) NSUInteger replyShown;
+@property(nonatomic, strong) NSTimer *replyTimer;
 @property(nonatomic, assign) BOOL localHelperRunning;
 @property(nonatomic, assign) BOOL planningRunning;
 @property(nonatomic, assign) BOOL approvedBuildRunning;
@@ -447,6 +452,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // opened Settings — a menu pretending to be a control. Which guide is
     // answering matters in a conversation; being asked to pick one does not.
     self.modelLabel = [NSTextField labelWithString:@""];
+    // Nothing but the box and one button. The guide's name is already on
+    // the board above and in the sidebar; saying it a third time here was
+    // clutter around the one thing a person came to use.
+    self.modelLabel.hidden = YES;
     self.modelLabel.font = [NSFont systemFontOfSize:11];
     self.modelLabel.textColor = [NSColor secondaryLabelColor];
     self.modelLabel.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -538,7 +547,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.promptBar.hidden = YES;
     [promptControls.widthAnchor constraintEqualToAnchor:self.promptBar.widthAnchor].active = YES;
 
-    NSStackView *composer = [NSStackView stackViewWithViews:@[self.modelLabel, self.promptBar,
+    NSStackView *composer = [NSStackView stackViewWithViews:@[self.promptBar,
                                                              chatBar]];
     composer.orientation = NSUserInterfaceLayoutOrientationVertical;
     composer.alignment = NSLayoutAttributeLeading;
@@ -584,7 +593,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         self.statusDot.textColor = [NSColor systemGrayColor];
         self.statusText.stringValue = @"No server yet";
     }
-    self.modelLabel.hidden = !ready || !guide;
+    // Not shown at all now: it is out of the composer stack. The guide is
+    // named on the board above and in the sidebar, and a third caption sat
+    // directly over the one control a person came here to use.
 
     // The button never changes. Only the hint inside the empty box changes,
     // and it describes what will happen rather than naming a mode.
@@ -638,7 +649,25 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
               @"go", @"go on", @"do it", @"please do", @"build it"] containsObject:word];
 }
 
+/// One button for both jobs.
+///
+/// A separate Stop sat next to a separate Send, and only one of them was ever
+/// usable — which is two controls to read and a decision to make before typing
+/// anything. Chat apps solved this years ago: the button sends while the app is
+/// idle and stops while it is working.
+- (void)showSendOrStop:(BOOL)busy {
+    self.sendButton.title = busy ? @"■ Stop" : @"Send";
+    self.sendButton.action = busy ? @selector(stopPressed:) : @selector(sendPressed:);
+    self.sendButton.enabled = YES;
+    self.sendButton.keyEquivalent = busy ? @"" : @"\r";
+}
+
+- (void)stopPressed:(id)sender {
+    [self.console stop];
+}
+
 - (void)setBusy:(BOOL)busy {
+    [self showSendOrStop:busy];
     _busy = busy;
     [self refreshState];
 }
@@ -816,6 +845,40 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 /// Keep one line of the conversation, capped so a long session cannot grow the
 /// prompt without limit. Older turns fall off the front; the guide keeps the
 /// recent thread, which is what a person means by "remember what I said".
+/// Reveal the reply a character at a time, in the panel already on screen.
+///
+/// The whole answer arrives at once from the server — the model is not
+/// streamed — so this is presentation, not pretence about what is happening.
+/// It reads as the guide speaking rather than a block of text appearing.
+- (void)typeReply:(NSString *)said {
+    [self.replyTimer invalidate];
+    self.replyText = said;
+    self.replyShown = 0;
+    __weak typeof(self) weakSelf = self;
+    self.replyTimer = [NSTimer scheduledTimerWithTimeInterval:0.012 repeats:YES
+                                                      block:^(NSTimer *timer) {
+        typeof(self) me = weakSelf;
+        if (me == nil) { [timer invalidate]; return; }
+        // A few characters a tick, so a long answer does not outlast a
+        // person's patience.
+        me.replyShown = MIN(me.replyText.length, me.replyShown + 3);
+        BOOL finished = me.replyShown >= me.replyText.length;
+        NSString *sofar = [me.replyText substringToIndex:me.replyShown];
+        NSString *guide =
+            [SlopNetBrand providerForLocalModel:me.localModelName] ?: @"ibm_granite";
+        NSString *panel = [SlopNetBrand guideSaidANSI:sofar provider:guide name:@"Granite"
+                                               action:finished ? @"message" : @"think"
+                                                frame:me.actionTick
+                                                width:[me panelWidth]];
+        if (![me.console replaceLinesFromToken:me.replyToken with:panel] || finished) {
+            [timer invalidate];
+            me.replyTimer = nil;
+            me.replyToken = -1;
+            [me endActivity];
+        }
+    }];
+}
+
 - (void)remember:(NSString *)line {
     if (self.conversation == nil) self.conversation = [NSMutableArray array];
     [self.conversation addObject:line];
@@ -876,13 +939,16 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     NSString *model = self.localModelName;
     NSString *provider = [SlopNetBrand providerForLocalModel:model] ?: @"ibm_granite";
     BOOL known = model.length > 0;
-    NSArray<NSString *> *detail = known
-        ? @[model, @"private · no API key · no open port"]
-        : @[@"not set up yet — open Settings", @"Chat needs the private local guide"];
+    // One line: the name a person recognises, and whether it can answer.
+    // The Hugging Face identifier, the API-key note and the port note were
+    // three lines of reassurance nobody needed twice; the identifier still
+    // lives in Settings.
+    //
+    // More local models are coming, and they will not all be loaded at once,
+    // so the word has to be about this model rather than about the server.
     [parts addObject:[SlopNetBrand panelANSIForProvider:provider
-                                                 title:known ? @"Granite — local guide"
-                                                             : @"Granite — local guide (not set up)"
-                                                detail:detail
+                                                 title:@"Granite 4.1 3B"
+                                                detail:@[known ? @"loaded" : @"locked"]
                                                 action:self.actionConcept
                                                  frame:self.actionTick
                                                  width:width]];
@@ -1665,6 +1731,14 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // ends, and printing this as well put a loose "Granite" above the panel.
     self.entry.string = @"";
     [self resizeEntry];
+    // The panel opens now, empty, with the thinking glyph turning inside it.
+    // The reply then types into this same block rather than appearing whole.
+    NSString *guide = [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
+    self.replyText = @"";
+    self.replyShown = 0;
+    self.replyToken = [self.console noteReplaceable:
+        [SlopNetBrand guideSaidANSI:@"" provider:guide name:@"Granite"
+                             action:@"think" frame:0 width:[self panelWidth]]];
     [self beginActivity:@"think" caption:@"Your guide is thinking…"];
     [self setBusy:YES];
     // The reply is the news. A turn that worked should not be followed by a
@@ -1838,12 +1912,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         NSString *said = console.collectedOutput;
         if (status == 0 && said.length > 0) {
             [self remember:[NSString stringWithFormat:@"Granite: %@", said]];
-            NSString *provider =
-                [SlopNetBrand providerForLocalModel:self.localModelName] ?: @"ibm_granite";
-            [console note:[SlopNetBrand guideSaidANSI:said
-                                             provider:provider
-                                                 name:@"Granite"
-                                                width:[self panelWidth]]];
+            [self typeReply:said];
         } else if (said.length > 0) {
             // A failure is shown plainly rather than dressed as the guide
             // speaking. It did not say this; something went wrong.

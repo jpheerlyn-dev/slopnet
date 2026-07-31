@@ -394,7 +394,7 @@ static const unichar kStripedBase = 0xE800;
         : [@"▶" stringByPaddingToLength:kMarkColumns withString:@" " startingAtIndex:0];
     NSString *head = [NSString stringWithFormat:@" %@ \033[1mYou\033[22m", mark];
     [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink
-                                       body:head columns:2 + kMarkColumns + 3]];
+                                       body:head columns:[self visibleColumns:head]]];
 
     for (NSString *line in [self wrapText:text toColumns:(NSInteger)panelWidth - 6]) {
         NSString *body = [NSString stringWithFormat:@"  %@", line];
@@ -433,6 +433,16 @@ static const unichar kStripedBase = 0xE800;
                    provider:(NSString *)providerId
                        name:(NSString *)name
                       width:(NSUInteger)width {
+    return [self guideSaidANSI:text provider:providerId name:name
+                        action:@"message" frame:0 width:width];
+}
+
++ (NSString *)guideSaidANSI:(NSString *)text
+                   provider:(NSString *)providerId
+                       name:(NSString *)name
+                     action:(NSString *)action
+                      frame:(NSUInteger)frame
+                      width:(NSUInteger)width {
     NSUInteger panelWidth = MAX((NSUInteger)24, width);
     NSColor *panel = [self backgroundColorForProvider:providerId] ?: [self voidColor];
     NSColor *ink = [self foregroundColorForProvider:providerId] ?: [self inkColor];
@@ -441,13 +451,14 @@ static const unichar kStripedBase = 0xE800;
 
     NSString *mark = [self markForProvider:providerId] ?: @"◆";
     NSString *icon = [self colorFontActive]
-        ? [self actionGlyph:@"message" frame:0 cells:kMarkColumns]
+        ? [self actionGlyph:action frame:frame cells:kMarkColumns]
         : [@"" stringByPaddingToLength:kMarkColumns withString:@" " startingAtIndex:0];
-    NSString *head = [NSString stringWithFormat:@" %@ \033[1m%@\033[22m  %@ \033[2mMessage\033[22m",
-                      mark, name, icon];
+    NSString *label = [[action substringToIndex:1].uppercaseString
+        stringByAppendingString:[action substringFromIndex:1]];
+    NSString *head = [NSString stringWithFormat:@" %@ \033[1m%@\033[22m  %@ \033[2m%@\033[22m",
+                      mark, name, icon, label];
     [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:ink body:head
-                                    columns:2 + kMarkColumns + name.length
-                                            + 2 + kMarkColumns + 7]];
+                                    columns:[self visibleColumns:head]]];
 
     for (NSString *line in [self wrapText:text toColumns:(NSInteger)panelWidth - 6]) {
         NSString *body = [NSString stringWithFormat:@"  %@", line];
@@ -469,6 +480,36 @@ static const unichar kStripedBase = 0xE800;
 /// every row is exactly `width` columns. A row sets its colours at the start
 /// of each run and resets once at the very end — never mid-line, which in a
 /// real terminal would hand the field back to the user's own profile.
+/// How many terminal cells a row body actually occupies.
+///
+/// Hand-counting this is what keeps breaking the frames: a body is built from
+/// a format string with escape sequences in it and badge glyphs that are one
+/// character but several cells, and every time the icon width changed someone
+/// had to remember to change a number somewhere else. Twice they drifted apart
+/// and the right-hand border landed in the wrong column.
+///
+/// This is StormCode's vlen() with one addition: there, a badge is padded so
+/// its character count equals its cell count, and here the glyph carries its
+/// own advance, so the extra cells are added instead.
++ (NSUInteger)visibleColumns:(NSString *)body {
+    static NSRegularExpression *sgr;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        sgr = [NSRegularExpression regularExpressionWithPattern:@"\x1B\\[[0-9;]*m"
+                                                        options:0 error:nil];
+    });
+    NSString *bare = [sgr stringByReplacingMatchesInString:body options:0
+                                                     range:NSMakeRange(0, body.length)
+                                              withTemplate:@""];
+    NSUInteger cells = bare.length;
+    for (NSUInteger i = 0; i < bare.length; i++) {
+        unichar c = [bare characterAtIndex:i];
+        BOOL wide = (c >= 0xE000 && c <= 0xE7FF) || (c >= 0xE900 && c <= 0xEC45);
+        if (wide) cells += kMarkColumns - 1;
+    }
+    return cells;
+}
+
 + (NSString *)panelRowWithWidth:(NSUInteger)width
                           panel:(NSColor *)panel
                            text:(NSColor *)text
@@ -527,6 +568,10 @@ static const unichar kStripedBase = 0xE800;
         NSString *first = detail.firstObject;
         if ([first hasPrefix:@"signed in"]) state = @"READY";
         else if ([first hasPrefix:@"not signed in"]) state = @"SET UP";
+        // The guide's own words, so a local model reads the same way a coding
+        // app does: one word, right-aligned, saying whether it can be used.
+        else if ([first isEqualToString:@"loaded"]) state = @"LOADED";
+        else if ([first isEqualToString:@"locked"]) state = @"LOCKED";
     }
     if (state.length > 0) {
         NSInteger gap = (NSInteger)panelWidth - 2
@@ -559,6 +604,8 @@ static const unichar kStripedBase = 0xE800;
     }
 
     for (NSString *line in detail) {
+        // A bare state marker is the word in the header, not a line of body.
+        if ([line isEqualToString:@"loaded"] || [line isEqualToString:@"locked"]) continue;
         NSString *shown = line.length > room - 2 ? [line substringToIndex:room - 2] : line;
         [rows addObject:[self panelRowWithWidth:panelWidth panel:panel text:text
                                            body:[NSString stringWithFormat:@" %@", shown]
