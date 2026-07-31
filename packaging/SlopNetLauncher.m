@@ -143,6 +143,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, assign) BOOL busy;
 @property(nonatomic, assign) BOOL setupRunning;
 @property(nonatomic, assign) BOOL chatting;
+/// Where a typed command runs. Each one opens a new shell over SSH, so
+/// without this every command would start wherever sh happens to land and
+/// `cd` would do nothing at all.
+@property(nonatomic, copy) NSString *workingDirectory;
+/// A `cd` in flight: the directory to adopt if the shell agrees it exists.
+@property(nonatomic, copy) NSString *pendingDirectory;
+@property(nonatomic, assign) BOOL movingDirectory;
 /// What has been said this conversation, oldest first, as "You: …" / "Granite: …".
 /// Kept on the Mac and handed to the guide with each question, because the
 /// model runs one finite process per turn and remembers nothing by itself.
@@ -967,6 +974,42 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     return 0;
 }
 
+/// Run a typed command in the directory the person is currently in.
+///
+/// Every command opens a new shell over SSH, so the directory has to be
+/// carried by this app and re-entered each time. `cd` is handled here rather
+/// than passed through, because in a fresh shell it would change a directory
+/// that is thrown away the moment the command ends — which is exactly what
+/// looked broken: `cd` appeared to do nothing and every relative path failed.
+- (void)runServerCommand:(NSString *)command {
+    if (self.workingDirectory.length == 0) self.workingDirectory = @"/home/slopnet";
+
+    NSString *trimmed = [command stringByTrimmingCharactersInSet:
+        NSCharacterSet.whitespaceCharacterSet];
+    if ([trimmed isEqualToString:@"cd"] || [trimmed hasPrefix:@"cd "]) {
+        NSString *target = [[trimmed substringFromIndex:2]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (target.length == 0) target = @"~";
+        // Ask the shell to move and report where it landed, so a directory
+        // that does not exist is refused by the server rather than believed.
+        self.pendingDirectory = @"";
+        self.console.collectsOutput = YES;
+        self.movingDirectory = YES;
+        [self runOnServerInWorkingDirectory:
+            [NSString stringWithFormat:@"cd %@ && pwd", target]
+                                      title:[NSString stringWithFormat:@"cd %@", target]];
+        return;
+    }
+    [self runOnServerInWorkingDirectory:command
+                                  title:[NSString stringWithFormat:@"Running %@", command]];
+}
+
+- (void)runOnServerInWorkingDirectory:(NSString *)command title:(NSString *)title {
+    NSString *full = [NSString stringWithFormat:@"cd %@ 2>/dev/null || cd /home/slopnet; %@",
+                      self.workingDirectory, command];
+    [self settings:nil runOnServer:full title:title];
+}
+
 - (void)remember:(NSString *)line {
     if (self.conversation == nil) self.conversation = [NSMutableArray array];
     [self.conversation addObject:line];
@@ -1510,8 +1553,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     NSString *encoded = [raw base64EncodedStringWithOptions:0];
     NSString *runuser =
         @"runuser -u slopnet -- env HOME=/home/slopnet "
-        @"PATH=/home/slopnet/.local/bin:/home/slopnet/.local/node_modules/.bin:"
-        @"/usr/local/bin:/usr/bin:/bin sh";
+        @"PATH=/opt/slopnet:/home/slopnet/.local/bin:"
+        @"/home/slopnet/.local/node_modules/.bin:/usr/local/bin:/usr/bin:/bin sh";
     return [NSString stringWithFormat:@"printf %%s '%@' | base64 -d | %@%@",
             encoded, root ? @"" : @"sudo ", runuser];
 }
@@ -1806,8 +1849,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         self.entry.string = @"";
         [self resizeEntry];
         [self.console note:[SlopNetBrand youSaidANSI:idea width:[self panelWidth]]];
-        [self settings:nil runOnServer:command
-                  title:[NSString stringWithFormat:@"Running %@", command]];
+        [self runServerCommand:command];
         return;
     }
 
@@ -2083,6 +2125,20 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 #pragma mark - console callbacks
 
 - (void)console:(SlopNetConsole *)console finishedWithStatus:(int)status {
+    if (self.movingDirectory) {
+        self.movingDirectory = NO;
+        NSString *landed = [console.collectedOutput
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSArray<NSString *> *lines = [landed componentsSeparatedByString:@"\n"];
+        landed = lines.lastObject ?: @"";
+        if (status == 0 && [landed hasPrefix:@"/"]) {
+            self.workingDirectory = landed;
+            [console note:[NSString stringWithFormat:@"\n%@", landed]];
+        }
+        [self setBusy:NO];
+        [self showTypingBar];
+        return;
+    }
     if (self.chatting) {
         self.chatting = NO;
         NSString *said = console.collectedOutput;
