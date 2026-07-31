@@ -37,6 +37,63 @@
 }
 @end
 
+/// The attribute the console stores a cell's fill under.
+///
+/// Deliberately not NSBackgroundColorAttributeName: AppKit paints that using
+/// each run's own font metrics, so a badge drawn at a different size leaves a
+/// tab or a notch against the text beside it, and no amount of scaling closes
+/// it — shrink the badge and the gap flips from coloured to black.
+///
+/// Painting it here instead means a fill covers the whole line box, the same
+/// height for every run on the row, which is what a terminal cell does.
+static NSString *const kCellFill = @"SlopNetCellFill";
+
+@interface SlopNetTextView : NSTextView
+@end
+
+@implementation SlopNetTextView
+
+- (void)drawViewBackgroundInRect:(NSRect)rect {
+    [super drawViewBackgroundInRect:rect];
+    NSLayoutManager *layout = self.layoutManager;
+    NSTextContainer *container = self.textContainer;
+    if (layout == nil || container == nil) return;
+
+    NSRange visible = [layout glyphRangeForBoundingRect:rect inTextContainer:container];
+    NSRange characters = [layout characterRangeForGlyphRange:visible actualGlyphRange:NULL];
+    NSPoint origin = self.textContainerOrigin;
+
+    [self.textStorage enumerateAttribute:kCellFill inRange:characters
+                                 options:0
+                              usingBlock:^(id value, NSRange range, BOOL *stop) {
+        (void)stop;
+        NSColor *fill = value;
+        if (fill == nil) return;
+        NSRange glyphs = [layout glyphRangeForCharacterRange:range
+                                       actualCharacterRange:NULL];
+        // Per line fragment, so a run that wraps is filled on every line it
+        // occupies, and each piece takes that line box's full height.
+        NSUInteger index = glyphs.location;
+        while (index < NSMaxRange(glyphs)) {
+            NSRange lineRange;
+            NSRect fragment = [layout lineFragmentRectForGlyphAtIndex:index
+                                                       effectiveRange:&lineRange];
+            NSRange piece = NSIntersectionRange(glyphs, lineRange);
+            if (piece.length == 0) break;
+            NSRect span = [layout boundingRectForGlyphRange:piece inTextContainer:container];
+            NSRect cell = NSMakeRect(span.origin.x + origin.x,
+                                     fragment.origin.y + origin.y,
+                                     span.size.width,
+                                     fragment.size.height);
+            [fill set];
+            NSRectFill(cell);
+            index = NSMaxRange(lineRange);
+        }
+    }];
+}
+
+@end
+
 @interface SlopNetConsole ()
 @property(nonatomic, strong) NSTextView *output;
 @property(nonatomic, strong) NSScrollView *scroller;
@@ -81,9 +138,6 @@ static const NSUInteger kMaxLines = 4000;
 
 /// How far to drop a badge so its bitmap sits inside the line box
 /// rather than above it. Found by rendering, not by arithmetic.
-/// How much smaller a badge is drawn so its box fits the line. Found by
-/// rendering and looking, not by arithmetic.
-static const CGFloat kBadgeScale = 0.90;
 
 #pragma mark - ANSI colour
 
@@ -184,7 +238,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     _followTail = YES;
     _followingTail = YES;
 
-    _output = [[NSTextView alloc] initWithFrame:NSZeroRect];
+    _output = [[SlopNetTextView alloc] initWithFrame:NSZeroRect];
     _output.editable = NO;
     _output.selectable = YES;
     // Rich text is what carries per-run colour. Without it every attribute
@@ -326,7 +380,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     attributes[NSFontAttributeName] = (ink.bold && self.boldFont) ? self.boldFont : self.output.font;
     attributes[NSForegroundColorAttributeName] = foreground;
     attributes[NSParagraphStyleAttributeName] = [self cellParagraph];
-    if (background != nil) attributes[NSBackgroundColorAttributeName] = background;
+    if (background != nil) attributes[kCellFill] = background;
     return attributes;
 }
 
@@ -442,26 +496,43 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 /// replaced span takes the current pen; untouched spans keep theirs.
 /// Sit a colour badge inside the same box as the text beside it.
 ///
-/// The badges are sbix bitmaps whose box is taller than the letters they sit
-/// next to. A run's background is painted to that box, so a badge pushed a tab
-/// of colour up above the panel fill — the logo was not level with its own
-/// background. A baseline offset does not help: it moves the glyph and its box
-/// together, so the tab travels with it.
+/// The badges are sbix bitmaps whose drawn box is taller than the letters they
+/// sit next to. A run's background is painted to that box, so a badge pushed a
+/// tab of colour up above the panel fill and the logo was not level with its
+/// own background. A baseline offset cannot help: it moves the glyph and its
+/// box together, so the tab travels with it.
 ///
-/// Drawing the badge a little smaller brings its box inside the line. That
-/// shrinks its advance too, which would pull every column left, so the exact
-/// difference is added back as kerning. The grid does not move.
+/// The badge is therefore drawn small enough that its box fits the line. The
+/// amount is measured from the glyph itself rather than guessed, so it holds
+/// at any type size and on any screen; a fixed fudge factor looked right in
+/// one render and wrong on the operator's machine. Shrinking costs advance,
+/// which would pull every column left, so the exact difference is added back
+/// as kerning and the grid does not move.
 - (void)settleBadgesIn:(NSMutableAttributedString *)piece {
     NSFont *font = self.output.font;
     if (font == nil) return;
-    NSFont *smaller = [NSFont fontWithName:font.fontName size:font.pointSize * kBadgeScale];
-    if (smaller == nil) return;
+    CGFloat line = ceil([self.output.layoutManager defaultLineHeightForFont:font]);
+    if (line <= 0) return;
     NSString *text = piece.string;
+    CTFontRef measured = (__bridge CTFontRef)font;
+
     for (NSUInteger i = 0; i < text.length; i++) {
         unichar c = [text characterAtIndex:i];
         BOOL badge = (c >= 0xE000 && c <= 0xE7FF) ||     // provider logos + twins
                      (c >= 0xE900 && c <= 0xEC45);       // action frames + twins
         if (!badge) continue;
+
+        CGGlyph glyph = 0;
+        if (!CTFontGetGlyphsForCharacters(measured, &c, &glyph, 1) || glyph == 0) continue;
+        CGRect box = CTFontGetBoundingRectsForGlyphs(measured, kCTFontOrientationHorizontal,
+                                                     &glyph, NULL, 1);
+        if (CGRectIsNull(box) || box.size.height <= 0) continue;
+        if (box.size.height <= line) continue;           // already fits: leave it alone
+
+        CGFloat scale = line / box.size.height;
+        NSFont *smaller = [NSFont fontWithName:font.fontName size:font.pointSize * scale];
+        if (smaller == nil) continue;
+
         NSRange one = NSMakeRange(i, 1);
         NSString *single = [text substringWithRange:one];
         CGFloat wanted = [single sizeWithAttributes:@{NSFontAttributeName: font}].width;
