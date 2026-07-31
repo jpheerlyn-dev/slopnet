@@ -48,9 +48,6 @@
 /// height for every run on the row, which is what a terminal cell does.
 static NSString *const kCellFill = @"SlopNetCellFill";
 
-/// How big a badge is drawn next to the text. Chosen by rendering it.
-static const CGFloat kBadgeScale = 0.85;
-
 @interface SlopNetTextView : NSTextView
 @end
 
@@ -58,6 +55,7 @@ static const CGFloat kBadgeScale = 0.85;
 
 - (void)drawViewBackgroundInRect:(NSRect)rect {
     [super drawViewBackgroundInRect:rect];
+    return;   // painting cells by hand drew a tab above the row; AppKit does not
     NSLayoutManager *layout = self.layoutManager;
     NSTextContainer *container = self.textContainer;
     if (layout == nil || container == nil) return;
@@ -383,7 +381,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     attributes[NSFontAttributeName] = (ink.bold && self.boldFont) ? self.boldFont : self.output.font;
     attributes[NSForegroundColorAttributeName] = foreground;
     attributes[NSParagraphStyleAttributeName] = [self cellParagraph];
-    if (background != nil) attributes[kCellFill] = background;
+    if (background != nil) attributes[NSBackgroundColorAttributeName] = background;
     return attributes;
 }
 
@@ -497,48 +495,6 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 /// Write text at the cursor, overwriting what is already there — this is
 /// what makes a progress line update in place instead of repeating. The
 /// replaced span takes the current pen; untouched spans keep theirs.
-/// Sit a colour badge inside the same box as the text beside it.
-///
-/// The badges are sbix bitmaps whose drawn box is taller than the letters they
-/// sit next to. A run's background is painted to that box, so a badge pushed a
-/// tab of colour up above the panel fill and the logo was not level with its
-/// own background. A baseline offset cannot help: it moves the glyph and its
-/// box together, so the tab travels with it.
-///
-/// The badge is therefore drawn small enough that its box fits the line. The
-/// amount is measured from the glyph itself rather than guessed, so it holds
-/// at any type size and on any screen; a fixed fudge factor looked right in
-/// one render and wrong on the operator's machine. Shrinking costs advance,
-/// which would pull every column left, so the exact difference is added back
-/// as kerning and the grid does not move.
-- (void)settleBadgesIn:(NSMutableAttributedString *)piece {
-    NSFont *font = self.output.font;
-    if (font == nil) return;
-    NSFont *smaller = [NSFont fontWithName:font.fontName
-                                      size:font.pointSize * kBadgeScale];
-    if (smaller == nil) return;
-    NSString *text = piece.string;
-
-    for (NSUInteger i = 0; i < text.length; i++) {
-        unichar c = [text characterAtIndex:i];
-        BOOL badge = (c >= 0xE000 && c <= 0xE7FF) ||     // provider logos + twins
-                     (c >= 0xE900 && c <= 0xEC45);       // action frames + twins
-        if (!badge) continue;
-
-        // Applied without asking the glyph how tall it is. sbix bitmaps report
-        // their vector bounds, which are empty, so a measured version of this
-        // scaled nothing at all and looked identical at every setting.
-        NSRange one = NSMakeRange(i, 1);
-        NSString *single = [text substringWithRange:one];
-        CGFloat wanted = [single sizeWithAttributes:@{NSFontAttributeName: font}].width;
-        CGFloat drawn  = [single sizeWithAttributes:@{NSFontAttributeName: smaller}].width;
-        [piece addAttribute:NSFontAttributeName value:smaller range:one];
-        if (wanted > drawn) {
-            [piece addAttribute:NSKernAttributeName value:@(wanted - drawn) range:one];
-        }
-    }
-}
-
 - (void)putText:(NSString *)text {
     if (text.length == 0) return;
     NSMutableAttributedString *line = [self currentLine];
@@ -548,10 +504,9 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
         [line appendAttributedString:
             [[NSAttributedString alloc] initWithString:gap attributes:[self fieldAttributes]]];
     }
-    NSMutableAttributedString *piece =
-        [[NSMutableAttributedString alloc] initWithString:text
-                                              attributes:[self attributesForInk:self.ink]];
-    [self settleBadgesIn:piece];
+    NSAttributedString *piece =
+        [[NSAttributedString alloc] initWithString:text
+                                        attributes:[self attributesForInk:self.ink]];
     NSUInteger end = self.column + text.length;
     if (end <= line.length) {
         [line replaceCharactersInRange:NSMakeRange(self.column, text.length)
