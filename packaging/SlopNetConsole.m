@@ -71,6 +71,37 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 
 @implementation SlopNetClippingLayout
 
+/// The fraction of a cell a block character fills, and from which side.
+///
+/// These characters exist to be tiled: a picture drawn with them relies on the
+/// filled part of one cell meeting the filled part of the cell above with no
+/// join. Drawn as glyphs they cannot, because a glyph is sized to the font's
+/// box — 15.715pt here — while rows are a whole 16pt apart, leaving a seam of
+/// a quarter point under every row. At two pixels to the point that seam is
+/// visible, and it is what cut the Antigravity logo into floating squares.
+///
+/// So they are drawn as rectangles measured from the row itself, which is what
+/// terminals do. Returns NO for anything that should stay a glyph.
+static BOOL blockFillForCharacter(unichar c, CGFloat *fromLeft, CGFloat *fromTop,
+                                  CGFloat *width, CGFloat *height, CGFloat *alpha) {
+    *fromLeft = 0; *fromTop = 0; *width = 1; *height = 1; *alpha = 1;
+    if (c == 0x2580) { *height = 0.5; return YES; }                    // upper half
+    if (c >= 0x2581 && c <= 0x2588) {                                  // lower eighths
+        CGFloat part = (CGFloat)(c - 0x2580) / 8.0;
+        *fromTop = 1.0 - part; *height = part; return YES;
+    }
+    if (c >= 0x2589 && c <= 0x258F) {                                  // left eighths
+        *width = (CGFloat)(0x2590 - c) / 8.0; return YES;
+    }
+    if (c == 0x2590) { *fromLeft = 0.5; *width = 0.5; return YES; }    // right half
+    if (c >= 0x2591 && c <= 0x2593) {                                  // shades
+        *alpha = 0.25 * (CGFloat)(c - 0x2590); return YES;
+    }
+    if (c == 0x2594) { *height = 0.125; return YES; }                  // upper eighth
+    if (c == 0x2595) { *fromLeft = 0.875; *width = 0.125; return YES; } // right eighth
+    return NO;
+}
+
 - (void)drawGlyphsForGlyphRange:(NSRange)range atPoint:(NSPoint)origin {
     NSUInteger index = range.location;
     while (index < NSMaxRange(range)) {
@@ -83,8 +114,42 @@ static NSString *const kCellFill = @"SlopNetCellFill";
         [NSGraphicsContext saveGraphicsState];
         NSRectClip(clip);
         [super drawGlyphsForGlyphRange:piece atPoint:origin];
+        [self fillBlocksInGlyphRange:piece atPoint:origin fragment:fragment];
         [NSGraphicsContext restoreGraphicsState];
         index = NSMaxRange(lineGlyphs);
+    }
+}
+
+/// Paint over any block characters in this row with exact rectangles. Drawn
+/// after the glyphs and covering them, so a row of them meets the row above.
+- (void)fillBlocksInGlyphRange:(NSRange)glyphs atPoint:(NSPoint)origin
+                      fragment:(NSRect)fragment {
+    NSTextStorage *store = self.textStorage;
+    if (store.length == 0) return;
+    NSString *text = store.string;
+    for (NSUInteger g = glyphs.location; g < NSMaxRange(glyphs); g++) {
+        NSUInteger at = [self characterIndexForGlyphAtIndex:g];
+        if (at >= text.length) continue;
+        unichar c = [text characterAtIndex:at];
+        CGFloat fromLeft, fromTop, width, height, alpha;
+        if (!blockFillForCharacter(c, &fromLeft, &fromTop, &width, &height, &alpha)) continue;
+
+        NSFont *font = [store attribute:NSFontAttributeName atIndex:at effectiveRange:NULL];
+        CGFloat cell = font ? font.maximumAdvancement.width : 0;
+        if (cell <= 0) continue;
+        NSPoint spot = [self locationForGlyphAtIndex:g];
+        NSRect cellRect = NSMakeRect(origin.x + fragment.origin.x + spot.x,
+                                     origin.y + fragment.origin.y,
+                                     cell, fragment.size.height);
+        NSRect fill = NSMakeRect(cellRect.origin.x + cellRect.size.width * fromLeft,
+                                 cellRect.origin.y + cellRect.size.height * fromTop,
+                                 cellRect.size.width * width,
+                                 cellRect.size.height * height);
+        NSColor *ink = [store attribute:NSForegroundColorAttributeName
+                                atIndex:at effectiveRange:NULL];
+        if (ink == nil) continue;
+        [[ink colorWithAlphaComponent:ink.alphaComponent * alpha] set];
+        NSRectFillUsingOperation(fill, NSCompositingOperationSourceOver);
     }
 }
 
