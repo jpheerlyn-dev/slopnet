@@ -168,6 +168,14 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 // main
 @property(nonatomic, strong) SlopNetConsole *console;
+/// One terminal per thing being run. Granite is always the first and never
+/// closes, so it is one click away whatever else is open. `console` returns
+/// whichever is on top, so every existing caller keeps working.
+@property(nonatomic, strong) NSMutableArray<SlopNetConsole *> *consoles;
+@property(nonatomic, strong) NSMutableArray<NSString *> *tabTitles;
+@property(nonatomic, strong) NSStackView *tabStrip;
+@property(nonatomic, strong) NSView *consoleHolder;
+@property(nonatomic, assign) NSUInteger activeTab;
 @property(nonatomic, strong) NSTextField *modelLabel;
 @property(nonatomic, strong) SlopNetEntryView *entry;
 @property(nonatomic, strong) NSScrollView *entryScroller;
@@ -646,22 +654,144 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     composer.translatesAutoresizingMaskIntoConstraints = NO;
     [chatBar.widthAnchor constraintEqualToAnchor:composer.widthAnchor].active = YES;
 
-    // Plain constraints rather than a stack here: two children, and the
-    // console must take every spare pixel at any window size.
+    // Plain constraints rather than a stack here, and a holder the terminals
+    // share so a tool can open beside Granite instead of taking the window.
+    self.consoles = [NSMutableArray arrayWithObject:self.console];
+    self.tabTitles = [NSMutableArray arrayWithObject:@"Granite"];
+    self.activeTab = 0;
+
+    self.tabStrip = [NSStackView stackViewWithViews:@[]];
+    self.tabStrip.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    self.tabStrip.spacing = 6;
+    self.tabStrip.alignment = NSLayoutAttributeCenterY;
+    self.tabStrip.translatesAutoresizingMaskIntoConstraints = NO;
+
+    self.consoleHolder = [[NSView alloc] initWithFrame:NSZeroRect];
+    self.consoleHolder.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.consoleHolder addSubview:self.console];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.console.topAnchor constraintEqualToAnchor:self.consoleHolder.topAnchor],
+        [self.console.leadingAnchor constraintEqualToAnchor:self.consoleHolder.leadingAnchor],
+        [self.console.trailingAnchor constraintEqualToAnchor:self.consoleHolder.trailingAnchor],
+        [self.console.bottomAnchor constraintEqualToAnchor:self.consoleHolder.bottomAnchor],
+    ]];
+
     NSView *main = [[NSView alloc] initWithFrame:NSZeroRect];
-    [main addSubview:self.console];
+    [main addSubview:self.tabStrip];
+    [main addSubview:self.consoleHolder];
     [main addSubview:composer];
     [NSLayoutConstraint activateConstraints:@[
-        [self.console.topAnchor constraintEqualToAnchor:main.topAnchor constant:16],
-        [self.console.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
-        [self.console.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-16],
+        [self.tabStrip.topAnchor constraintEqualToAnchor:main.topAnchor constant:10],
+        [self.tabStrip.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
+        [self.tabStrip.trailingAnchor constraintLessThanOrEqualToAnchor:main.trailingAnchor
+                                                               constant:-16],
 
-        [composer.topAnchor constraintEqualToAnchor:self.console.bottomAnchor constant:10],
+        [self.consoleHolder.topAnchor constraintEqualToAnchor:self.tabStrip.bottomAnchor
+                                                     constant:6],
+        [self.consoleHolder.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
+        [self.consoleHolder.trailingAnchor constraintEqualToAnchor:main.trailingAnchor
+                                                          constant:-16],
+
+        [composer.topAnchor constraintEqualToAnchor:self.consoleHolder.bottomAnchor constant:10],
         [composer.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
         [composer.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-16],
         [composer.bottomAnchor constraintEqualToAnchor:main.bottomAnchor constant:-16],
     ]];
     return main;
+}
+
+#pragma mark - one terminal per thing being run
+
+/// Whichever terminal is on top. Every caller that had one console still has
+/// one; it is now the visible one rather than the only one.
+@synthesize console = _console;
+
+- (SlopNetConsole *)console {
+    if (self.consoles.count > self.activeTab) return self.consoles[self.activeTab];
+    return _console;
+}
+
+/// Setting the console replaces the first tab, so the two never disagree.
+- (void)setConsole:(SlopNetConsole *)console {
+    _console = console;
+    if (console == nil) return;
+    if (self.consoles.count == 0) {
+        self.consoles = [NSMutableArray arrayWithObject:console];
+        self.tabTitles = [NSMutableArray arrayWithObject:@"Granite"];
+    } else {
+        self.consoles[0] = console;
+    }
+    self.activeTab = 0;
+}
+
+- (void)rebuildTabStrip {
+    for (NSView *old in [self.tabStrip.views copy]) [self.tabStrip removeView:old];
+    for (NSUInteger i = 0; i < self.tabTitles.count; i++) {
+        NSString *title = self.tabTitles[i];
+        // Granite is first and has no close control: it is the way back from
+        // anything else, so it must not be possible to shut it.
+        NSString *label = (i == 0) ? title : [NSString stringWithFormat:@"%@  ✕", title];
+        NSButton *tab = [NSButton buttonWithTitle:label target:self
+                                           action:@selector(tabPressed:)];
+        tab.tag = (NSInteger)i;
+        tab.bezelStyle = NSBezelStyleRounded;
+        tab.controlSize = NSControlSizeSmall;
+        tab.state = (i == self.activeTab) ? NSControlStateValueOn : NSControlStateValueOff;
+        tab.font = [NSFont systemFontOfSize:11
+                                     weight:(i == self.activeTab) ? NSFontWeightSemibold
+                                                                  : NSFontWeightRegular];
+        [self.tabStrip addView:tab inGravity:NSStackViewGravityLeading];
+    }
+    self.tabStrip.hidden = (self.tabTitles.count < 2);
+}
+
+- (void)showTab:(NSUInteger)index {
+    if (index >= self.consoles.count) return;
+    self.activeTab = index;
+    for (NSUInteger i = 0; i < self.consoles.count; i++) {
+        self.consoles[i].hidden = (i != index);
+    }
+    // The typing box forwards to whatever is on top, and takes the keyboard,
+    // because a tool that cannot be typed at is the thing that wasted a day.
+    self.entry.console = self.consoles[index];
+    [self rebuildTabStrip];
+    [self.window makeFirstResponder:self.entry];
+}
+
+- (void)tabPressed:(NSButton *)sender {
+    NSUInteger index = (NSUInteger)sender.tag;
+    if (index == 0) { [self showTab:0]; return; }
+    // A second press on the tab already showing closes it.
+    if (index == self.activeTab) { [self closeTab:index]; return; }
+    [self showTab:index];
+}
+
+- (void)closeTab:(NSUInteger)index {
+    if (index == 0 || index >= self.consoles.count) return;
+    SlopNetConsole *going = self.consoles[index];
+    [going stop];
+    [going removeFromSuperview];
+    [self.consoles removeObjectAtIndex:index];
+    [self.tabTitles removeObjectAtIndex:index];
+    [self showTab:0];
+}
+
+/// A terminal of its own for something being launched.
+- (SlopNetConsole *)openTabTitled:(NSString *)title {
+    SlopNetConsole *fresh = [[SlopNetConsole alloc] initWithFrame:NSZeroRect];
+    fresh.translatesAutoresizingMaskIntoConstraints = NO;
+    fresh.delegate = self;
+    [self.consoleHolder addSubview:fresh];
+    [NSLayoutConstraint activateConstraints:@[
+        [fresh.topAnchor constraintEqualToAnchor:self.consoleHolder.topAnchor],
+        [fresh.leadingAnchor constraintEqualToAnchor:self.consoleHolder.leadingAnchor],
+        [fresh.trailingAnchor constraintEqualToAnchor:self.consoleHolder.trailingAnchor],
+        [fresh.bottomAnchor constraintEqualToAnchor:self.consoleHolder.bottomAnchor],
+    ]];
+    [self.consoles addObject:fresh];
+    [self.tabTitles addObject:title ?: @"Tool"];
+    [self showTab:self.consoles.count - 1];
+    return fresh;
 }
 
 #pragma mark - one place decides what the window shows
@@ -1902,6 +2032,12 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                            "Download it again before running a server tool."];
         return NO;
     }
+    // A tool will get a terminal of its own here — openTabTitled: is built and
+    // the strip works — but the launcher probe drives this path with a stand-in
+    // console, and a tool running on a newly created one is no longer that
+    // object, so four of its checks stop describing what happens. Wiring it up
+    // without first teaching the probe to follow the active tab would mean
+    // shipping this unverified, which is the habit that cost a day.
     self.toolRunning = interactive;
     // Put the keyboard back on the typing box, and the window in front.
     //
