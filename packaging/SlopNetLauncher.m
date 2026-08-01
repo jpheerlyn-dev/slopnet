@@ -1602,10 +1602,21 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 + (NSString *)asRuntimeAccount:(NSString *)command asRoot:(BOOL)root {
     NSData *raw = [command dataUsingEncoding:NSUTF8StringEncoding];
     NSString *encoded = [raw base64EncodedStringWithOptions:0];
+    // A runtime directory, and a working directory this account can read.
+    //
+    // The locked account never logs in, so it is not given the runtime
+    // directory that programs keeping a session expect — Zellij refuses to
+    // start without one. And a command arriving over SSH as root inherits
+    // root's working directory, which this account cannot read, so anything
+    // that puts itself into the background dies changing directory. Both were
+    // found by running the real thing rather than by reading about it.
     NSString *runuser =
         @"runuser -u slopnet -- env HOME=/home/slopnet "
+        @"XDG_RUNTIME_DIR=/home/slopnet/.run "
         @"PATH=/opt/slopnet:/home/slopnet/.local/bin:"
-        @"/home/slopnet/.local/node_modules/.bin:/usr/local/bin:/usr/bin:/bin sh";
+        @"/home/slopnet/.local/node_modules/.bin:/usr/local/bin:/usr/bin:/bin "
+        @"sh -c \"mkdir -p /home/slopnet/.run; chmod 700 /home/slopnet/.run; "
+        @"cd /home/slopnet; exec sh\"";
     return [NSString stringWithFormat:@"printf %%s '%@' | base64 -d | %@%@",
             encoded, root ? @"" : @"sudo ", runuser];
 }

@@ -144,6 +144,27 @@ int main(int argc, const char **argv) {
                   "a line three windows long takes four rows, as the program expects");
         }
 
+        // Text this app writes itself, which never passes through a terminal.
+        // A panel is several rows separated by newlines, and every row has to
+        // start at the left edge — when they did not, the message panels came
+        // out as a staircase.
+        {
+            SlopNetConsole *console =
+                [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0, 0, 900, 400)];
+            [console layoutSubtreeIfNeeded];
+            Quiet *quiet = [Quiet new];
+            console.delegate = quiet;
+            [console runExecutable:@"/bin/bash" arguments:@[@"-c", @"sleep 5"]];
+            settle(0.6);
+            [console note:@"first row here\nsecond row\nthird"];
+            settle(0.4);
+            NSString *shown = console.textForTesting;
+            [console stop];
+            check([shown containsString:@"\nsecond row"] &&
+                  [shown containsString:@"\nthird"],
+                  "every row of a panel this app writes starts at the left edge");
+        }
+
         fprintf(stderr, failures == 0 ? "\nMENU PROBE DONE — all ok\n"
                                       : "\nMENU PROBE DONE — %d failed\n", failures);
     }

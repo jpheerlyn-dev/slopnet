@@ -1,5 +1,5 @@
 {
-  "_comment": "Coding tools SlopNet can check for and install on your server. 'check' is the command name looked for on the server; 'install' is run on the SERVER, in the console, so you can see exactly what happens. An empty 'install' means nobody has verified that tool's install command yet \u2014 SlopNet says so rather than guessing, because a wrong install command runs as you, on your machine. Add one and it appears in Settings; no rebuild needed beyond copying this file into the app.",
+  "_comment": "Tools SlopNet can check for, install and run on your server. 'check' is the command name looked for on the server; 'install' is run on the SERVER, in the console, so you can see exactly what happens; 'run' launches it in the console when it is installed. An empty 'install' means nobody has verified that tool's install command yet \u2014 SlopNet says so rather than guessing, because a wrong install command runs as you, on your machine. Every install below downloads in full and checks what it got before anything executes; none of them pipe a download into a shell. Add one and it appears in Settings; no rebuild needed beyond copying this file into the app.",
   "tools": [
     {
       "id": "codex",
@@ -8,7 +8,8 @@
       "check": "codex",
       "install": "npm install --prefix ~/.local @openai/codex",
       "login": "codex",
-      "source": ""
+      "source": "",
+      "run": "codex"
     },
     {
       "id": "claude",
@@ -17,7 +18,8 @@
       "check": "claude",
       "install": "npm install --prefix ~/.local @anthropic-ai/claude-code",
       "login": "claude  (then /login)",
-      "source": "Z.AI's own Claude Code setup page, 2026-07-29"
+      "source": "Z.AI's own Claude Code setup page, 2026-07-29",
+      "run": "claude  (then /login)"
     },
     {
       "id": "kimi",
@@ -26,7 +28,8 @@
       "check": "kimi",
       "install": "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
       "login": "kimi login",
-      "source": "operator's own install, 2026-07-29"
+      "source": "operator's own install, 2026-07-29",
+      "run": "kimi login"
     },
     {
       "id": "antigravity",
@@ -35,7 +38,8 @@
       "check": "agy",
       "install": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
       "login": "gemini",
-      "source": ""
+      "source": "",
+      "run": "gemini"
     },
     {
       "id": "grok",
@@ -44,6 +48,67 @@
       "check": "grok",
       "install": "curl -fsSL https://x.ai/cli/install.sh | bash",
       "login": "grok",
+      "source": "",
+      "run": "grok"
+    },
+    {
+      "id": "zellij",
+      "name": "Zellij",
+      "subscription": "free",
+      "check": "zellij",
+      "install": "set -e; mkdir -p ~/.local/bin /tmp/sn-get; curl -fsSL https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz -o /tmp/sn-get/pkg; if ! file /tmp/sn-get/pkg | grep -qi gzip; then echo 'That download is not an archive; nothing was installed.'; exit 1; fi; tar -xzf /tmp/sn-get/pkg -C /tmp/sn-get; found=$(find /tmp/sn-get -type f -name zellij | head -1); if [ -z \"$found\" ]; then echo 'That archive did not contain zellij; nothing was installed.'; exit 1; fi; install -m 755 \"$found\" ~/.local/bin/zellij; rm -rf /tmp/sn-get; ~/.local/bin/zellij --version",
+      "run": "zellij attach --create slopnet",
+      "login": "",
+      "source": "installed and run on a server, 2026-08-01: version 0.44.3, recorded and replayed"
+    },
+    {
+      "id": "btop",
+      "name": "btop++  (what the server is doing)",
+      "subscription": "free",
+      "check": "btop",
+      "install": "",
+      "run": "btop",
+      "login": "",
+      "source": ""
+    },
+    {
+      "id": "lazygit",
+      "name": "LazyGit  (git, visually)",
+      "subscription": "free",
+      "check": "lazygit",
+      "install": "",
+      "run": "lazygit",
+      "login": "",
+      "source": ""
+    },
+    {
+      "id": "superfile",
+      "name": "Superfile  (browse files)",
+      "subscription": "free",
+      "check": "spf",
+      "install": "",
+      "run": "spf",
+      "login": "",
+      "source": ""
+    },
+    {
+      "id": "lazydocker",
+      "name": "LazyDocker  (containers)",
+      "subscription": "free",
+      "check": "lazydocker",
+      "install": "",
+      "run": "lazydocker",
+      "login": "",
+      "source": ""
+    },
+    {
+      "id": "delta",
+      "name": "Delta  (readable diffs)",
+      "subscription": "free",
+      "check": "delta",
+      "install": "",
+      "run": "",
+      "login": "",
       "source": ""
     }
   ]

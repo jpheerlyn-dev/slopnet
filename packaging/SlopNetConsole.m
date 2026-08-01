@@ -1896,7 +1896,14 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
 }
 
 - (void)note:(NSString *)text {
-    [self consume:[NSString stringWithFormat:@"%@\n", text]];
+    // Written by this app rather than by a program, so it never passes through
+    // a terminal and nothing turns its newlines into a return as well. Since a
+    // line feed started meaning "down, same column" — which is what it means —
+    // a panel written with bare newlines had every row start where the row
+    // above finished, and the message panels came out as a staircase.
+    NSString *body = [text stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"];
+    body = [body stringByReplacingOccurrencesOfString:@"\n" withString:@"\r\n"];
+    [self consume:[NSString stringWithFormat:@"%@\r\n", body]];
 }
 
 #pragma mark - lines that can be redrawn (how a glyph animates)

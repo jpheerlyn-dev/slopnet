@@ -12,6 +12,7 @@
 @property(nonatomic, strong) NSArray<NSDictionary *> *tools;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSTextField *> *toolStatus;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSButton *> *toolButton;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSButton *> *toolRunButton;
 @property(nonatomic, strong) NSTextField *localModel;
 @property(nonatomic, strong) NSTextField *localHelperNote;
 @property(nonatomic, strong) NSButton *localHelperButton;
@@ -37,6 +38,7 @@
     _connected = connected;
     _toolStatus = [NSMutableDictionary dictionary];
     _toolButton = [NSMutableDictionary dictionary];
+    _toolRunButton = [NSMutableDictionary dictionary];
     _tools = [self loadTools];
     [self buildWithHost:host port:port user:user];
     return self;
@@ -288,12 +290,26 @@
     ]];
 }
 
+/// Start a tool on the server, in the console.
+- (void)runPressed:(NSButton *)sender {
+    NSString *toolID = sender.identifier ?: @"";
+    for (NSDictionary *tool in self.tools) {
+        if (![tool[@"id"] isEqualToString:toolID]) continue;
+        NSString *runs = tool[@"run"] ?: @"";
+        if (runs.length == 0) return;
+        [self.delegate settings:self runOnServer:runs
+                          title:tool[@"name"] ?: toolID];
+        return;
+    }
+}
+
 - (void)buildToolRows {
     while (self.toolGrid.numberOfRows > 0) {
         [self.toolGrid removeRowAtIndex:0];
     }
     [self.toolStatus removeAllObjects];
     [self.toolButton removeAllObjects];
+    [self.toolRunButton removeAllObjects];
 
     if (self.tools.count == 0) {
         [self.toolGrid addRowWithViews:@[
@@ -304,6 +320,7 @@
     NSGridRow *header = [self.toolGrid addRowWithViews:@[
         [self label:@"TOOL" size:10 grey:YES bold:NO],
         [self label:@"ON YOUR SERVER" size:10 grey:YES bold:NO],
+        [self label:@"" size:10 grey:YES bold:NO],
         [self label:@"" size:10 grey:YES bold:NO],
         [self label:@"SUBSCRIPTION" size:10 grey:YES bold:NO]]];
     header.bottomPadding = 3;
@@ -328,7 +345,19 @@
 
         NSTextField *subscription = [self label:tool[@"subscription"] ?: @""
                                            size:10 grey:YES bold:NO];
-        [self.toolGrid addRowWithViews:@[name, status, action, subscription]];
+        // Installing a tool and never being able to start it is half a
+        // feature. A tool with something to run gets a button that runs it in
+        // the console, the same place everything else on the server appears.
+        NSString *runs = tool[@"run"] ?: @"";
+        NSButton *open = [self button:@"Open" action:@selector(runPressed:)];
+        open.identifier = toolID;
+        open.enabled = runs.length > 0 && self.connected;
+        if (runs.length == 0) {
+            open.toolTip = @"This one has no command to start it on its own.";
+        }
+        self.toolRunButton[toolID] = open;
+
+        [self.toolGrid addRowWithViews:@[name, status, action, open, subscription]];
     }
 }
 
