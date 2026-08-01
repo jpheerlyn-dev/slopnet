@@ -18,7 +18,7 @@ server_name="${4:-your server}"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.45"
+slopnet_release="v0.9.47"
 # Filled with the verified tag commit when build_app.sh copies this helper
 # into SlopNet.app. Keeping the source empty prevents a mutable tag name from
 # being the only authority for code that will run as root.
@@ -261,7 +261,7 @@ if ! key_paths_absent && ! key_paths_complete; then
      ! local_exists "$key_receipt_path" && adopt_key_pair; then
     say "Recorded the connection key this Mac already had, after checking the pair matches."
   else
-    local_refuse "these files are not one complete proved set: $key_path, $key_path.pub, $key_receipt_path."
+    local_refuse "the private key, public key and key receipt are not one complete proved set: $key_path, $key_path.pub, $key_receipt_path."
   fi
 fi
 if ! known_hosts_paths_absent && ! known_hosts_paths_complete; then
@@ -269,7 +269,7 @@ if ! known_hosts_paths_absent && ! known_hosts_paths_complete; then
      adopt_known_hosts; then
     say "Recorded the server fingerprints this Mac already trusted."
   else
-    local_refuse "these files are not one complete proved set: $known_hosts_path, $known_hosts_receipt_path."
+    local_refuse "the dedicated known-hosts file and its receipt are not one complete proved set: $known_hosts_path, $known_hosts_receipt_path."
   fi
 fi
 if key_paths_complete && ! validate_key_pair; then
