@@ -624,7 +624,34 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     }
 }
 
+/// Write text at the cursor, wrapping at the width the program was told.
+///
+/// A terminal moves to the next row when a line reaches its right edge, and
+/// programs count on it: they print a long line, then move the cursor back up
+/// by however many rows they expect it to have taken. This console kept
+/// appending to the one row instead, so the program's arithmetic and the
+/// console's disagreed from that point on and redrawn frames landed on top of
+/// each other. That is what shredded Antigravity's sign-in box and left an
+/// authorisation URL cut off at the end of its first row.
+///
+/// The move happens on the character *after* the edge is reached, not on
+/// reaching it, so a panel exactly the width of the window does not gain a
+/// blank row beneath every line.
 - (void)putText:(NSString *)text {
+    if (text.length == 0) return;
+    NSUInteger width = self.columns;
+    if (width == 0) { [self putRun:text]; return; }
+    NSUInteger at = 0;
+    while (at < text.length) {
+        if (self.column >= width) [self newline];
+        NSUInteger room = width - self.column;
+        NSUInteger take = MIN(room, text.length - at);
+        [self putRun:[text substringWithRange:NSMakeRange(at, take)]];
+        at += take;
+    }
+}
+
+- (void)putRun:(NSString *)text {
     if (text.length == 0) return;
     NSMutableAttributedString *line = [self currentLine];
     if (line.length < self.column) {
@@ -921,25 +948,44 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
 
 - (void)noticeASignInPage {
     if (!self.running) return;
-    // Put hard-wrapped lines back together before looking for a link.
+    // Put a link back together that arrived split across rows.
     //
-    // This console tells programs how wide it is, so a program printing a long
-    // line gets it wrapped by the terminal and it arrives here as several
-    // lines. An OAuth authorisation URL is three hundred characters or more,
-    // so it always wraps — and matching line by line captured only its first
-    // fragment. A truncated authorisation URL is what produces Google's
-    // "Required parameter is missing: response_type", and the operator saw
-    // exactly that.
+    // It comes in pieces two ways. This console wraps at the width the
+    // program was told, so a program printing a long link in one go has it
+    // broken into rows here. And a program may split it itself, into a
+    // bordered box with a space of padding either side of each row — which is
+    // how Antigravity shows its sign-in link.
     //
-    // A line filling the full width was wrapped rather than ended, so it joins
-    // the line after it with no newline between.
+    // Both end up the same: rows that are nothing but link characters. Such a
+    // row continues the one before it, provided a link has already started on
+    // that row. Anything with a space in it, a box rule, or a blank row ends
+    // the link, which is what stops ordinary words being swallowed into one.
+    NSCharacterSet *notLink = [[NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        @"0123456789-._~:/?#[]@!$&'()*+,;=%"] invertedSet];
     NSMutableString *joined = [NSMutableString string];
-    NSUInteger from = self.lines.count > 12 ? self.lines.count - 12 : 0;
+    NSUInteger from = self.lines.count > 24 ? self.lines.count - 24 : 0;
     for (NSUInteger i = from; i < self.lines.count; i++) {
         NSString *line = self.lines[i].string;
-        [joined appendString:line];
-        BOOL wrapped = (self.columns > 0 && line.length >= self.columns);
-        if (!wrapped) [joined appendString:@"\n"];
+        NSString *trimmed = [line stringByTrimmingCharactersInSet:
+            [NSCharacterSet whitespaceCharacterSet]];
+        BOOL continues = NO;
+        if (trimmed.length > 0 &&
+            [trimmed rangeOfCharacterFromSet:notLink].location == NSNotFound) {
+            NSRange lastBreak = [joined rangeOfString:@"\n" options:NSBackwardsSearch];
+            NSString *tail = (lastBreak.location == NSNotFound)
+                ? joined : [joined substringFromIndex:NSMaxRange(lastBreak)];
+            continues = ([tail rangeOfString:@"://"].location != NSNotFound);
+        }
+        // The break goes in before the next row, not after this one: the test
+        // above reads what has accumulated on the current row, and a trailing
+        // break would leave it looking at nothing every time.
+        if (continues) {
+            [joined appendString:trimmed];
+        } else {
+            if (joined.length > 0) [joined appendString:@"\n"];
+            [joined appendString:line];
+        }
     }
     NSString *recent = joined;
     static NSRegularExpression *link;

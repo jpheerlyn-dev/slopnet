@@ -111,6 +111,39 @@ int main(int argc, const char **argv) {
                    why].UTF8String);
         }
 
+        // The reason the frames diverged in the first place. A program is
+        // told how wide the window is and prints a long line expecting the
+        // terminal to move to the next row at the edge; if it does not, the
+        // program's idea of where the cursor is drifts further off with every
+        // line, and its next redraw lands somewhere else entirely.
+        {
+            SlopNetConsole *console =
+                [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0, 0, 900, 400)];
+            [console layoutSubtreeIfNeeded];
+            Quiet *quiet = [Quiet new];
+            console.delegate = quiet;
+            NSUInteger width = console.columns;
+            NSUInteger length = width * 3 + 7;
+            [console runExecutable:@"/bin/bash" arguments:@[@"-c",
+                [NSString stringWithFormat:
+                 @"printf 'x%%.0s' $(seq %lu); printf '\\n'; sleep 2",
+                 (unsigned long)length]]];
+            settle(1.2);
+            NSString *shown = console.textForTesting;
+            [console stop];
+
+            NSUInteger longest = 0, rows = 0;
+            for (NSString *row in [shown componentsSeparatedByString:@"\n"]) {
+                if (row.length == 0) continue;
+                rows++;
+                if (row.length > longest) longest = row.length;
+            }
+            check(longest <= width,
+                  "no row is drawn wider than the window the program was told about");
+            check(rows >= 4,
+                  "a line three windows long takes four rows, as the program expects");
+        }
+
         fprintf(stderr, failures == 0 ? "\nMENU PROBE DONE — all ok\n"
                                       : "\nMENU PROBE DONE — %d failed\n", failures);
     }

@@ -195,6 +195,49 @@ int main(void) {
             [c stop];
         }
 
+        // The same link the other way round: the program splits it itself and
+        // shows it inside a box, a space of padding either side of every row.
+        // This is the shape Antigravity uses, and rejoining rows by their
+        // width cannot read it — the rows are shorter than the window and the
+        // padding is not part of the link.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Watcher *w = [Watcher new];
+            c.delegate = w;
+            NSString *url =
+                @"https://accounts.google.com/o/oauth2/auth?access_type=offline"
+                @"&client_id=1071006060591-example23example4example5example6ex"
+                @".apps.googleusercontent.com&code_challenge=9lJVgN5FgSmsQPvfZfctZXm1eZt"
+                @"&code_challenge_method=S256&prompt=consent"
+                @"&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback"
+                @"&response_type=code"
+                @"&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email"
+                @"+openid&state=fXKTzzbohwCdYPh0c8Y8Og";
+            NSMutableString *box = [NSMutableString stringWithString:
+                @"Open the URL below in your browser:\n"
+                @" ────────────────────────────────────────────────────────────────────────\n"];
+            NSUInteger step = 72;
+            for (NSUInteger at = 0; at < url.length; at += step) {
+                NSUInteger take = MIN(step, url.length - at);
+                [box appendFormat:@" %@\n", [url substringWithRange:NSMakeRange(at, take)]];
+            }
+            [box appendString:
+                @" ────────────────────────────────────────────────────────────────────────\n"
+                @"\n After authenticating, paste the code below:\n"];
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c",
+                [NSString stringWithFormat:@"printf '%%s' '%@'; sleep 3", box]]];
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:4];
+            while (w.signInPage == nil && [until timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check(w.signInPage != nil, "a link shown inside a box is spotted");
+            check([w.signInPage.absoluteString isEqualToString:url],
+                  "and comes back whole, without the box padding in it");
+            [c stop];
+        }
+
             // The real shape of a device sign-in: the link prints, and the code
         // arrives a moment later. Offering once per link meant the bar went up
         // with the link and no code, and never updated — so the code had to be
