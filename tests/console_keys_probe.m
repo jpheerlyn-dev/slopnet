@@ -72,6 +72,60 @@ int main(void) {
         check([arrival(@"printf '\\033[?25l'; ", SlopNetKeyDown) isEqualToString:@"033[B"],
               "an unrelated private mode leaves cursor keys alone");
 
+        // Sending a typed line, both ways a program can be reading.
+        {
+            // Reading whole lines, as a shell or a password prompt does. The
+            // terminal turns the carriage return into a newline, so this is
+            // unaffected.
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Silent *s = [Silent new];
+            c.delegate = s;
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c",
+                @"IFS= read -r line; printf 'line:%s\\n' \"$line\""]];
+            NSDate *ready = [NSDate dateWithTimeIntervalSinceNow:0.6];
+            while ([ready timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            [c sendLine:@"hello there"];
+            NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:3];
+            while (!s.finished && [limit timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check([c.textForTesting containsString:@"line:hello there"],
+                  "a program reading whole lines still receives the line");
+            [c stop];
+        }
+        {
+            // Reading keys as they arrive, as anything drawing its own
+            // interface does. It is watching for a carriage return; a newline
+            // is not it, and a message sent that way is never submitted.
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Silent *s = [Silent new];
+            c.delegate = s;
+            NSString *reader =
+                @"stty raw -echo; head -c 3 | od -An -c | tr -d ' \\n' "
+                @"| sed 's/^/got:/'; printf '\\n'";
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c", reader]];
+            NSDate *ready = [NSDate dateWithTimeIntervalSinceNow:0.8];
+            while ([ready timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            [c sendLine:@"ab"];
+            NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:3];
+            while (!s.finished && [limit timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check([c.textForTesting containsString:@"got:ab\\r"],
+                  "a program reading keys sees the carriage return it waits for");
+            [c stop];
+        }
+
         fprintf(stderr, failures == 0 ? "\nKEYS PROBE DONE — all ok\n"
                                       : "\nKEYS PROBE DONE — %d failed\n", failures);
     }

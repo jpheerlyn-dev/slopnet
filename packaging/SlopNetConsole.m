@@ -1909,7 +1909,14 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
 
 - (void)sendLine:(NSString *)line {
     if (!self.running || self.master < 0) return;
-    NSString *withReturn = [line stringByAppendingString:@"\n"];
+    // Carriage return, because that is what a terminal sends when somebody
+    // presses Return. A program reading whole lines still receives a newline:
+    // the terminal itself translates one to the other. A program reading keys
+    // as they come — anything drawing its own interface — is watching for the
+    // carriage return specifically, and a newline is not it. Sending a newline
+    // meant a message typed to Antigravity appeared in its input box and was
+    // never submitted, so it sat there and no reply ever came.
+    NSString *withReturn = [line stringByAppendingString:@"\r"];
     const char *bytes = withReturn.UTF8String;
     size_t remaining = strlen(bytes);
     while (remaining > 0) {
