@@ -1865,6 +1865,16 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         return NO;
     }
     self.toolRunning = interactive;
+    // Put the keyboard back on the typing box, and the window in front.
+    //
+    // A tool is started from Settings, so that is where the keyboard is when
+    // it launches. Every key then goes to the Settings window and none of it
+    // reaches the box that forwards keys to the running program — so a
+    // full-screen tool draws perfectly and answers nothing, which is exactly
+    // how it looked. Raw input was working the whole time; it was never being
+    // given anything to forward.
+    [self.window makeKeyAndOrderFront:nil];
+    [self.window makeFirstResponder:self.entry];
     command = [SlopNetAppDelegate asRuntimeAccount:command
                                             asRoot:[self.username isEqualToString:@"root"]
                                            release:release];

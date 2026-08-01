@@ -131,6 +131,45 @@ static BOOL blockFillForCharacter(unichar c, CGFloat *fromLeft, CGFloat *fromTop
         NSUInteger at = [self characterIndexForGlyphAtIndex:g];
         if (at >= text.length) continue;
         unichar c = [text characterAtIndex:at];
+        // The arrow a status bar draws between its sections. No monospace
+        // font carries it unless it has been patched for the purpose, so it
+        // came out as an empty box — a hundred and forty of them across
+        // Zellij's bars, which is most of what made it look broken. It is a
+        // triangle filling the cell, so it is drawn as one.
+        if (c == 0xE0B0 || c == 0xE0B2) {
+            NSFont *sepFont = [store attribute:NSFontAttributeName
+                                       atIndex:at effectiveRange:NULL];
+            CGFloat sepCell = sepFont ? sepFont.maximumAdvancement.width : 0;
+            if (sepCell <= 0) continue;
+            NSPoint sepSpot = [self locationForGlyphAtIndex:g];
+            NSRect cellRect = NSMakeRect(origin.x + fragment.origin.x + sepSpot.x,
+                                         origin.y + fragment.origin.y,
+                                         sepCell, fragment.size.height);
+            NSColor *behind = [store attribute:NSBackgroundColorAttributeName
+                                       atIndex:at effectiveRange:NULL];
+            if (behind != nil) {
+                [behind set];
+                NSRectFillUsingOperation(cellRect, NSCompositingOperationSourceOver);
+            }
+            NSColor *edge = [store attribute:NSForegroundColorAttributeName
+                                     atIndex:at effectiveRange:NULL];
+            if (edge == nil) continue;
+            NSBezierPath *arrow = [NSBezierPath bezierPath];
+            if (c == 0xE0B0) {
+                [arrow moveToPoint:NSMakePoint(NSMinX(cellRect), NSMinY(cellRect))];
+                [arrow lineToPoint:NSMakePoint(NSMaxX(cellRect), NSMidY(cellRect))];
+                [arrow lineToPoint:NSMakePoint(NSMinX(cellRect), NSMaxY(cellRect))];
+            } else {
+                [arrow moveToPoint:NSMakePoint(NSMaxX(cellRect), NSMinY(cellRect))];
+                [arrow lineToPoint:NSMakePoint(NSMinX(cellRect), NSMidY(cellRect))];
+                [arrow lineToPoint:NSMakePoint(NSMaxX(cellRect), NSMaxY(cellRect))];
+            }
+            [arrow closePath];
+            [edge set];
+            [arrow fill];
+            continue;
+        }
+
         CGFloat fromLeft, fromTop, width, height, alpha;
         if (!blockFillForCharacter(c, &fromLeft, &fromTop, &width, &height, &alpha)) continue;
 

@@ -208,6 +208,11 @@ int main(void) {
               "a running tool has a plainly labelled way back to Granite");
         check([console.launchedPath isEqualToString:@"/usr/bin/ssh"] && console.fakeRunning,
               "the tool still launches through the normal SSH console path");
+        // The keyboard has to be on the box that forwards keys to the program.
+        // It is started from Settings, so without this every key goes to the
+        // Settings window and a full-screen tool answers nothing.
+        check(appWindow.firstResponder == entry,
+              "starting a tool puts the keyboard on the box that forwards keys");
         NSString *guard = firstDecodedPayload(console.launchedArguments.lastObject);
         NSString *releasePayload = [[@"v0.9.45" dataUsingEncoding:NSUTF8StringEncoding]
             base64EncodedStringWithOptions:0];
