@@ -287,6 +287,11 @@ static BOOL blockFillForCharacter(unichar c, CGFloat *fromLeft, CGFloat *fromTop
 @property(nonatomic, assign) NSUInteger savedRow;
 @property(nonatomic, assign) NSUInteger savedColumn;
 @property(nonatomic, assign) BOOL hasSavedCursor;
+/// The cell geometry the screen model currently represents. The view's
+/// measured geometry changes before resizeSubviewsWithOldSize: runs, so keep
+/// the previous values explicitly for clipping the old screen into the new.
+@property(nonatomic, assign) NSUInteger modeledColumns;
+@property(nonatomic, assign) NSUInteger modeledRows;
 /// Follow the newest line, the way a terminal does — until somebody scrolls
 /// up to read something, and again once they come back to the bottom.
 @property(nonatomic, assign) BOOL followingTail;
@@ -539,9 +544,84 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     }
 }
 
+/// Resize a running program's visible screen to the view's new cell geometry.
+///
+/// This deliberately stays on the current attributed-row model. Shrinking a
+/// width clips the right edge, and shrinking a height drops rows from the top,
+/// exactly as the pyte oracle does. Only the addressed screen is changed;
+/// earlier scrollback and idle app-authored notes remain readable. A later
+/// fixed-cell screen can replace this without changing that boundary.
+- (void)resizeTerminalScreenFromColumns:(NSUInteger)oldColumns
+                                   rows:(NSUInteger)oldRows
+                              toColumns:(NSUInteger)newColumns
+                                   rows:(NSUInteger)newRows {
+    // App-authored notes are a document, not terminal cells, and resizing the
+    // idle window must not truncate them. A running program owns a terminal
+    // screen whether or not it selected the alternate buffer (`top` does not).
+    if ((!self.running && !self.onAlternateScreen) || oldColumns == 0 || oldRows == 0 ||
+        newColumns == 0 || newRows == 0) return;
+
+    NSUInteger oldTop = self.screenOrigin;
+    if (newColumns < oldColumns) {
+        NSUInteger oldBottom = oldTop + oldRows;
+        NSUInteger availableBottom = MIN(oldBottom, self.lines.count);
+        for (NSUInteger r = oldTop; r < availableBottom; r++) {
+            NSMutableAttributedString *line = self.lines[r];
+            if (line.length > newColumns) {
+                [line deleteCharactersInRange:NSMakeRange(newColumns,
+                                                           line.length - newColumns)];
+            }
+        }
+    }
+
+    // Terminal height shrink keeps the bottom rows. Advancing the origin
+    // leaves the clipped rows in the document as implementation history, but
+    // removes them from the addressed screen and from screenTextForTesting.
+    if (newRows < oldRows) self.screenOrigin += oldRows - newRows;
+
+    NSUInteger top = self.screenOrigin;
+    NSUInteger bottom = top + newRows - 1;
+    self.row = MIN(MAX(self.row, top), bottom);
+    self.column = MIN(self.column, newColumns - 1);
+    if (self.hasSavedCursor) {
+        self.savedRow = MIN(MAX(self.savedRow, top), bottom);
+        self.savedColumn = MIN(self.savedColumn, newColumns - 1);
+    }
+
+    // Margins are screen geometry, so a resize resets them to the whole new
+    // screen. Keeping a row number from the old height can make the next line
+    // feed scroll a region that no longer exists.
+    self.scrollRegionSet = NO;
+    [self setNeedsRedrawSoon];
+}
+
+- (void)synchronizeTerminalGeometry {
+    NSUInteger columns = self.columns;
+    NSUInteger rows = self.visibleRows;
+    BOOL changed = self.modeledColumns > 0 && self.modeledRows > 0 &&
+        (columns != self.modeledColumns || rows != self.modeledRows);
+    if (changed) {
+        [self resizeTerminalScreenFromColumns:self.modeledColumns
+                                         rows:self.modeledRows
+                                    toColumns:columns
+                                         rows:rows];
+    }
+    self.modeledColumns = columns;
+    self.modeledRows = rows;
+    if (changed) [self resizeChildTerminal];
+}
+
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
     [super resizeSubviewsWithOldSize:oldSize];
-    [self resizeChildTerminal];
+    [self synchronizeTerminalGeometry];
+}
+
+// Auto Layout updates the scroll view's content size after the outer view's
+// resize callback. Measuring there can still see the old cell count, so check
+// once more after constraints have settled.
+- (void)layout {
+    [super layout];
+    [self synchronizeTerminalGeometry];
 }
 
 #pragma mark - showing text
@@ -685,6 +765,21 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 /// How many rows the screen has.
 - (NSUInteger)screenRows {
     return self.visibleRows > 0 ? self.visibleRows : 24;
+}
+
+/// Keep a cursor-changing control sequence inside the addressed screen.
+///
+/// Text output may briefly leave `column == columns` to represent pending
+/// wrap. A cursor command cancels that state and lands on a real cell. Rows
+/// are absolute indexes into `lines`, so their lower bound is screenOrigin,
+/// not zero once scrollback exists or a height shrink has clipped the top.
+- (void)clampCursorToScreen {
+    NSUInteger top = [self screenTop];
+    NSUInteger rows = MAX((NSUInteger)1, [self screenRows]);
+    NSUInteger bottom = top + rows - 1;
+    NSUInteger right = MAX((NSUInteger)1, self.columns) - 1;
+    self.row = MIN(MAX(self.row, top), bottom);
+    self.column = MIN(self.column, right);
 }
 
 /// The last row scrolling may touch, counted from the top of the screen.
@@ -975,6 +1070,12 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                                     self.column = 0;
                                     self.screenOrigin = 0;
                                     self.scrollRegionSet = NO;
+                                    // Start the private screen with the exact
+                                    // geometry the program was told. Later
+                                    // view resizes compare against this model,
+                                    // not against an incidental layout pass.
+                                    self.modeledColumns = self.columns;
+                                    self.modeledRows = [self screenRows];
                                     self.onAlternateScreen = YES;
                                 } else if (final == 'l' && self.onAlternateScreen) {
                                     self.lines = self.screenUnderneath.count > 0
@@ -988,6 +1089,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                                     self.screenOrigin = self.lines.count > [self screenRows]
                                         ? self.lines.count - [self screenRows] : 0;
                                     self.onAlternateScreen = NO;
+                                    [self clampCursorToScreen];
                                 }
                             }
                         }
@@ -1000,32 +1102,65 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         SlopNetApplySGR(self.ink, parameters);
                         break;
                     case 'A':                              // cursor up
-                        self.row = (self.row >= (NSUInteger)value) ? self.row - value : 0;
+                        [self clampCursorToScreen];
+                        {
+                            NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                            NSUInteger above = self.row - [self screenTop];
+                            self.row -= MIN(many, above);
+                        }
                         break;
                     case 'B':                              // cursor down
-                        self.row += value;
+                        [self clampCursorToScreen];
+                        {
+                            NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                            NSUInteger bottom = [self screenTop] + [self screenRows] - 1;
+                            self.row += MIN(many, bottom - self.row);
+                        }
                         [self currentLine];
                         break;
-                    case 'C': self.column += value; break; // right
+                    case 'C': {                            // right
+                        [self clampCursorToScreen];
+                        NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                        NSUInteger right = MAX((NSUInteger)1, self.columns) - 1;
+                        self.column += MIN(many, right - self.column);
+                        break;
+                    }
                     case 'D':                              // left
-                        self.column = (self.column >= (NSUInteger)value)
-                            ? self.column - value : 0;
+                        [self clampCursorToScreen];
+                        {
+                            NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                            self.column -= MIN(many, self.column);
+                        }
                         break;
                     case 'G':                              // column
                         self.column = value > 0 ? (NSUInteger)(value - 1) : 0;
+                        [self clampCursorToScreen];
                         break;
                     case 'E':                              // next line, column 1
-                        self.row += (NSUInteger)value;
+                        [self clampCursorToScreen];
+                        {
+                            NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                            NSUInteger bottom = [self screenTop] + [self screenRows] - 1;
+                            self.row += MIN(many, bottom - self.row);
+                        }
                         self.column = 0;
                         [self currentLine];
                         break;
                     case 'F':                              // previous line, column 1
-                        self.row = (self.row >= (NSUInteger)value) ? self.row - value : 0;
+                        [self clampCursorToScreen];
+                        {
+                            NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                            NSUInteger above = self.row - [self screenTop];
+                            self.row -= MIN(many, above);
+                        }
                         self.column = 0;
                         break;
                     case 'd': {                            // row, counted from the top
                         NSInteger want = value > 0 ? value : 1;
-                        self.row = [self screenTop] + (NSUInteger)(want - 1);
+                        NSUInteger relative = MIN((NSUInteger)(want - 1),
+                                                  [self screenRows] - 1);
+                        self.row = [self screenTop] + relative;
+                        [self clampCursorToScreen];
                         [self currentLine];
                         break;
                     }
@@ -1038,6 +1173,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         if (self.hasSavedCursor) {
                             self.row = self.savedRow;
                             self.column = self.savedColumn;
+                            [self clampCursorToScreen];
                             [self currentLine];
                         }
                         break;
@@ -1050,8 +1186,20 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         NSInteger wantColumn = parts.count > 1 ? [parts[1] integerValue] : 1;
                         if (wantRow < 1) wantRow = 1;
                         if (wantColumn < 1) wantColumn = 1;
+                        // A program can have drawn for a larger PTY just
+                        // before this view receives the bytes or resize.
+                        // Real terminals clamp an absolute position to their
+                        // last cell. Deliberately replaying the real recordings
+                        // into smaller screens proves the same boundary against
+                        // pyte; it is not evidence that their original 94x40
+                        // sessions had an edge defect.
+                        NSInteger lastRow = (NSInteger)[self screenRows];
+                        NSInteger lastColumn = (NSInteger)MAX((NSUInteger)1, self.columns);
+                        if (wantRow > lastRow) wantRow = lastRow;
+                        if (wantColumn > lastColumn) wantColumn = lastColumn;
                         self.row = [self screenTop] + (NSUInteger)(wantRow - 1);
                         self.column = (NSUInteger)(wantColumn - 1);
+                        [self clampCursorToScreen];
                         [self currentLine];
                         break;
                     }
@@ -1073,10 +1221,12 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         // Setting the region puts the cursor at the top left.
                         self.row = self.screenOrigin;
                         self.column = 0;
+                        [self clampCursorToScreen];
                         [self currentLine];
                         break;
                     }
                     case 'L': {                            // insert blank rows here
+                        [self clampCursorToScreen];
                         NSUInteger many = value > 0 ? (NSUInteger)value : 1;
                         NSUInteger last = self.screenOrigin + [self lastScrollingRow];
                         for (NSUInteger k = 0; k < many && self.row <= last; k++) {
@@ -1091,6 +1241,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         break;
                     }
                     case 'M': {                            // delete rows here
+                        [self clampCursorToScreen];
                         NSUInteger many = value > 0 ? (NSUInteger)value : 1;
                         NSUInteger last = self.screenOrigin + [self lastScrollingRow];
                         for (NSUInteger k = 0; k < many && self.row <= last; k++) {
@@ -1176,8 +1327,14 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         if (part == 2 || part == 3) {
                             [self.lines removeAllObjects];
                             [self.lines addObject:[[NSMutableAttributedString alloc] init]];
+                            // This model discarded the whole addressed buffer,
+                            // so its new screen starts with that new first row.
+                            // Leaving the old origin behind put the cursor in
+                            // clipped scrollback immediately after the clear.
+                            self.screenOrigin = 0;
                             self.row = 0;
                             self.column = 0;
+                            [self clampCursorToScreen];
                             break;
                         }
                         if (part == 0) {
@@ -1250,6 +1407,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                     if (self.hasSavedCursor) {
                         self.row = self.savedRow;
                         self.column = self.savedColumn;
+                        [self clampCursorToScreen];
                         [self currentLine];
                     }
                 } else if (next == 'M') {               // up one row, scrolling
@@ -2053,11 +2211,20 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
         return NO;
     }
 
+    // A new PTY starts in the terminal's default input/addressing modes. A
+    // child that was stopped before it emitted cleanup must not make the next
+    // child receive application-mode arrows or inherit its margins/cursor.
+    self.applicationCursorKeys = NO;
+    self.scrollRegionSet = NO;
+    self.hasSavedCursor = NO;
+
     // Tell the child the real width of the field, so its own panels and
     // progress lines wrap where the window actually ends.
+    self.modeledColumns = self.columns;
+    self.modeledRows = self.visibleRows;
     struct winsize size = {0};
-    size.ws_col = (unsigned short)self.columns;
-    size.ws_row = (unsigned short)self.visibleRows;
+    size.ws_col = (unsigned short)self.modeledColumns;
+    size.ws_row = (unsigned short)self.modeledRows;
 
     int master = -1;
     pid_t pid = forkpty(&master, NULL, NULL, &size);
@@ -2182,6 +2349,56 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     }
     [self sendKeys:[NSString stringWithFormat:@"\033%@%@",
                     self.applicationCursorKeys ? @"O" : @"[", letter]];
+}
+
+- (BOOL)rawInputActive {
+    return self.running && self.onAlternateScreen;
+}
+
+- (BOOL)sendKeyEvent:(NSEvent *)event {
+    if (!self.rawInputActive || event.type != NSEventTypeKeyDown) return NO;
+
+    // Command belongs to the Mac, even while a terminal program is running:
+    // copy, paste and the app's menu shortcuts must not become server input.
+    if ((event.modifierFlags & NSEventModifierFlagCommand) != 0) return NO;
+
+    // These keys are terminal operations rather than text. In particular,
+    // arrows depend on the mode selected by the running program, so keep that
+    // choice in sendKey: instead of teaching the entry box terminal modes.
+    switch (event.keyCode) {
+        case 126: [self sendKey:SlopNetKeyUp];     return YES;
+        case 125: [self sendKey:SlopNetKeyDown];   return YES;
+        case 124: [self sendKey:SlopNetKeyRight];  return YES;
+        case 123: [self sendKey:SlopNetKeyLeft];   return YES;
+        case 53:  [self sendKey:SlopNetKeyEscape]; return YES;
+        case 48:  [self sendKey:SlopNetKeyTab];    return YES;
+        case 36:
+        case 76:  [self sendKey:SlopNetKeyEnter];  return YES;
+        default: break;
+    }
+
+    // Zellij's commands begin with Control letters. AppKit normally supplies
+    // the control byte in characters, but derive it from the unmodified
+    // letter deliberately: Ctrl+g is 0x07, Ctrl+a is 0x01, and so on. It does
+    // not depend on the text editor deciding how or when to insert the key.
+    if ((event.modifierFlags & NSEventModifierFlagControl) != 0) {
+        NSString *plain = event.charactersIgnoringModifiers.lowercaseString;
+        if (plain.length == 1) {
+            unichar letter = [plain characterAtIndex:0];
+            if (letter >= 'a' && letter <= 'z') {
+                unichar control = (unichar)(letter - 'a' + 1);
+                [self sendKeys:[NSString stringWithCharacters:&control length:1]];
+                return YES;
+            }
+        }
+    }
+
+    // A full-screen program reads characters one at a time. Sending this via
+    // the text view would buffer it until Return and turn a key-driven tool
+    // into something visible but inert.
+    NSString *characters = event.characters ?: @"";
+    if (characters.length > 0) [self sendKeys:characters];
+    return YES;
 }
 
 - (void)sendKeys:(NSString *)raw {

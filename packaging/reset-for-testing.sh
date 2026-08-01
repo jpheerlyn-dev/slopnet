@@ -12,11 +12,14 @@
 # bundle, so a reinstall walks straight past setup and the test proves
 # nothing. On the server the same is true of the private runtime account.
 #
-# What it will NEVER touch: anything on the server that is not SlopNet's own.
-# A VPS usually has other things running — a web server, a database, another
-# model runner — and this removes the SlopNet account, the SlopNet install
-# directory, and the key SlopNet added. Nothing else.
+# Server removal is delegated to the same receipt-checked uninstaller shipped
+# in the app. This helper must never grow a second, name-only deletion path.
 set -euo pipefail
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+uninstaller="$root/packaging/slopnet-vps-uninstall.sh"
 
 mode="${1:---dry-run}"
 do_mac=0
@@ -32,6 +35,7 @@ esac
 app_id="com.slopnet.app"
 support="$HOME/Library/Application Support/SlopNet"
 key="$HOME/.ssh/slopnet_vps_ed25519"
+known_hosts="$HOME/.ssh/slopnet_vps_known_hosts"
 
 host=$(defaults read "$app_id" SlopNetVPSHost 2>/dev/null || true)
 port=$(defaults read "$app_id" SlopNetVPSPort 2>/dev/null || echo 22)
@@ -52,11 +56,11 @@ fi
               || say "  · (no connection key)"
 
 say ""
-say "On the server${host:+ ($host)}:"
+say "On the remembered server:"
 if [ -n "$host" ]; then
   say "  · the private slopnet account and its home, including any downloaded model"
   say "  · /opt/slopnet"
-  say "  · the SlopNet key from ${user}'s authorized_keys"
+  say "  · only the exact receipt-backed SlopNet key from ${user}'s authorized_keys"
   say ""
   say "  NOT touched: every other account, service and file. If that server"
   say "  also runs a web server, a database or another model, they stay."
@@ -78,54 +82,36 @@ read -r answer
 if [ "$do_server" -eq 1 ] && [ -n "$host" ]; then
   say ""
   say "Resetting the server…"
-  # Runs as the login account. Every removal names SlopNet explicitly; there
-  # is no wildcard that could reach somebody else's files.
-  remote='set -eu
-if id -u slopnet >/dev/null 2>&1; then
-  home=$(getent passwd slopnet | cut -d: -f6)
-  pkill -u slopnet 2>/dev/null || true
-  sleep 1
-  userdel -r slopnet 2>/dev/null || userdel slopnet 2>/dev/null || true
-  [ -n "$home" ] && [ -d "$home" ] && rm -rf -- "$home"
-  echo "  removed the slopnet account and its home"
-else
-  echo "  no slopnet account"
-fi
-if [ -d /opt/slopnet ]; then
-  rm -rf -- /opt/slopnet
-  echo "  removed /opt/slopnet"
-else
-  echo "  no /opt/slopnet"
-fi
-keys="$HOME/.ssh/authorized_keys"
-if [ -f "$keys" ] && grep -q "slopnet-vps" "$keys"; then
-  tmp=$(mktemp)
-  grep -v "slopnet-vps" "$keys" > "$tmp" || true
-  cat "$tmp" > "$keys"
-  rm -f -- "$tmp"
-  echo "  removed the SlopNet key from authorized_keys"
-else
-  echo "  no SlopNet key in authorized_keys"
-fi
-echo "  left alone: every other account, service and file"'
-  if [ "$user" = "root" ]; then
-    ssh -p "$port" -o StrictHostKeyChecking=accept-new "$user@$host" "$remote"
-  else
-    ssh -t -p "$port" -o StrictHostKeyChecking=accept-new "$user@$host" "sudo sh -c '$remote'"
-  fi
+  [ -x "$uninstaller" ] || {
+    say "The receipt-checked uninstaller is missing. Nothing was removed."
+    exit 1
+  }
+  "$uninstaller" "$host" "$port" "$user"
+elif [ "$do_server" -eq 1 ]; then
+  say "No server is remembered, so safe server removal cannot identify a target. Nothing changed."
+  exit 1
 fi
 
 if [ "$do_mac" -eq 1 ]; then
+  # Resetting app state first would discard the server details needed to
+  # remove an authorized key. Refuse every complete, partial, dangling or
+  # legacy same-named connection artifact; the proved uninstaller removes only
+  # an exact pair and its exact server line.
+  for connection_path in \
+      "$key" "$key.pub" "$key.receipt" \
+      "$known_hosts" "$known_hosts.receipt"; do
+    if [ -e "$connection_path" ] || [ -L "$connection_path" ]; then
+      say "A SlopNet connection file remains at $connection_path."
+      say "Mac reset stopped before forgetting the server or deleting notes."
+      say "Run --all so the receipt-checked uninstaller can remove server access, or archive the collision manually."
+      exit 1
+    fi
+  done
   say ""
   say "Resetting this Mac…"
   defaults delete "$app_id" 2>/dev/null && say "  forgot the remembered server and setup flags" \
     || say "  no remembered settings"
   if [ -d "$support" ]; then rm -rf -- "$support"; say "  removed saved request notes"; fi
-  if [ -f "$key" ]; then
-    ssh-add -d "$key" >/dev/null 2>&1 || true
-    rm -f -- "$key" "$key.pub"
-    say "  removed the connection key"
-  fi
 fi
 
 say ""

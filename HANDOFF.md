@@ -1,6 +1,6 @@
 # SlopNet — handing over
 
-Written 2026-08-01, at `v0.9.44`, for whoever picks this up next.
+Updated 2026-08-01 for `v0.9.45`, for whoever picks this up next.
 
 ## What it is, and who it is for
 
@@ -17,9 +17,10 @@ deployment for people who are not experts.
 
 The shape: a Mac app with a left sidebar and one big console. The console is a
 real terminal (a PTY) that runs things over SSH on the person's server. A local
-IBM Granite model is the always-present assistant. Coding CLIs (Antigravity,
-Claude Code, Codex, Grok) and terminal tools (Zellij, btop, LazyGit, Superfile,
-LazyDocker, Delta) run on the server and appear in that console.
+IBM Granite model is the always-present assistant. Coding CLIs and terminal
+tools run on the server and appear in that console. LazyDocker can be installed
+and version checked, but SlopNet deliberately does not open it: the locked
+runtime account does not receive the host's Docker socket.
 
 ## Build, run, test
 
@@ -27,8 +28,10 @@ LazyDocker, Delta) run on the server and appear in that console.
 bash packaging/build_app.sh          # builds and installs the .app
 ```
 
-Probes are single files compiled against the sources. They are not a framework;
-each one runs a real program through a real PTY.
+Probes are single files compiled against the sources. They are not a framework.
+Terminal-input probes drive real readers through real PTYs; replay probes feed
+the retained bytes from real programs into the console while a harmless child
+keeps its PTY alive. UI and branding probes exercise their focused native code.
 
 ```bash
 clang -fobjc-arc -Wall -Wextra -framework AppKit -framework CoreText -I packaging \
@@ -36,16 +39,29 @@ clang -fobjc-arc -Wall -Wextra -framework AppKit -framework CoreText -I packagin
   -o /tmp/p && /tmp/p
 ```
 
-Same pattern for `console_keys_probe`, `console_menu_probe`, `console_scroll_probe`,
-`console_grow_probe`, `console_replay_probe`, `brand_striped_probe`. Two others
-need different sources: `wizard_step_probe` wants `SlopNetWizard.m`, and
-`crew_unit_probe.py` is `python3 tests/crew_unit_probe.py`.
-
-Gating checks, which the pre-commit hook runs:
+The eleven Objective-C probes are `brand_striped_probe`, `console_colour_probe`,
+`console_grow_probe`, `console_keys_probe`, `console_menu_probe`,
+`console_prompt_probe`, `console_replay_probe`, `console_scroll_probe`,
+`launcher_tool_probe`, `settings_resize_probe` and `wizard_step_probe`. The
+keys probe also compiles `SlopNetEntryView.m`, because it drives the actual
+typing box. The launcher probe uses `-DSLOPNET_NO_MAIN` and all app sources.
+Also compile and run `tests/pty_probe.c`. The Python probes run directly:
 
 ```bash
-for c in checks/*.sh; do sh "$c" --all || echo "FAILED: $c"; done
+python3 tests/crew_unit_probe.py
+python3 tests/server_safety_probe.py
+/tmp/refterm/bin/python tests/console_resize_oracle.py
 ```
+
+Run the full gating form before a release:
+
+```bash
+for c in checks/*.sh; do sh "$c" --all || exit; done
+```
+
+The pre-commit hook runs the staged-file form without `--all`. That is a fast
+commit boundary, not a substitute for the full release command above or for
+the terminal and server probes.
 
 Every change gets an entry in `register/<date>.md` — prose, what you changed,
 what you proved, what you did not. `checks/register.sh` enforces that one exists.
@@ -66,8 +82,8 @@ worthless; one of them passed with the fix removed.
 with `pyte`, a real terminal emulator.
 
 ```bash
-python3 -m venv /tmp/refterm && /tmp/refterm/bin/pip install pyte
-/tmp/refterm/bin/python tests/reference_screen.py tests/zellij_recording.bin 108 38
+python3 -m venv /tmp/refterm && /tmp/refterm/bin/pip install pyte==0.8.2
+/tmp/refterm/bin/python tests/reference_screen.py tests/zellij_recording.bin 94 40
 ```
 
 Compare against the console's own screen:
@@ -75,12 +91,19 @@ Compare against the console's own screen:
 ```bash
 clang -fobjc-arc -framework AppKit -framework CoreText -I packaging \
   tests/console_picture.m packaging/SlopNetConsole.m packaging/SlopNetBrand.m -o /tmp/picture
-PRINT_SCREEN=1 /tmp/picture tests/zellij_recording.bin /tmp/shot.png
+PRINT_SCREEN=1 /tmp/picture tests/zellij_recording.bin /tmp/shot.png 94 40
 ```
 
 Any difference is a fault in `SlopNetConsole`. Compare **screen against screen** —
 `screenTextForTesting`, not `textForTesting`. Comparing a screen with a
 scrollback produced confident nonsense twice.
+
+The retained recordings were made at **94 columns by 40 rows**. Replaying them
+at 108×38 created the old 36-of-38 Zellij result by forcing row-40 output into
+a 38-row screen. It was a bad experiment, not a live bottom-row fault. Use the
+capture geometry in `tests/agy_recordings.md`, or make a new real recording at
+the new geometry. `console_resize_oracle.py` starts at 94×40 and compares
+deliberate width and height shrink operations with pyte.
 
 **Chunk independence.** `console_replay_probe` replays each recording whole and
 in 4096, 1024 and 137-byte pieces and requires identical screens. How bytes are
@@ -95,8 +118,9 @@ characters tile is a question about pixels; text comparison cannot answer it.
 
 - `packaging/SlopNetConsole.h/.m` — the PTY and the terminal emulator. Most of
   the difficulty is here.
-- `packaging/SlopNetLauncher.m` — the window, the sidebar, the chat turn loop,
-  the SSH plumbing, `SlopNetEntryView` (the typing box and its `keyDown:`).
+- `packaging/SlopNetLauncher.m` — the window, the sidebar, the chat turn loop
+  and the SSH plumbing.
+- `packaging/SlopNetEntryView.h/.m` — the typing box and its `keyDown:`.
 - `packaging/SlopNetSettings.h/.m` — Settings, including the tools table with
   Install and Open buttons.
 - `packaging/SlopNetBrand.h/.m` — panels, colours, the bundled colour font,
@@ -112,61 +136,110 @@ characters tile is a question about pixels; text comparison cannot answer it.
 
 ## What works
 
-Server setup from scratch; the local Granite guide; sign-in to Antigravity
-carried through to a working chat; `top` and Zellij rendering correctly (36 of
-Zellij's 38 rows match the oracle exactly); tools installable and startable from
-Settings.
+The earlier Linux server setup and local Granite guide were exercised on one
+Ubuntu server. The v0.9.45 setup code now refuses unmarked name collisions,
+installs a root-owned tagged checkout, and hands only the crew choice to the
+locked runtime account; its exact embedded shells and fail-closed boundaries
+have local executable probes, but this revised fresh-install path has not yet
+been run end to end on an empty second server. Antigravity sign-in and
+interactive chat have real recordings, but Antigravity is not yet a proved
+unattended SlopNet build worker. At the recordings' real 94×40 geometry, `top`
+and all 40 Zellij rows match pyte exactly.
 
-## The immediate problem
+Zellij, btop, LazyGit, Superfile, LazyDocker and Delta have SHA-256-pinned,
+staged, exact-version-checked x86-64 Linux recipes proved on the configured
+Ubuntu server. Their six exact `--version` shapes were read back there after
+the byte digests were recorded.
+The interactive tools except LazyDocker were opened there; Delta rendered a
+diff. LazyDocker remains install/version-check only because granting Docker's
+socket would cross the locked-account boundary.
 
-**A full-screen program opens but cannot be driven.** The operator can start
-Zellij and nothing they press controls it.
+## The immediate problem — resolved in v0.9.45
 
-The cause is in `SlopNetEntryView keyDown:` in `packaging/SlopNetLauncher.m`.
-Only arrows, Escape, Tab, Enter-when-the-box-is-empty and **Ctrl-C** reach the
-program. Every other control key falls through to `default: send = NO`. Zellij's
-entire keybinding system is Ctrl-based — `Ctrl+g` to unlock, then `p`, `t`, `n`,
-`h`, `s`, `o`, `q` — so none of it arrives. Ordinary characters go into the
-typing box and are only sent as a whole line on Return, which is wrong for
-anything reading keys as they come.
+`SlopNetEntryView` now enters raw input whenever the child owns the alternate
+screen. Every non-Command key goes straight to the PTY: ordinary characters,
+arrows, Escape, Tab, Return and `Ctrl+A` through `Ctrl+Z` control bytes. The
+typing box does not accumulate those characters. Outside the alternate screen,
+the old line path remains: ordinary typing is buffered, Return sends the whole
+line, and prompts can still collect passwords and confirmations.
 
-What it wants is a **raw input mode**: while a program has taken the alternate
-screen, every keystroke goes straight to the PTY and the typing box steps aside.
-The console already tracks that state — `onAlternateScreen` in
-`SlopNetConsole.m` — so the trigger exists. Control keys map to their control
-codes (`Ctrl+g` is 0x07, `Ctrl+a` is 0x01, and so on: letter minus 0x60).
+`console_keys_probe` drives the real entry view and two real PTY readers. It
+proves exact `0x07 0x70` delivery for Ctrl-G then `p` in raw mode, and proves
+that the ordinary reader still receives a complete submitted line. Browser
+sign-in keeps that entry view as first responder, and clearing or advancing a
+sign-in also clears its old page/code controls. Keep both input halves whenever
+this code changes.
 
-Do not lose the line-based path. Sudo passwords, yes/no answers and questions to
-Granite all depend on it, and `console_keys_probe` has a case for each kind of
-reader. Both must keep passing.
+## Open problems, worked in order
 
-## Open problems, in the order I would take them
+1. **Raw input mode — done.** See above.
+2. **Five install commands — done for one platform.** btop 1.4.7, LazyGit
+   0.63.1, Superfile 1.6.0, LazyDocker 0.25.2 and Delta 0.19.2 were downloaded
+   from their official versioned assets, checked against the proved SHA-256,
+   staged privately, executed for an exact version check, and only then moved
+   into place on x86-64 Ubuntu. Zellij uses the same pattern. No recipe follows
+   `latest` or pipes a download to a shell.
+   LazyDocker was not opened and has no Open command, for the Docker-socket
+   reason above.
+3. **Zellij bottom row — the diagnosis was false.** The recording is 94×40 and
+   both the baseline and current console match pyte 40/40 at that size. The old
+   36/38 claim came from replaying it at 108×38. Cursor addressing is now
+   clamped to the measured last cell, but describe that as terminal robustness,
+   not as a live Zellij-row fix.
+4. **A way out — done.** An interactive tool shows **Back to Granite**; choosing
+   it stops the local SSH terminal and restores the composer after the child
+   callback. Zellij is started with `--on-force-close detach`, so closing the
+   Mac-side SSH connection leaves the named server session available to attach
+   again. A real server attach, detach and reattach was proved.
+5. **Granite always reachable — done for every launch path.** Granite is a
+   permanent sidebar action. Settings tools and commands typed with `$` use the
+   same interactive lifecycle. It is visible but deliberately disabled while
+   protected setup, installation, planning, building or a Granite reply owns
+   the terminal; those operations are not silently abortable.
+6. **No full cell grid — bounded, not solved.** Addressed screens now remember
+   measured columns and rows, clip right-edge cells on a shrink, keep the
+   bottom of a height shrink, bound cursors, and send SIGWINCH only when the
+   measured geometry changes. The four resize-oracle recordings match pyte
+   after both 94×40→40×40 and 94×40→94×15. A fifth real chat recording also
+   matches when it is resized mid-stream and the remaining captured cursor
+   commands arrive afterwards. The representation is still strings, not
+   a true cell grid: wide and combining glyphs, reflow after resize, growth
+   after a dynamic SIGWINCH redraw, and exact UTF-16-index-versus-cell-width
+   behaviour remain unproved.
+7. **Robustness across servers — hardened, still deliberately narrow.** Setup,
+   helpers, Settings tools and uninstall require Linux, a dedicated SSH key
+   pair with its own local identity receipt, a dedicated proved known-hosts
+   file, protected root-owned account/install/release receipts, the expected
+   runtime home, and the exact app release. Runtime receipts bind UID, private
+   GID, password lock, nologin shell, home device and inode; install receipts
+   bind device, inode, release and commit. Privileged remote wrappers use
+   absolute system commands and create the script under root rather than
+   executing a login-user-owned temporary file. The release build injects the
+   verified full commit from the exact tag namespace into the bundled
+   installer, so a later moved tag is refused. Setup will not adopt a
+   same-named account, install folder, key, unknown receipt directory or home.
+   Project planning is staged under a private temporary name and published only
+   after its plan commit succeeds. The build is then bound to that exact clean
+   project commit. It also requires an exact protected `approved-build-v1`
+   receipt for this release and commit before any coding agent can run;
+   v0.9.45 deliberately has no live proof receipt, so that button fails closed.
 
-1. **Raw input mode**, above. Nothing else about running tools matters until a
-   person can drive one.
-2. **The five unverified install commands** in `tools.json` — btop, LazyGit,
-   Superfile, LazyDocker, Delta. Their release assets carry version numbers in
-   the filename or use other archive formats, so each needs looking up and
-   running once on a server before it ships. Zellij's is verified and is the
-   pattern to follow.
-3. **Zellij's bottom row.** 36 of 38 rows match the oracle; the last row should
-   hold Zellij's shortcut bar and holds the pane frame instead. An off-by-one at
-   the last row, not yet found.
-4. **A way out of a running tool.** The prompt bar still says "Setting up
-   Antigravity. Answer anything it asks below" with a "Skip this one" button
-   long after setting up has finished. There is a Stop button, but nothing that
-   reads as "close this and go back to Granite".
-5. **Granite always reachable.** The operator's requirement is that a CLI tool
-   must not take over the whole app. They chose **Zellij on the server** as the
-   multiplexer over tabs in the app. Granite has to stay one action away
-   whatever is running.
-6. **No cell grid.** The console models the screen as an array of lines with a
-   maintained origin, not a grid of cells. It gets `top` and Zellij right, but a
-   program that depends on the screen being exactly as wide and tall as it was
-   told will find edges.
-7. **Robustness across servers.** The operator plans to test single-board
-   computers, local servers and other cloud providers. Everything so far has
-   been proved against one Ubuntu host.
+   The live proof is still one x86-64 Ubuntu server. The v2 identity-receipt
+   setup has not replaced the legacy receipts on that server: deliberately,
+   there is no name-only automatic migration. It needs manual inspection and
+   fresh preparation before this release's helpers will run there.
+   ARM/Raspberry Pi, other distributions, other cloud providers and several
+   simultaneous servers are not proved. The revised fresh-clone, local-key and
+   v2-receipt setup has not been run from an empty second server. The UI states
+   the platform limits; this handoff records the unproved fresh-install path.
+   The Llama.cpp and provider-owned
+   installers are still mutable upstream scripts rather than version-pinned
+   binary assets.
+   Antigravity is interactive-only until its unattended one-job invocation has
+   a real edit proof. Re-preparing a server intentionally clears the mutable
+   global crew choice, so a coding app must be proved again before a new plan;
+   provider credentials and existing projects remain in the private runtime
+   home.
 
 ## Traps that already caught me
 

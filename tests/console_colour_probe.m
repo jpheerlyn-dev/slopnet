@@ -16,6 +16,9 @@
 #import "SlopNetConsole.h"
 
 static int failures = 0;
+// The console uses a cell-sized custom fill instead of AppKit's glyph-metric
+// background attribute; the latter leaves seams between terminal rows.
+static NSString *const CellFillAttribute = @"SlopNetCellFill";
 
 /// Waits for a real child to finish, so the probe also covers the PTY path.
 @interface Waiter : NSObject <SlopNetConsoleDelegate>
@@ -71,21 +74,26 @@ int main(void) {
 
         // 24-bit foreground, then a 24-bit background run, on one line.
         [console note:@"\033[38;2;255;0;60mRED\033[0m\033[48;2;34;199;217mFIELD\033[0m"];
-        NSString *text = view.textStorage.string;
+        // App-authored notes are coalesced onto the next main-loop turn so a
+        // busy installer cannot freeze the window rebuilding text storage for
+        // every chunk. Flush through the console's probe API before examining
+        // the actual view; reading private storage synchronously would test an
+        // implementation timing accident rather than rendered output.
+        NSString *text = [console textForTesting];
         NSUInteger red = [text rangeOfString:@"RED"].location;
         NSUInteger field = [text rangeOfString:@"FIELD"].location;
         check(red != NSNotFound && field != NSNotFound, "both runs reached the buffer");
         check(isRGB(colourAt(view, red, NSForegroundColorAttributeName), 255, 0, 60),
               "38;2;255;0;60 became the crimson foreground");
-        check(isRGB(colourAt(view, field, NSBackgroundColorAttributeName), 34, 199, 217),
+        check(isRGB(colourAt(view, field, CellFillAttribute), 34, 199, 217),
               "48;2;34;199;217 became the Poolside background");
-        check(colourAt(view, red, NSBackgroundColorAttributeName) == nil,
+        check(colourAt(view, red, CellFillAttribute) == nil,
               "a foreground-only run takes no background");
 
         // 256-colour and the named 8: both still have to work, because ssh,
         // apt and git all use them.
         [console note:@"\033[38;5;196mX\033[0m\033[32mY\033[0m"];
-        text = view.textStorage.string;
+        text = [console textForTesting];
         check(isRGB(colourAt(view, [text rangeOfString:@"X"].location,
                              NSForegroundColorAttributeName), 255, 0, 0),
               "38;5;196 resolved through the 256-colour cube");
@@ -97,7 +105,7 @@ int main(void) {
         // old text must be gone rather than left behind it.
         [console note:@"\033[31mworking 1/3\033[0m"
                       @"\r\033[38;2;0;171;35mdone       \033[0m"];
-        text = view.textStorage.string;
+        text = [console textForTesting];
         check([text rangeOfString:@"working"].location == NSNotFound,
               "\\r overwrote the progress line instead of repeating it");
         NSUInteger done = [text rangeOfString:@"done"].location;
@@ -107,7 +115,7 @@ int main(void) {
 
         // Hiding and showing the cursor must not leave "25l" in the text.
         [console note:@"\033[?25lhidden\033[?25h"];
-        text = view.textStorage.string;
+        text = [console textForTesting];
         check([text rangeOfString:@"25l"].location == NSNotFound &&
               [text rangeOfString:@"hidden"].location != NSNotFound,
               "a private-mode sequence left no digits behind");
@@ -115,12 +123,12 @@ int main(void) {
         // A replaceable block is what an animation redraws. The token must
         // still address the same rows afterwards.
         NSInteger token = [console noteReplaceable:@"\033[38;2;255;0;60mframe A\033[0m"];
-        check([view.textStorage.string rangeOfString:@"frame A"].location != NSNotFound,
+        check([[console textForTesting] rangeOfString:@"frame A"].location != NSNotFound,
               "a replaceable block printed");
         check([console replaceLinesFromToken:token
                                         with:@"\033[38;2;0;171;35mframe B\033[0m"],
               "the block accepted a redraw");
-        text = view.textStorage.string;
+        text = [console textForTesting];
         check([text rangeOfString:@"frame A"].location == NSNotFound &&
               [text rangeOfString:@"frame B"].location != NSNotFound,
               "the redraw replaced the frame in place");

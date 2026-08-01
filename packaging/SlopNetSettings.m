@@ -228,7 +228,7 @@
     // Everything here still works on its own for someone who prefers panels.
     NSString *serverTitle = @"Your server";
     NSString *serverHelp = self.connected
-        ? @"Any computer you can reach over SSH: a rented server, a dedicated machine, a home server, or a Raspberry Pi. Your password is never stored — it goes straight from the console to your server."
+        ? @"SlopNet setup currently supports a Linux server you can reach over SSH. Built-in terminal-tool downloads are proved only on x86-64 Linux; ARM machines are not yet proved. Your password is never stored — it goes straight from the console to your server."
         : @"Enter the address, login name, and port from your server provider. SlopNet will show every change in its own window and never saves the server password. The setup guide in the sidebar walks through this in order.";
     NSString *helperTitle = @"Private local guide";
     NSString *helperHelp = self.connected
@@ -297,8 +297,10 @@
         if (![tool[@"id"] isEqualToString:toolID]) continue;
         NSString *runs = tool[@"run"] ?: @"";
         if (runs.length == 0) return;
-        [self.delegate settings:self runOnServer:runs
-                          title:tool[@"name"] ?: toolID];
+        if ([self.delegate settings:self openOnServer:runs
+                               title:tool[@"name"] ?: toolID]) {
+            [self closePressed:nil];
+        }
         return;
     }
 }
@@ -333,11 +335,16 @@
         self.toolStatus[toolID] = status;
 
         NSString *install = tool[@"install"] ?: @"";
-        NSButton *action = [self button:install.length ? @"Install" : @"No command yet"
+        NSString *provider = [SlopNetBrand providerForTool:toolID];
+        BOOL signsIn = [SlopNetSettings signInSupportedForProvider:provider];
+        BOOL canPrepare = install.length > 0 || signsIn;
+        NSString *actionTitle = signsIn ? @"Set up"
+            : (install.length > 0 ? @"Install" : @"No command yet");
+        NSButton *action = [self button:actionTitle
                                  action:@selector(installPressed:)];
         action.identifier = toolID;
-        action.enabled = install.length > 0 && self.connected;
-        if (install.length == 0) {
+        action.enabled = canPrepare && self.connected;
+        if (!canPrepare) {
             action.toolTip = @"Nobody has verified this tool's install command yet, so "
                              @"SlopNet will not guess one. Add it to tools.json.";
         }
@@ -444,13 +451,14 @@
 
 /// Which providers SlopNet can carry through a browser sign-in.
 ///
-/// The same four the engine knows. Moonshot signs in with a pasted key rather
-/// than a browser, so its button installs the tool and stops there.
+/// Only providers with a proved unattended SlopNet worker. Antigravity can be
+/// used interactively when preinstalled, but sign-in alone is not a build
+/// adapter, so Settings does not present it as one.
 + (BOOL)signInSupportedForProvider:(NSString *)provider {
     static NSSet *supported;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        supported = [NSSet setWithArray:@[@"openai", @"anthropic", @"google", @"xai"]];
+        supported = [NSSet setWithArray:@[@"openai", @"anthropic", @"xai"]];
     });
     return provider != nil && [supported containsObject:provider];
 }
@@ -518,7 +526,8 @@
 
     // One quiet, non-interactive SSH call. It only asks where commands are;
     // it changes nothing. Interactive work belongs in the main console.
-    NSMutableString *probe = [NSMutableString string];
+    NSMutableString *probe = [NSMutableString stringWithString:
+        @"PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "];
     for (NSDictionary *tool in self.tools) {
         NSString *check = tool[@"check"] ?: @"";
         if (check.length == 0) continue;
@@ -527,17 +536,32 @@
         // installer had symlinked itself machine-wide, so the list said "not
         // installed" for things that were.
         [probe appendFormat:
-            @"if runuser -u slopnet -- env HOME=/home/slopnet "
-            @"PATH=/home/slopnet/.local/bin:/home/slopnet/.local/node_modules/.bin:"
+            @"if /usr/sbin/runuser -u slopnet -- /usr/bin/env HOME=/home/slopnet "
+            @"PATH=/home/slopnet/.local/bin:/home/slopnet/.kimi-code/bin:"
+            @"/home/slopnet/.local/node_modules/.bin:"
             @"/usr/local/bin:/usr/bin:/bin "
-            @"sh -c 'command -v %@' >/dev/null 2>&1; then echo '%@ yes'; "
+            @"/bin/sh -c 'command -v %@' >/dev/null 2>&1; then echo '%@ yes'; "
             @"else echo '%@ no'; fi; ",
             check, tool[@"id"], tool[@"id"]];
+    }
+    if (![self.user.stringValue isEqualToString:@"root"]) {
+        NSString *encoded = [[[probe copy] dataUsingEncoding:NSUTF8StringEncoding]
+            base64EncodedStringWithOptions:0];
+        probe = [[NSString stringWithFormat:
+            @"/usr/bin/printf %%s '%@' | /usr/bin/base64 -d | "
+             "/usr/bin/sudo -n /bin/sh", encoded] mutableCopy];
     }
 
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
-    task.arguments = @[@"-p", self.port.stringValue,
+    NSString *identity = [NSHomeDirectory() stringByAppendingPathComponent:
+                          @".ssh/slopnet_vps_ed25519"];
+    NSString *knownHosts = [NSHomeDirectory() stringByAppendingPathComponent:
+                            @".ssh/slopnet_vps_known_hosts"];
+    task.arguments = @[@"-i", identity,
+                       @"-o", @"IdentitiesOnly=yes",
+                       @"-o", [@"UserKnownHostsFile=" stringByAppendingString:knownHosts],
+                       @"-p", self.port.stringValue,
                        @"-o", @"BatchMode=yes",
                        @"-o", @"ConnectTimeout=10",
                        @"-o", @"StrictHostKeyChecking=accept-new",
@@ -599,7 +623,7 @@
     // a port, downloads a file, or reads anything outside SlopNet's own
     // runtime home.
     NSString *probe =
-        @"set -eu; "
+        @"set -eu; PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
          "if ! id -u slopnet >/dev/null 2>&1; then echo 'runtime no'; exit 0; fi; "
          "home=$(getent passwd slopnet | cut -d: -f6); "
          "if [ -z \"$home\" ] || [ ! -d \"$home\" ]; then echo 'runtime no'; exit 0; fi; "
@@ -610,10 +634,24 @@
          "df -Pm \"$home\" | awk 'NR==2 {print \"disk \" $4}'; "
          "if command -v free >/dev/null 2>&1; then free -m | awk '/Mem:/ {print \"memory \" $7}'; else echo 'memory unknown'; fi; "
          "if find \"$home/.cache\" -type f -name '*.gguf' -print -quit 2>/dev/null | grep -q .; then echo 'cache yes'; else echo 'cache no'; fi";
+    if (![self.user.stringValue isEqualToString:@"root"]) {
+        NSString *encoded = [[probe dataUsingEncoding:NSUTF8StringEncoding]
+            base64EncodedStringWithOptions:0];
+        probe = [NSString stringWithFormat:
+            @"/usr/bin/printf %%s '%@' | /usr/bin/base64 -d | "
+             "/usr/bin/sudo -n /bin/sh", encoded];
+    }
 
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
-    task.arguments = @[@"-p", self.port.stringValue,
+    NSString *identity = [NSHomeDirectory() stringByAppendingPathComponent:
+                          @".ssh/slopnet_vps_ed25519"];
+    NSString *knownHosts = [NSHomeDirectory() stringByAppendingPathComponent:
+                            @".ssh/slopnet_vps_known_hosts"];
+    task.arguments = @[@"-i", identity,
+                       @"-o", @"IdentitiesOnly=yes",
+                       @"-o", [@"UserKnownHostsFile=" stringByAppendingString:knownHosts],
+                       @"-p", self.port.stringValue,
                        @"-o", @"BatchMode=yes",
                        @"-o", @"ConnectTimeout=10",
                        @"-o", @"StrictHostKeyChecking=accept-new",

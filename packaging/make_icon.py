@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Create a simple original SlopNet .icns application icon, stdlib only."""
+"""Create or pack a SlopNet .icns application icon, stdlib only.
+
+Pass an iconset directory as the second argument to pack its already-resized
+PNGs. Without one, the small generated fallback is used.
+"""
 
 from pathlib import Path
 import math
@@ -43,9 +47,23 @@ target = Path(sys.argv[1])
 entries = ((16, b"icp4"), (32, b"icp5"), (64, b"icp6"),
            (128, b"ic07"), (256, b"ic08"), (512, b"ic09"),
            (1024, b"ic10"))
+if len(sys.argv) > 2:
+    iconset = Path(sys.argv[2])
+    names = {
+        16: "icon_16x16.png",
+        32: "icon_16x16@2x.png",
+        64: "icon_32x32@2x.png",
+        128: "icon_128x128.png",
+        256: "icon_128x128@2x.png",
+        512: "icon_256x256@2x.png",
+        1024: "icon_512x512@2x.png",
+    }
+    images = ((icon_type, (iconset / names[size]).read_bytes())
+              for size, icon_type in entries)
+else:
+    images = ((icon_type, icon_png(size)) for size, icon_type in entries)
 payload = b"".join(
     icon_type + struct.pack(">I", len(image) + 8) + image
-    for size, icon_type in entries
-    for image in (icon_png(size),)
+    for icon_type, image in images
 )
 target.write_bytes(b"icns" + struct.pack(">I", len(payload) + 8) + payload)

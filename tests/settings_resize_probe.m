@@ -6,16 +6,20 @@
 // its opening size and growing again, and lays out each time. Any conflict
 // appears in the output.
 //
-//   clang -fobjc-arc -framework AppKit -I packaging \
-//     tests/settings_resize_probe.m packaging/SlopNetSettings.m -o /tmp/probe \
+//   clang -fobjc-arc -framework AppKit -framework CoreText -I packaging \
+//     tests/settings_resize_probe.m packaging/SlopNetSettings.m \
+//     packaging/SlopNetBrand.m -o /tmp/probe \
 //     && /tmp/probe
 #import <Cocoa/Cocoa.h>
 #import "SlopNetSettings.h"
 @interface Probe : NSObject <SlopNetSettingsDelegate> @end
 @implementation Probe
 - (void)settings:(SlopNetSettings *)s connectToHost:(NSString *)h port:(NSString *)p user:(NSString *)u {}
+- (void)settings:(SlopNetSettings *)s signInToProvider:(NSString *)p {}
 - (void)settings:(SlopNetSettings *)s runOnServer:(NSString *)c title:(NSString *)t {}
+- (BOOL)settings:(SlopNetSettings *)s openOnServer:(NSString *)c title:(NSString *)t { return YES; }
 - (void)settingsDidForget:(SlopNetSettings *)s {}
+- (void)settingsWantsUninstall:(SlopNetSettings *)s {}
 - (void)settingsCheckConnection:(SlopNetSettings *)s {}
 - (void)settingsClearConsole:(SlopNetSettings *)s {}
 - (void)settingsShowServerHelp:(SlopNetSettings *)s {}

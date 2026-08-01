@@ -21,6 +21,12 @@ VPS-wide restriction. That profile gives `/usr/bin/bwrap` the setup permissions
 it needs while its sandbox child loses capabilities. The strict Docker safety
 gate is also proved.
 
+That evidence predates the v0.9.45 identity-receipt installer. The revised
+fresh-clone, dedicated-key and v2-receipt path has executable local boundary
+probes, but it has not been run end to end on an empty second server. The one
+configured server still has legacy receipts and needs inspection plus fresh
+preparation; this release will not migrate it by name alone.
+
 That is evidence for one Codex path, not a release claim. It is not yet a
 broad multi-provider runtime or a beginner-ready release. The current Mac
 control app keeps the SSH conversation inside its own window; it still needs a
@@ -54,19 +60,30 @@ small VPS connection screen:
 ./packaging/build_app.sh "$HOME/Applications"
 ```
 
+A normal app build is a release build: the pinned release must exist as a real
+tag, and every bundled source must match that tag. For local development only,
+`SLOPNET_ALLOW_UNRELEASED_BUILD=1` permits a clearly unreleaseable HEAD build;
+do not distribute an artifact made that way.
+
 Open `SlopNet.app` from your Applications folder. On its first launch, the
 in-app setup guide opens automatically: enter only the server address, SSH
 login name, and port. **Getting a server** explains that Hetzner, Contabo,
-Hostinger, and many other providers work; any computer reachable over SSH is
-valid. SlopNet then keeps the normal SSH password prompt and every setup
-question in its own scrolling window. It creates a dedicated
-passphrase-protected SSH key, adds it to the macOS Keychain when available, and
-begins the guided VPS setup. It never receives or stores a VPS password.
+Hostinger, and many other providers can supply the Linux server this guided
+path currently supports. Built-in terminal-tool downloads are proved only on
+x86-64 Linux; ARM machines are not yet proved. SlopNet then keeps the normal
+SSH password prompt and every setup question in its own scrolling window. It
+creates a dedicated private SSH key in this Mac account's `.ssh` folder and
+binds the exact private/public pair to a local receipt. Every connection uses a
+separate SlopNet known-hosts file, not the account's global SSH trust file. A
+same-named key or trust file without the matching protected receipt is refused
+rather than adopted. SlopNet then begins guided setup; it never receives or
+stores a server password.
 
-The in-app guide has three numbered steps: protect the connection key, confirm
-the server, and prepare the server. You do not need to type an SSH command or
-interpret Git output. If it stops, copy the final plain-English message rather
-than the whole transcript.
+The in-app guide has five stages: welcome, server details, protected server
+preparation, the private local guide, and a coding app. The server-preparation
+terminal labels its own three connection substeps. You do not need to type an
+SSH command or interpret Git output. If it stops, copy the final plain-English
+message rather than the whole transcript.
 
 When SlopNet asks whether to continue, type `y` only after its sentence says
 exactly what it will change. That confirmation comes from the VPS itself and
@@ -98,9 +115,11 @@ quota. Choose **Build** only when ready to spend from the proved coding
 subscription. SlopNet first asks for confirmation to make a plan and stops; no
 coding agent runs. After the person reads the plan, **Start approved build**
 asks for a second explicit confirmation before a multi-agent pipeline may edit
-the VPS project. That control currently refuses safely until a project-specific
-runner and its checks have passed their first VPS proof; it never falls back to
-an unprotected or local run. A local request draft remains optional, and the
+the VPS project. The build must find the exact clean project commit produced by
+that plan and a protected `approved-build-v1` receipt bound to this SlopNet
+release and commit. v0.9.45 has no live proof receipt, so the control currently
+refuses safely before any coding agent runs; it never falls back to an
+unprotected or local run. A local request draft remains optional, and the
 person must accept its exact wording before the paid planner sees it.
 
 When setup says the server passed, the large box at the bottom begins in Chat.

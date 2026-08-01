@@ -40,6 +40,24 @@ static void check(BOOL ok, const char *what) {
 }
 @end
 
+/// The retained recordings were captured from a real 94x40 PTY. Replaying
+/// them into an incidental view height is a different terminal experiment:
+/// it can legitimately scroll a header such as top's load average away.
+static BOOL sizeToCaptureGeometry(SlopNetConsole *console) {
+    NSSize size = console.frame.size;
+    for (NSUInteger tries = 0; console.columns != 94 && tries < 2000; tries++) {
+        size.width += console.columns < 94 ? 1.0 : -1.0;
+        [console setFrameSize:size];
+        [console layoutSubtreeIfNeeded];
+    }
+    for (NSUInteger tries = 0; console.visibleRows != 40 && tries < 1600; tries++) {
+        size.height += console.visibleRows < 40 ? 1.0 : -1.0;
+        [console setFrameSize:size];
+        [console layoutSubtreeIfNeeded];
+    }
+    return console.columns == 94 && console.visibleRows == 40;
+}
+
 /// Replays the recording in chunks of a given size and returns what would be
 /// opened. The size matters: it decides how much the console has seen each
 /// time it looks, which is exactly what differed between the fixtures that
@@ -49,6 +67,13 @@ static NSURL *replay(NSData *recording, NSUInteger chunk, NSInteger *offers,
     SlopNetConsole *console =
         [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0, 0, 900, 400)];
     [console layoutSubtreeIfNeeded];
+    if (!sizeToCaptureGeometry(console)) {
+        if (offers) *offers = 0;
+        if (rendered) *rendered = @"";
+        failures++;
+        fprintf(stderr, "FAIL could not size replay console to recorded 94x40 geometry\n");
+        return nil;
+    }
     Catcher *catcher = [Catcher new];
     console.delegate = catcher;
     // Long enough to outlive every replay. At four seconds it expired part way
@@ -76,7 +101,7 @@ static NSURL *replay(NSData *recording, NSUInteger chunk, NSInteger *offers,
     // console goes on changing — a capture kept for comparison later picked up
     // notes written after it was taken, and read as a difference in the
     // recording's rendering.
-    if (rendered) *rendered = [console.textForTesting copy];
+    if (rendered) *rendered = [console.screenTextForTesting copy];
     NSURL *page = catcher.page;
     [console stop];
     return page;

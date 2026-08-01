@@ -16,6 +16,7 @@ paths=$(
     done
     printf '%s\n' \
       lefthook.yml \
+      .gitignore \
       .gitleaks.toml \
       banned-names.txt \
       PROTECTED.txt \
@@ -24,12 +25,20 @@ paths=$(
       Dockerfile \
       compose.yml \
       .dockerignore \
+      SlopNet-Logo.png \
       slopnet \
       crew.py \
+      adapters/claude-code/README.md \
+      adapters/claude-code/hooks/guard_protected.py \
+      adapters/claude-code/hooks/log_prompt.py \
+      adapters/claude-code/settings.json \
+      adapters/claude-code/skills/slopnet-session/SKILL.md \
       packaging/SlopNetBrand.h \
       packaging/SlopNetBrand.m \
       packaging/SlopNetConsole.h \
       packaging/SlopNetConsole.m \
+      packaging/SlopNetEntryView.h \
+      packaging/SlopNetEntryView.m \
       packaging/SlopNetLauncher.m \
       packaging/SlopNetSettings.h \
       packaging/SlopNetSettings.m \
@@ -39,6 +48,7 @@ paths=$(
       packaging/build_dmg.sh \
       packaging/reset-for-testing.sh \
       packaging/make_icon.py \
+      packaging/slopnet-local-ssh-proof.sh \
       packaging/slopnet-vps-onboard.sh \
       packaging/slopnet-vps-project.sh \
       packaging/slopnet-vps-local-helper.sh \
@@ -48,9 +58,31 @@ paths=$(
       packaging/slopnet-vps-uninstall.sh \
       packaging/tools.json \
       tests/redteam.sh \
+      tests/trial.sh \
+      tests/agy_chat_recording.bin \
+      tests/agy_login_recording.bin \
+      tests/agy_picker_recording.bin \
+      tests/agy_recordings.md \
+      tests/top_recording.bin \
+      tests/zellij_recording.bin \
+      tests/brand_striped_probe.m \
+      tests/capture_login_recording.py \
       tests/crew_unit_probe.py \
       tests/console_colour_probe.m \
+      tests/console_grow_probe.m \
+      tests/console_keys_probe.m \
+      tests/console_menu_probe.m \
+      tests/console_picture.m \
       tests/console_prompt_probe.m \
+      tests/console_render.m \
+      tests/console_replay_probe.m \
+      tests/console_resize_oracle.py \
+      tests/console_scroll_probe.m \
+      tests/launcher_tool_probe.m \
+      tests/menu_fixture.py \
+      tests/pty_probe.c \
+      tests/reference_screen.py \
+      tests/server_safety_probe.py \
       tests/settings_resize_probe.m \
       tests/wizard_step_probe.m \
       update-manifest.sh \

@@ -1,7 +1,7 @@
 # Recordings of real programs
 
-Every byte Antigravity CLI 1.1.9 wrote to a pseudo-terminal 94 columns wide on
-a Linux server. The first is `agy login`, up to the point where it shows a
+Every byte Antigravity CLI 1.1.9 wrote to a pseudo-terminal 94 columns wide and
+40 rows tall on a Linux server. The first is `agy login`, up to the point where it shows a
 sign-in link and waits for a code. The second is the colour scheme picker shown
 on first run after signing in — a full-screen frame with a menu beside a live
 preview, redrawn on every keypress. Captured by `capture_login_recording.py`,
@@ -62,7 +62,8 @@ draws in hyperlinks, and a hyperlink ends with ESC backslash rather than a
 bell; this console looked only for the bell, so the search ran off the end and
 swallowed the lot. Sixty-four kilobytes arrived and one character was drawn.
 
-Checked against `reference_screen.py` rather than by eye: thirty-six of its
-thirty-eight rows now match a known-good terminal exactly. The two that differ
-are the bottom row, where Zellij puts its shortcut bar and this console still
-has the pane frame — an off-by-one at the last row, not yet found.
+Checked against `reference_screen.py` rather than by eye, at the 94-column by
+40-row geometry used to capture it: all forty rows match the known-good
+terminal exactly. The earlier 36-of-38 result replayed these 40-row bytes into
+a 38-row screen. That mismatched experiment moved Zellij's shortcut bar and
+was not evidence of a live bottom-row defect.

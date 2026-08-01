@@ -4,9 +4,8 @@
 // and which coding tools are on it. It opens from the sidebar, does its
 // job, and gets out of the way.
 //
-// "Server" means any computer you can reach over SSH — a rented VPS, a
-// dedicated box, a machine in your cupboard, a Raspberry Pi. SlopNet does
-// not care who sold it to you.
+// The guided path currently supports a Linux server reachable over SSH.
+// Built-in terminal-tool downloads are proved only on x86-64 Linux.
 
 #import <Cocoa/Cocoa.h>
 
@@ -20,11 +19,16 @@
             user:(NSString *)user;
 /// Run one command on the server, visibly, in the main console.
 /// Install and sign in to one coding app, through the same path the wizard
-/// uses — which also brings the server's copy of SlopNet up to the release
-/// this app expects.
+/// uses. The path refuses a stale or locally modified server release; server
+/// updates happen only through the explicit preparation flow.
 - (void)settings:(SlopNetSettings *)settings signInToProvider:(NSString *)provider;
 - (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
            title:(NSString *)title;
+/// Open an interactive tool in the main console. Returns NO when another job
+/// already owns the console, so Settings stays open instead of hiding a tool
+/// that never started.
+- (BOOL)settings:(SlopNetSettings *)settings openOnServer:(NSString *)command
+            title:(NSString *)title;
 /// Forget this Mac's memory of the server (never touches the server).
 - (void)settingsDidForget:(SlopNetSettings *)settings;
 /// Remove SlopNet properly: everything it put on this Mac, and optionally

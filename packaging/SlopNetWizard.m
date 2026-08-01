@@ -334,8 +334,9 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 
     return @[
         [self title:@"Which server should SlopNet use?"],
-        [self body:@"Any computer you can reach over SSH. SlopNet does not care who sold "
-                   @"it to you, and it changes nothing until the next screen."],
+        [self body:@"A Linux server you can reach over SSH. The built-in tool downloads "
+                   @"are currently proved on x86-64 Linux; ARM machines are not yet "
+                   @"proved. SlopNet changes nothing until the next screen."],
         grid,
         checkRow,
         self.serverNote,
@@ -450,8 +451,10 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     return views;
 }
 
-/// The four coding apps a person can sign in to with a subscription they
-/// already pay for. All four have a command-line tool that signs in through a
+/// The coding apps a person can sign in to with a subscription they already
+/// pay for. These have both a command-line sign-in and a proved unattended
+/// one-job adapter; interactive Antigravity is omitted until that second half
+/// has a real edit proof. The listed tools sign in through a
 /// browser, so none of them needs an API key typed into anything.
 ///
 /// Moonshot and Z.ai are deliberately absent: they work from a pasted API key,
@@ -460,7 +463,6 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     return @[
         @{@"id": @"anthropic", @"name": @"Claude",        @"note": @"Claude Pro or Max"},
         @{@"id": @"openai",    @"name": @"ChatGPT",       @"note": @"ChatGPT Plus, Pro or Team"},
-        @{@"id": @"google",    @"name": @"Google Antigravity", @"note": @"a Google account"},
         @{@"id": @"xai",       @"name": @"Grok",          @"note": @"X Premium or an xAI plan"},
     ];
 }
@@ -692,22 +694,17 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     return YES;
 }
 
-/// A quiet, read-only "does it answer" check, run right here rather than in
-/// the console: it asks nothing of the person and changes nothing on the
-/// server, so it does not deserve a whole screen of output.
+/// A quiet TCP reachability check. Before setup there is deliberately no SSH
+/// key or proved host-key file yet, so this opens no SSH session, sends no
+/// identity and records no trust decision.
 - (void)checkPressed:(id)sender {
     if (![self saveConnection]) return;
-    self.serverNote.stringValue = @"Asking your server…";
+    self.serverNote.stringValue = @"Checking whether your server is reachable…";
     self.serverNote.textColor = [NSColor secondaryLabelColor];
 
     NSTask *task = [[NSTask alloc] init];
-    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
-    task.arguments = @[@"-p", self.port,
-                       @"-o", @"BatchMode=yes",
-                       @"-o", @"ConnectTimeout=10",
-                       @"-o", @"StrictHostKeyChecking=accept-new",
-                       [NSString stringWithFormat:@"%@@%@", self.user, self.host],
-                       @"echo ok"];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/nc"];
+    task.arguments = @[@"-z", @"-G", @"10", self.host, self.port];
     task.standardOutput = [NSPipe pipe];
     task.standardError = [NSPipe pipe];
     __weak typeof(self) weakSelf = self;
@@ -717,21 +714,21 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
             typeof(self) strongSelf = weakSelf;
             if (strongSelf == nil || strongSelf.serverNote == nil) return;
             if (status == 0) {
-                strongSelf.serverNote.stringValue = @"●  Your server answered.";
+                strongSelf.serverNote.stringValue = @"●  Your server's SSH port answered.";
                 strongSelf.serverNote.textColor = [NSColor systemGreenColor];
             } else {
-                // Not a failure worth stopping on: the next step logs in
-                // properly, with a password prompt, in the console.
+                // Not a trust decision and not a mutation. Setup still owns
+                // the real SSH login and will show its precise error.
                 strongSelf.serverNote.stringValue =
-                    @"No answer without a password yet — that is normal before setup. "
-                    @"Continue and SlopNet will log in properly.";
+                    @"That address did not answer on this port. Check the details, or "
+                    @"continue and setup will show the precise connection error.";
                 strongSelf.serverNote.textColor = [NSColor secondaryLabelColor];
             }
         });
     };
     NSError *error = nil;
     if (![task launchAndReturnError:&error]) {
-        self.serverNote.stringValue = @"This Mac could not run ssh.";
+        self.serverNote.stringValue = @"This Mac could not run its reachability check.";
         self.serverNote.textColor = [NSColor systemRedColor];
     }
 }
@@ -754,7 +751,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     // Read-only on purpose: it starts no model, downloads nothing, opens no
     // port, and looks only inside SlopNet's own runtime home.
     NSString *probe =
-        @"set -eu; "
+        @"set -eu; PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
          "if ! id -u slopnet >/dev/null 2>&1; then echo 'runtime no'; exit 0; fi; "
          "home=$(getent passwd slopnet | cut -d: -f6); "
          "if [ -z \"$home\" ] || [ ! -d \"$home\" ]; then echo 'runtime no'; exit 0; fi; "
@@ -768,9 +765,16 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
-    task.arguments = @[@"-p", port.length ? port : @"22",
+    NSString *knownHosts = [NSHomeDirectory() stringByAppendingPathComponent:
+                            @".ssh/slopnet_vps_known_hosts"];
+    NSString *identity = [NSHomeDirectory() stringByAppendingPathComponent:
+                          @".ssh/slopnet_vps_ed25519"];
+    task.arguments = @[@"-i", identity,
+                       @"-o", @"IdentitiesOnly=yes",
+                       @"-p", port.length ? port : @"22",
                        @"-o", @"BatchMode=yes",
                        @"-o", @"ConnectTimeout=10",
+                       @"-o", [@"UserKnownHostsFile=" stringByAppendingString:knownHosts],
                        @"-o", @"StrictHostKeyChecking=accept-new",
                        [NSString stringWithFormat:@"%@@%@", user.length ? user : @"root", host],
                        probe];

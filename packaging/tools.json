@@ -1,5 +1,5 @@
 {
-  "_comment": "Tools SlopNet can check for, install and run on your server. 'check' is the command name looked for on the server; 'install' is run on the SERVER, in the console, so you can see exactly what happens; 'run' launches it in the console when it is installed. An empty 'install' means nobody has verified that tool's install command yet \u2014 SlopNet says so rather than guessing, because a wrong install command runs as you, on your machine. Every install below downloads in full and checks what it got before anything executes; none of them pipe a download into a shell. Add one and it appears in Settings; no rebuild needed beyond copying this file into the app.",
+  "_comment": "Tools SlopNet can check for, install and run on your server. 'check' is the command or private-account path looked for on the server; 'install' is run on the SERVER, in the console, so you can see exactly what happens; 'run' launches it in the console when it has a safe standalone path. An empty 'install' means nobody has verified a safe install command yet. An empty 'run' means SlopNet deliberately does not offer a standalone launch. Pinned binary installs download into a private directory, validate and run a staged candidate, then replace the old binary only after that proof. No install pipes network bytes into a shell. Add one and it appears in Settings; no rebuild is needed beyond copying this file into the app.",
   "tools": [
     {
       "id": "codex",
@@ -17,36 +17,36 @@
       "subscription": "Claude paid plan",
       "check": "claude",
       "install": "npm install --prefix ~/.local @anthropic-ai/claude-code",
-      "login": "claude  (then /login)",
+      "login": "claude",
       "source": "Z.AI's own Claude Code setup page, 2026-07-29",
-      "run": "claude  (then /login)"
+      "run": "claude"
     },
     {
       "id": "kimi",
       "name": "Kimi Code",
       "subscription": "Moonshot Kimi coding plan",
-      "check": "kimi",
-      "install": "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
-      "login": "kimi login",
+      "check": "$HOME/.kimi-code/bin/kimi",
+      "install": "",
+      "login": "$HOME/.kimi-code/bin/kimi login",
       "source": "operator's own install, 2026-07-29",
-      "run": "kimi login"
+      "run": "$HOME/.kimi-code/bin/kimi"
     },
     {
       "id": "antigravity",
-      "name": "Antigravity CLI",
-      "subscription": "Google AI Pro or Ultra",
+      "name": "Antigravity CLI  (preinstalled, interactive only)",
+      "subscription": "not a SlopNet build worker yet",
       "check": "agy",
-      "install": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
-      "login": "gemini",
-      "source": "",
-      "run": "gemini"
+      "install": "",
+      "login": "agy login",
+      "source": "agy login and interactive full-screen use are preserved in the real Antigravity 1.1.9 recordings; no unattended edit adapter or safe install command has been proved",
+      "run": "agy"
     },
     {
       "id": "grok",
       "name": "Grok Build",
       "subscription": "Grok paid plan",
       "check": "grok",
-      "install": "curl -fsSL https://x.ai/cli/install.sh | bash",
+      "install": "",
       "login": "grok",
       "source": "",
       "run": "grok"
@@ -56,60 +56,60 @@
       "name": "Zellij",
       "subscription": "free",
       "check": "zellij",
-      "install": "set -e; mkdir -p ~/.local/bin /tmp/sn-get; curl -fsSL https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz -o /tmp/sn-get/pkg; if ! file /tmp/sn-get/pkg | grep -qi gzip; then echo 'That download is not an archive; nothing was installed.'; exit 1; fi; tar -xzf /tmp/sn-get/pkg -C /tmp/sn-get; found=$(find /tmp/sn-get -type f -name zellij | head -1); if [ -z \"$found\" ]; then echo 'That archive did not contain zellij; nothing was installed.'; exit 1; fi; install -m 755 \"$found\" ~/.local/bin/zellij; rm -rf /tmp/sn-get; ~/.local/bin/zellij --version",
-      "run": "zellij attach --create slopnet",
+      "install": "set -e; PATH=/usr/bin:/bin; export PATH; if [ \"$(uname -s)\" != Linux ] || [ \"$(uname -m)\" != x86_64 ]; then echo 'This exact install was proved only on x86-64 Linux; nothing was installed.'; exit 1; fi; umask 077; for directory in \"$HOME/.local\" \"$HOME/.local/bin\"; do if [ -L \"$directory\" ]; then echo \"The private tool directory is redirected; nothing was installed.\"; exit 1; fi; if [ -e \"$directory\" ]; then [ -d \"$directory\" ] || { echo \"The private tool path is not a directory; nothing was installed.\"; exit 1; }; else mkdir \"$directory\"; fi; done; expected=0.44.3; binary=zellij; url=https://github.com/zellij-org/zellij/releases/download/v0.44.3/zellij-x86_64-unknown-linux-musl.tar.gz; digest=0f7c346788627f506c0a28296517768633cff24fc822a739f8264b640ecad751; command -v sha256sum >/dev/null || { echo 'This Linux server has no sha256sum command; nothing was installed.'; exit 1; }; work=$(mktemp -d \"${TMPDIR:-/tmp}/sn-get.XXXXXX\"); stage=; trap 'rm -rf \"$work\"; if [ -n \"$stage\" ]; then rm -f \"$stage\"; fi' EXIT HUP INT TERM; stage=$(mktemp \"$HOME/.local/bin/.${binary}.XXXXXX\"); curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 20 --max-time 300 \"$url\" -o \"$work/pkg\"; actual_digest=$(sha256sum \"$work/pkg\" | awk '{print $1}'); if [ \"$actual_digest\" != \"$digest\" ]; then echo 'That download does not match the proved SHA-256; the existing command is unchanged.'; exit 1; fi; if ! file \"$work/pkg\" | grep -qi gzip; then echo 'That download is not a gzip archive; the existing command is unchanged.'; exit 1; fi; tar -xzf \"$work/pkg\" -C \"$work\"; found=$(find \"$work\" -type f -name \"$binary\" | head -1); if [ -z \"$found\" ]; then echo 'That archive did not contain zellij; the existing command is unchanged.'; exit 1; fi; install -m 755 \"$found\" \"$stage\"; if ! version=$(\"$stage\" --version 2>&1); then echo 'The staged zellij command did not run; the existing command is unchanged.'; exit 1; fi; if [ \"$version\" != \"zellij $expected\" ]; then echo \"The staged zellij command did not report exactly zellij $expected; the existing command is unchanged.\"; exit 1; fi; target=\"$HOME/.local/bin/$binary\"; if [ -e \"$target\" ] || [ -L \"$target\" ]; then if [ ! -f \"$target\" ] || [ -L \"$target\" ]; then echo \"The existing command path is not a normal file; it is unchanged.\"; exit 1; fi; fi; mv -fT -- \"$stage\" \"$target\"; stage=; printf '%s\\n' \"$version\"",
+      "run": "zellij attach --create slopnet options --on-force-close detach",
       "login": "",
-      "source": "installed and run on a server, 2026-08-01: version 0.44.3, recorded and replayed"
+      "source": "official zellij-org release pinned to the version installed and run on an x86-64 Ubuntu server, 2026-08-01: 0.44.3, recorded and replayed; archive SHA-256 0f7c346788627f506c0a28296517768633cff24fc822a739f8264b640ecad751"
     },
     {
       "id": "btop",
       "name": "btop++  (what the server is doing)",
       "subscription": "free",
       "check": "btop",
-      "install": "",
+      "install": "set -e; PATH=/usr/bin:/bin; export PATH; if [ \"$(uname -s)\" != Linux ] || [ \"$(uname -m)\" != x86_64 ]; then echo 'This exact install was proved only on x86-64 Linux; nothing was installed.'; exit 1; fi; umask 077; for directory in \"$HOME/.local\" \"$HOME/.local/bin\"; do if [ -L \"$directory\" ]; then echo \"The private tool directory is redirected; nothing was installed.\"; exit 1; fi; if [ -e \"$directory\" ]; then [ -d \"$directory\" ] || { echo \"The private tool path is not a directory; nothing was installed.\"; exit 1; }; else mkdir \"$directory\"; fi; done; expected=1.4.7; binary=btop; url=https://github.com/aristocratos/btop/releases/download/v1.4.7/btop-x86_64-unknown-linux-musl.tar.gz; digest=5099054dd6a101bd12eb6ff3702a9a6a3f57aaa27923a0da478ae5b517faf335; command -v sha256sum >/dev/null || { echo 'This Linux server has no sha256sum command; nothing was installed.'; exit 1; }; work=$(mktemp -d \"${TMPDIR:-/tmp}/sn-get.XXXXXX\"); stage=; trap 'rm -rf \"$work\"; if [ -n \"$stage\" ]; then rm -f \"$stage\"; fi' EXIT HUP INT TERM; stage=$(mktemp \"$HOME/.local/bin/.${binary}.XXXXXX\"); curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 20 --max-time 300 \"$url\" -o \"$work/pkg\"; actual_digest=$(sha256sum \"$work/pkg\" | awk '{print $1}'); if [ \"$actual_digest\" != \"$digest\" ]; then echo 'That download does not match the proved SHA-256; the existing command is unchanged.'; exit 1; fi; if ! file \"$work/pkg\" | grep -qi gzip; then echo 'That download is not a gzip archive; the existing command is unchanged.'; exit 1; fi; tar -xzf \"$work/pkg\" -C \"$work\"; found=$(find \"$work\" -type f -name \"$binary\" | head -1); if [ -z \"$found\" ]; then echo 'That archive did not contain btop; the existing command is unchanged.'; exit 1; fi; install -m 755 \"$found\" \"$stage\"; if ! version=$(\"$stage\" --version 2>&1); then echo 'The staged btop command did not run; the existing command is unchanged.'; exit 1; fi; first_version=$(printf \"%s\\n\" \"$version\" | sed -n \"1p\"); case \"$first_version\" in \"btop version: \"*\"$expected+\"*) ;; *) echo \"The staged btop command did not report the exact proved version; the existing command is unchanged.\"; exit 1;; esac; target=\"$HOME/.local/bin/$binary\"; if [ -e \"$target\" ] || [ -L \"$target\" ]; then if [ ! -f \"$target\" ] || [ -L \"$target\" ]; then echo \"The existing command path is not a normal file; it is unchanged.\"; exit 1; fi; fi; mv -fT -- \"$stage\" \"$target\"; stage=; printf '%s\\n' \"$version\"",
       "run": "btop",
       "login": "",
-      "source": ""
+      "source": "official aristocratos/btop release pinned to 1.4.7; installed, version-checked and opened on an x86-64 Ubuntu server, 2026-08-01; archive SHA-256 5099054dd6a101bd12eb6ff3702a9a6a3f57aaa27923a0da478ae5b517faf335"
     },
     {
       "id": "lazygit",
       "name": "LazyGit  (git, visually)",
       "subscription": "free",
       "check": "lazygit",
-      "install": "",
+      "install": "set -e; PATH=/usr/bin:/bin; export PATH; if [ \"$(uname -s)\" != Linux ] || [ \"$(uname -m)\" != x86_64 ]; then echo 'This exact install was proved only on x86-64 Linux; nothing was installed.'; exit 1; fi; umask 077; for directory in \"$HOME/.local\" \"$HOME/.local/bin\"; do if [ -L \"$directory\" ]; then echo \"The private tool directory is redirected; nothing was installed.\"; exit 1; fi; if [ -e \"$directory\" ]; then [ -d \"$directory\" ] || { echo \"The private tool path is not a directory; nothing was installed.\"; exit 1; }; else mkdir \"$directory\"; fi; done; expected=0.63.1; binary=lazygit; url=https://github.com/jesseduffield/lazygit/releases/download/v0.63.1/lazygit_0.63.1_linux_x86_64.tar.gz; digest=8e033bc78c8e192dee9510e951f6c9e154289b7198d22c924ed1d0a951b0dac1; command -v sha256sum >/dev/null || { echo 'This Linux server has no sha256sum command; nothing was installed.'; exit 1; }; work=$(mktemp -d \"${TMPDIR:-/tmp}/sn-get.XXXXXX\"); stage=; trap 'rm -rf \"$work\"; if [ -n \"$stage\" ]; then rm -f \"$stage\"; fi' EXIT HUP INT TERM; stage=$(mktemp \"$HOME/.local/bin/.${binary}.XXXXXX\"); curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 20 --max-time 300 \"$url\" -o \"$work/pkg\"; actual_digest=$(sha256sum \"$work/pkg\" | awk '{print $1}'); if [ \"$actual_digest\" != \"$digest\" ]; then echo 'That download does not match the proved SHA-256; the existing command is unchanged.'; exit 1; fi; if ! file \"$work/pkg\" | grep -qi gzip; then echo 'That download is not a gzip archive; the existing command is unchanged.'; exit 1; fi; tar -xzf \"$work/pkg\" -C \"$work\"; found=$(find \"$work\" -type f -name \"$binary\" | head -1); if [ -z \"$found\" ]; then echo 'That archive did not contain lazygit; the existing command is unchanged.'; exit 1; fi; install -m 755 \"$found\" \"$stage\"; if ! version=$(\"$stage\" --version 2>&1); then echo 'The staged lazygit command did not run; the existing command is unchanged.'; exit 1; fi; case \"$version\" in *\", version=$expected, os=linux, arch=amd64,\"*) ;; *) echo \"The staged lazygit command did not report the exact proved version field; the existing command is unchanged.\"; exit 1;; esac; target=\"$HOME/.local/bin/$binary\"; if [ -e \"$target\" ] || [ -L \"$target\" ]; then if [ ! -f \"$target\" ] || [ -L \"$target\" ]; then echo \"The existing command path is not a normal file; it is unchanged.\"; exit 1; fi; fi; mv -fT -- \"$stage\" \"$target\"; stage=; printf '%s\\n' \"$version\"",
       "run": "lazygit",
       "login": "",
-      "source": ""
+      "source": "official jesseduffield/lazygit release pinned to 0.63.1; installed, version-checked and opened on an x86-64 Ubuntu server, 2026-08-01; archive SHA-256 8e033bc78c8e192dee9510e951f6c9e154289b7198d22c924ed1d0a951b0dac1"
     },
     {
       "id": "superfile",
       "name": "Superfile  (browse files)",
       "subscription": "free",
       "check": "spf",
-      "install": "",
+      "install": "set -e; PATH=/usr/bin:/bin; export PATH; if [ \"$(uname -s)\" != Linux ] || [ \"$(uname -m)\" != x86_64 ]; then echo 'This exact install was proved only on x86-64 Linux; nothing was installed.'; exit 1; fi; umask 077; for directory in \"$HOME/.local\" \"$HOME/.local/bin\"; do if [ -L \"$directory\" ]; then echo \"The private tool directory is redirected; nothing was installed.\"; exit 1; fi; if [ -e \"$directory\" ]; then [ -d \"$directory\" ] || { echo \"The private tool path is not a directory; nothing was installed.\"; exit 1; }; else mkdir \"$directory\"; fi; done; expected=1.6.0; binary=spf; url=https://github.com/yorukot/superfile/releases/download/v1.6.0/superfile-linux-v1.6.0-amd64.tar.gz; digest=d45b0e95072629a6aa7983a84eedca9cd7a98861e67ef91be1415496e3dda309; command -v sha256sum >/dev/null || { echo 'This Linux server has no sha256sum command; nothing was installed.'; exit 1; }; work=$(mktemp -d \"${TMPDIR:-/tmp}/sn-get.XXXXXX\"); stage=; trap 'rm -rf \"$work\"; if [ -n \"$stage\" ]; then rm -f \"$stage\"; fi' EXIT HUP INT TERM; stage=$(mktemp \"$HOME/.local/bin/.${binary}.XXXXXX\"); curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 20 --max-time 300 \"$url\" -o \"$work/pkg\"; actual_digest=$(sha256sum \"$work/pkg\" | awk '{print $1}'); if [ \"$actual_digest\" != \"$digest\" ]; then echo 'That download does not match the proved SHA-256; the existing command is unchanged.'; exit 1; fi; if ! file \"$work/pkg\" | grep -qi gzip; then echo 'That download is not a gzip archive; the existing command is unchanged.'; exit 1; fi; tar -xzf \"$work/pkg\" -C \"$work\"; found=$(find \"$work\" -type f -name \"$binary\" | head -1); if [ -z \"$found\" ]; then echo 'That archive did not contain spf; the existing command is unchanged.'; exit 1; fi; install -m 755 \"$found\" \"$stage\"; if ! version=$(\"$stage\" --version 2>&1); then echo 'The staged spf command did not run; the existing command is unchanged.'; exit 1; fi; if [ \"$version\" != \"superfile version v$expected\" ]; then echo \"The staged spf command did not report exactly superfile version v$expected; the existing command is unchanged.\"; exit 1; fi; target=\"$HOME/.local/bin/$binary\"; if [ -e \"$target\" ] || [ -L \"$target\" ]; then if [ ! -f \"$target\" ] || [ -L \"$target\" ]; then echo \"The existing command path is not a normal file; it is unchanged.\"; exit 1; fi; fi; mv -fT -- \"$stage\" \"$target\"; stage=; printf '%s\\n' \"$version\"",
       "run": "spf",
       "login": "",
-      "source": ""
+      "source": "official yorukot/superfile release pinned to 1.6.0; installed, version-checked and opened on an x86-64 Ubuntu server, 2026-08-01; archive SHA-256 d45b0e95072629a6aa7983a84eedca9cd7a98861e67ef91be1415496e3dda309"
     },
     {
       "id": "lazydocker",
       "name": "LazyDocker  (containers)",
       "subscription": "free",
       "check": "lazydocker",
-      "install": "",
-      "run": "lazydocker",
+      "install": "set -e; PATH=/usr/bin:/bin; export PATH; if [ \"$(uname -s)\" != Linux ] || [ \"$(uname -m)\" != x86_64 ]; then echo 'This exact install was proved only on x86-64 Linux; nothing was installed.'; exit 1; fi; umask 077; for directory in \"$HOME/.local\" \"$HOME/.local/bin\"; do if [ -L \"$directory\" ]; then echo \"The private tool directory is redirected; nothing was installed.\"; exit 1; fi; if [ -e \"$directory\" ]; then [ -d \"$directory\" ] || { echo \"The private tool path is not a directory; nothing was installed.\"; exit 1; }; else mkdir \"$directory\"; fi; done; expected=0.25.2; binary=lazydocker; url=https://github.com/jesseduffield/lazydocker/releases/download/v0.25.2/lazydocker_0.25.2_Linux_x86_64.tar.gz; digest=0d9dbfc26068b218e7ed84b104748cadc6e3cf733c0afd35465306fb39b9523c; command -v sha256sum >/dev/null || { echo 'This Linux server has no sha256sum command; nothing was installed.'; exit 1; }; work=$(mktemp -d \"${TMPDIR:-/tmp}/sn-get.XXXXXX\"); stage=; trap 'rm -rf \"$work\"; if [ -n \"$stage\" ]; then rm -f \"$stage\"; fi' EXIT HUP INT TERM; stage=$(mktemp \"$HOME/.local/bin/.${binary}.XXXXXX\"); curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 20 --max-time 300 \"$url\" -o \"$work/pkg\"; actual_digest=$(sha256sum \"$work/pkg\" | awk '{print $1}'); if [ \"$actual_digest\" != \"$digest\" ]; then echo 'That download does not match the proved SHA-256; the existing command is unchanged.'; exit 1; fi; if ! file \"$work/pkg\" | grep -qi gzip; then echo 'That download is not a gzip archive; the existing command is unchanged.'; exit 1; fi; tar -xzf \"$work/pkg\" -C \"$work\"; found=$(find \"$work\" -type f -name \"$binary\" | head -1); if [ -z \"$found\" ]; then echo 'That archive did not contain lazydocker; the existing command is unchanged.'; exit 1; fi; install -m 755 \"$found\" \"$stage\"; if ! version=$(\"$stage\" --version 2>&1); then echo 'The staged lazydocker command did not run; the existing command is unchanged.'; exit 1; fi; if [ \"$(printf \"%s\\n\" \"$version\" | sed -n \"1p\")\" != \"Version: $expected\" ]; then echo \"The staged lazydocker command did not report the exact proved version line; the existing command is unchanged.\"; exit 1; fi; target=\"$HOME/.local/bin/$binary\"; if [ -e \"$target\" ] || [ -L \"$target\" ]; then if [ ! -f \"$target\" ] || [ -L \"$target\" ]; then echo \"The existing command path is not a normal file; it is unchanged.\"; exit 1; fi; fi; mv -fT -- \"$stage\" \"$target\"; stage=; printf '%s\\n' \"$version\"",
+      "run": "",
       "login": "",
-      "source": ""
+      "source": "official jesseduffield/lazydocker release pinned to 0.25.2; installed and version-checked on an x86-64 Ubuntu server, 2026-08-01. Open is deliberately disabled because the locked account has no Docker socket; granting that socket would cross SlopNet's host-security boundary; archive SHA-256 0d9dbfc26068b218e7ed84b104748cadc6e3cf733c0afd35465306fb39b9523c"
     },
     {
       "id": "delta",
       "name": "Delta  (readable diffs)",
       "subscription": "free",
       "check": "delta",
-      "install": "",
+      "install": "set -e; PATH=/usr/bin:/bin; export PATH; if [ \"$(uname -s)\" != Linux ] || [ \"$(uname -m)\" != x86_64 ]; then echo 'This exact install was proved only on x86-64 Linux; nothing was installed.'; exit 1; fi; umask 077; for directory in \"$HOME/.local\" \"$HOME/.local/bin\"; do if [ -L \"$directory\" ]; then echo \"The private tool directory is redirected; nothing was installed.\"; exit 1; fi; if [ -e \"$directory\" ]; then [ -d \"$directory\" ] || { echo \"The private tool path is not a directory; nothing was installed.\"; exit 1; }; else mkdir \"$directory\"; fi; done; expected=0.19.2; binary=delta; url=https://github.com/dandavison/delta/releases/download/0.19.2/delta-0.19.2-x86_64-unknown-linux-musl.tar.gz; digest=f1ea01ca7728ce3462debc359f39dfc7cbbc1a63224b71fefabf92042864aa1b; command -v sha256sum >/dev/null || { echo 'This Linux server has no sha256sum command; nothing was installed.'; exit 1; }; work=$(mktemp -d \"${TMPDIR:-/tmp}/sn-get.XXXXXX\"); stage=; trap 'rm -rf \"$work\"; if [ -n \"$stage\" ]; then rm -f \"$stage\"; fi' EXIT HUP INT TERM; stage=$(mktemp \"$HOME/.local/bin/.${binary}.XXXXXX\"); curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 20 --max-time 300 \"$url\" -o \"$work/pkg\"; actual_digest=$(sha256sum \"$work/pkg\" | awk '{print $1}'); if [ \"$actual_digest\" != \"$digest\" ]; then echo 'That download does not match the proved SHA-256; the existing command is unchanged.'; exit 1; fi; if ! file \"$work/pkg\" | grep -qi gzip; then echo 'That download is not a gzip archive; the existing command is unchanged.'; exit 1; fi; tar -xzf \"$work/pkg\" -C \"$work\"; found=$(find \"$work\" -type f -name \"$binary\" | head -1); if [ -z \"$found\" ]; then echo 'That archive did not contain delta; the existing command is unchanged.'; exit 1; fi; install -m 755 \"$found\" \"$stage\"; if ! version=$(\"$stage\" --version 2>&1); then echo 'The staged delta command did not run; the existing command is unchanged.'; exit 1; fi; if [ \"$version\" != \"delta $expected\" ]; then echo \"The staged delta command did not report exactly delta $expected; the existing command is unchanged.\"; exit 1; fi; target=\"$HOME/.local/bin/$binary\"; if [ -e \"$target\" ] || [ -L \"$target\" ]; then if [ ! -f \"$target\" ] || [ -L \"$target\" ]; then echo \"The existing command path is not a normal file; it is unchanged.\"; exit 1; fi; fi; mv -fT -- \"$stage\" \"$target\"; stage=; printf '%s\\n' \"$version\"",
       "run": "",
       "login": "",
-      "source": ""
+      "source": "official dandavison/delta release pinned to 0.19.2; installed, version-checked and used to render a diff on an x86-64 Ubuntu server, 2026-08-01; archive SHA-256 f1ea01ca7728ce3462debc359f39dfc7cbbc1a63224b71fefabf92042864aa1b"
     }
   ]
 }

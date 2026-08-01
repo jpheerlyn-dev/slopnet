@@ -51,6 +51,10 @@ typedef NS_ENUM(NSInteger, SlopNetPrompt) {
 
 @property(nonatomic, weak) id<SlopNetConsoleDelegate> delegate;
 @property(nonatomic, readonly) BOOL running;
+/// A running full-screen program owns the keyboard while it is using the
+/// terminal's alternate screen. The ordinary line composer stays in charge
+/// everywhere else, including shell questions and password prompts.
+@property(nonatomic, readonly) BOOL rawInputActive;
 
 /// How many characters fit across the console at its current width. Panel
 /// builders use this to fit their frames to the window instead of emitting
@@ -140,6 +144,12 @@ typedef NS_ENUM(NSInteger, SlopNetKey) {
 /// that program has put the terminal in. Prefer this to sendKeys: for anything
 /// with an escape sequence — callers should not have to track terminal modes.
 - (void)sendKey:(SlopNetKey)key;
+
+/// Send one AppKit key event when a full-screen program owns the keyboard.
+/// Returns YES when the event was consumed. Ordinary text is written at once;
+/// Control-letter combinations are written as their terminal control bytes.
+/// Command shortcuts return NO so the app can still handle them.
+- (BOOL)sendKeyEvent:(NSEvent *)event;
 
 /// Write a secret the person typed into a real password field. It goes
 /// straight to the program and is never put in the console buffer, never

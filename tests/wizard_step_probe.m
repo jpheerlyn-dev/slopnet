@@ -199,12 +199,12 @@ int main(void) {
         for (NSButton *b in buttonsIn(done.window.contentView)) {
             if (b.identifier != nil) [ticks addObject:b];
         }
-        check(ticks.count == 4, "four coding apps are offered as buttons");
+        check(ticks.count == 3, "three proved coding apps are offered as buttons");
         NSMutableArray<NSString *> *offered = [NSMutableArray array];
         for (NSButton *b in ticks) [offered addObject:b.identifier];
         check([offered containsObject:@"anthropic"] && [offered containsObject:@"openai"] &&
-              [offered containsObject:@"google"] && [offered containsObject:@"xai"],
-              "Claude, ChatGPT, Gemini and Grok are the four");
+              [offered containsObject:@"xai"] && ![offered containsObject:@"google"],
+              "Claude, ChatGPT and Grok are offered; unproved Antigravity is not");
 
         check(!anyEditableFieldIn(done.window.contentView),
               "there is nothing to type on this screen");
@@ -218,7 +218,7 @@ int main(void) {
         // Tick two, in order, and confirm.
         // performClick flips a switch and fires its action, which is exactly
         // what a click does. Setting the state first would flip it back.
-        for (NSString *wanted in @[@"google", @"anthropic"]) {
+        for (NSString *wanted in @[@"xai", @"anthropic"]) {
             for (NSButton *b in ticks) {
                 if ([b.identifier isEqualToString:wanted]) [b performClick:nil];
             }
@@ -227,14 +227,14 @@ int main(void) {
         [go performClick:nil];
         check(silent.askedToSignIn, "confirming starts the sign-ins");
         check(silent.chosen.count == 2, "both ticked apps are passed on");
-        check([silent.chosen.firstObject isEqualToString:@"google"],
+        check([silent.chosen.firstObject isEqualToString:@"xai"],
               "they are signed in to in the order they were ticked");
 
         // Unticking removes it again.
         [done showStep:SlopNetWizardStepCodingApp];
         [done.window.contentView layoutSubtreeIfNeeded];
         for (NSButton *b in buttonsIn(done.window.contentView)) {
-            if ([b.identifier isEqualToString:@"google"]) [b performClick:nil];
+            if ([b.identifier isEqualToString:@"xai"]) [b performClick:nil];
         }
         NSButton *go2 = buttonTitled(done.window, @"Sign in to these");
         [go2 performClick:nil];

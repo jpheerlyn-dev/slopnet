@@ -35,6 +35,7 @@ import tempfile
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -49,6 +50,9 @@ ARM_CHECKS = (
     "slop-lint.sh",
 )
 VPS_AGENT_ACCOUNT = "slopnet"
+VPS_MANAGED_DIRECTORY = pathlib.Path("/var/lib/slopnet")
+VPS_ACCOUNT_MARKER = VPS_MANAGED_DIRECTORY / "runtime-account-v2"
+VPS_INSTALL_MARKER = VPS_MANAGED_DIRECTORY / "install-v2"
 VPS_AGENT_LIMITS = {
     "memory_bytes": 2 * 1024 * 1024 * 1024,
     "processes": 128,
@@ -794,6 +798,46 @@ def is_ubuntu_2404():
         return False
 
 
+def _protected_profile_bytes(path, owner_uid=0):
+    """Read one protected regular file without following a final symlink."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        state = os.fstat(descriptor)
+        if (not stat.S_ISREG(state.st_mode) or state.st_uid != owner_uid or
+                state.st_mode & 0o022 or state.st_nlink != 1):
+            raise PermissionError(f"unsafe protected file: {path}")
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            return handle.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _install_profile_exclusive(source, target, owner_uid=0):
+    """Create a protected profile once; never truncate or follow a collision."""
+    contents = _protected_profile_bytes(source, owner_uid)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(target, flags, 0o644)
+    try:
+        state = os.fstat(descriptor)
+        if not stat.S_ISREG(state.st_mode) or state.st_uid != owner_uid:
+            raise PermissionError(f"unsafe new protected file: {target}")
+        os.fchmod(descriptor, 0o644)
+        remaining = memoryview(contents)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("short write while installing protected profile")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    if _protected_profile_bytes(target, owner_uid) != contents:
+        raise OSError("protected profile changed while it was installed")
+
+
 def enable_ubuntu_bwrap_profile(account):
     """Offer Ubuntu's executable-specific bwrap profile; keep the global policy."""
     probe = sandbox_probe_for_account(account)
@@ -802,9 +846,11 @@ def enable_ubuntu_bwrap_profile(account):
 
     source = pathlib.Path("/usr/share/apparmor/extra-profiles/bwrap-userns-restrict")
     target = pathlib.Path("/etc/apparmor.d/bwrap-userns-restrict")
-    if target.is_file():
+    if os.path.lexists(target):
         try:
-            profile_matches = source.is_file() and source.read_bytes() == target.read_bytes()
+            profile_matches = (
+                _protected_profile_bytes(source) == _protected_profile_bytes(target)
+            )
         except OSError:
             profile_matches = False
         if not profile_matches:
@@ -845,7 +891,7 @@ def enable_ubuntu_bwrap_profile(account):
              "This server keeps blocking Codex's workspace-only sandbox.",
              "When ready, re-run: slopnet setup --vps and approve the narrow profile")
     installed = subprocess.run([installer, "install", "-y", "apparmor-profiles", "apparmor-utils"])
-    if installed.returncode != 0 or not source.is_file():
+    if installed.returncode != 0:
         fail("Ubuntu's Bubblewrap AppArmor profile package was not installed.",
              "SlopNet did not alter the global AppArmor user-namespace restriction.",
              "Read the package-manager error, then re-run: slopnet setup --vps")
@@ -855,8 +901,7 @@ def enable_ubuntu_bwrap_profile(account):
              "SlopNet stopped before loading a partial security policy.",
              "Install apparmor-utils, then re-run: slopnet setup --vps")
     try:
-        shutil.copyfile(source, target)
-        target.chmod(0o644)
+        _install_profile_exclusive(source, target)
     except OSError:
         fail("Could not place Ubuntu's Bubblewrap AppArmor profile.",
              "SlopNet stopped before changing the active AppArmor policy.",
@@ -904,6 +949,189 @@ def bootstrap_vps_account(root):
         fail("Server setup currently supports Linux servers only.",
              "The safe runtime-account bootstrap uses standard Linux tools.",
              "Run normal slopnet setup here, or use a supported Linux server")
+    def require_root_marker(path, expected, description):
+        try:
+            marker = path.lstat()
+        except OSError:
+            fail(f"The existing {description} has no SlopNet ownership marker.",
+                 "SlopNet will not adopt or later delete an account or folder it did not prove it created.",
+                 "Archive the name collision yourself, then start server setup again")
+        if (not stat.S_ISREG(marker.st_mode) or marker.st_uid != 0 or
+                stat.S_IMODE(marker.st_mode) & 0o022):
+            fail(f"The {description} ownership marker is not protected by root.",
+                 "The runtime account must not be able to grant SlopNet permission to delete server data.",
+                 "Restore the root-owned marker or inspect this server before retrying")
+        try:
+            actual = path.read_text(encoding="utf-8")
+        except OSError:
+            actual = ""
+        if actual != expected:
+            fail(f"The {description} ownership marker does not name this resource.",
+                 "A marker for something else is not permission to change this account or folder.",
+                 "Inspect the marker and the server manually before retrying")
+
+    def atomic_root_receipt(path, contents):
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{path.name}.", dir=str(VPS_MANAGED_DIRECTORY)
+        )
+        try:
+            os.fchmod(descriptor, 0o644)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as receipt:
+                descriptor = -1
+                receipt.write(contents)
+                receipt.flush()
+                os.fsync(receipt.fileno())
+            os.replace(temporary, path)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+
+    def validate_runtime_account(entry):
+        if entry.pw_uid == 0:
+            fail("The SlopNet runtime account resolves to root.",
+                 "Provider credentials and agent work must not run as root.",
+                 "Choose a normal non-root account before retrying")
+        if pathlib.Path(entry.pw_dir) != pathlib.Path("/home/slopnet"):
+            fail("The slopnet runtime account has an unexpected home folder.",
+                 "Install, login and uninstall must agree on one private directory before writing credentials.",
+                 "Archive the name collision yourself, then start server setup again")
+        if entry.pw_shell != "/usr/sbin/nologin":
+            fail("The slopnet runtime account still has a login shell.",
+                 "The required password lock and nologin shell are separate, layered account controls.",
+                 "Inspect the account, set its shell to /usr/sbin/nologin, then retry")
+        try:
+            import grp
+            private_group = grp.getgrgid(entry.pw_gid)
+        except (ImportError, KeyError):
+            private_group = None
+        if private_group is None or private_group.gr_name != VPS_AGENT_ACCOUNT:
+            fail("The SlopNet runtime account has no matching private primary group.",
+                 "A shared or privileged primary group would let coding tools cross the locked-account boundary.",
+                 "Inspect the account and its groups manually before retrying")
+        memberships = subprocess.run(
+            ["id", "-G", VPS_AGENT_ACCOUNT], text=True, capture_output=True
+        )
+        groups = memberships.stdout.split() if memberships.returncode == 0 else []
+        if groups != [str(entry.pw_gid)]:
+            fail("The SlopNet runtime account belongs to an extra group.",
+                 "Membership in groups such as sudo, docker or lxd can grant host-level access to coding tools.",
+                 "Remove every supplementary group from slopnet, then retry")
+        passwd_command = shutil.which("passwd")
+        if not passwd_command:
+            fail("This Linux server has no passwd status command.",
+                 "SlopNet cannot prove that its runtime account is locked against login.",
+                 "Install the standard account-management tools, then retry")
+        password = subprocess.run(
+            [passwd_command, "-S", VPS_AGENT_ACCOUNT], text=True,
+            capture_output=True,
+        )
+        fields = password.stdout.split()
+        if password.returncode != 0 or len(fields) < 2 or fields[1] not in ("L", "LK"):
+            fail("The SlopNet runtime account is not password-locked.",
+                 "This account is only for dropped-privilege processes and must not be a server login.",
+                 "Lock the slopnet password and inspect its SSH access before retrying")
+        home = pathlib.Path(entry.pw_dir)
+        try:
+            home_state = home.lstat()
+        except OSError:
+            home_state = None
+        if (home_state is None or not stat.S_ISDIR(home_state.st_mode) or
+                home_state.st_uid != entry.pw_uid):
+            fail("The slopnet runtime home is redirected or has the wrong owner.",
+                 "A path name alone cannot identify files a later uninstall may remove.",
+                 "Inspect /home/slopnet manually before retrying")
+        return home, home_state
+
+    def runtime_receipt(entry, home_state):
+        return (
+            "kind=runtime-account-v2\n"
+            f"name={VPS_AGENT_ACCOUNT}\n"
+            f"uid={entry.pw_uid}\n"
+            f"gid={entry.pw_gid}\n"
+            f"home={entry.pw_dir}\n"
+            f"shell={entry.pw_shell}\n"
+            f"home_dev={home_state.st_dev}\n"
+            f"home_ino={home_state.st_ino}\n"
+        )
+
+    def install_receipt(target):
+        try:
+            target_state = target.lstat()
+        except OSError:
+            target_state = None
+        if (target_state is None or not stat.S_ISDIR(target_state.st_mode) or
+                target_state.st_uid != 0 or stat.S_IMODE(target_state.st_mode) & 0o022):
+            fail("The managed SlopNet install is redirected or writable outside root.",
+                 "Root setup cannot execute code selected by the runtime account.",
+                 "Prepare a fresh protected SlopNet release through the Mac app")
+        def git_value(*arguments):
+            result = subprocess.run(
+                ["git", "-C", str(target), *arguments],
+                text=True, capture_output=True,
+            )
+            return result.stdout.strip() if result.returncode == 0 else ""
+        commit = git_value("rev-parse", "HEAD")
+        release = git_value("describe", "--tags", "--exact-match", "HEAD")
+        if (not re.fullmatch(r"[0-9a-f]{40,64}", commit) or
+                not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", release) or
+                git_value("rev-parse", f"refs/tags/{release}^{{commit}}") != commit or
+                git_value("remote", "get-url", "origin") !=
+                    "https://github.com/jpheerlyn-dev/slopnet.git" or
+                git_value("status", "--porcelain", "--untracked-files=all")):
+            fail("The managed SlopNet install is not an exact released commit.",
+                 "A mutable branch or moved tag is not safe root setup code.",
+                 "Prepare the server from the verified release app again")
+        return (
+            "kind=install-v2\n"
+            f"path={target}\n"
+            f"dev={target_state.st_dev}\n"
+            f"ino={target_state.st_ino}\n"
+            f"release={release}\n"
+            f"commit={commit}\n"
+        )
+
+    try:
+        managed = VPS_MANAGED_DIRECTORY.lstat()
+    except OSError:
+        fail("SlopNet's server management folder is missing.",
+             "Ownership receipts are trustworthy only inside the protected folder made by setup.",
+             "Prepare the server through the SlopNet app, then retry")
+    if (not stat.S_ISDIR(managed.st_mode) or managed.st_uid != 0 or
+            stat.S_IMODE(managed.st_mode) & 0o022):
+        fail("SlopNet's server management folder is not protected by root.",
+             "A writable or redirected marker folder cannot prove which account and install SlopNet owns.",
+             "Inspect /var/lib/slopnet manually before retrying")
+    allowed_receipts = {
+        VPS_ACCOUNT_MARKER.name, VPS_INSTALL_MARKER.name, "release-v1",
+        "approved-build-v1",
+    }
+    try:
+        unknown_receipts = [
+            child.name for child in VPS_MANAGED_DIRECTORY.iterdir()
+            if child.name not in allowed_receipts
+        ]
+    except OSError:
+        unknown_receipts = ["unreadable"]
+    if unknown_receipts:
+        fail("SlopNet's server management folder contains an unknown receipt.",
+             "Legacy or unrelated state is not permission to adopt an account or install.",
+             "Inspect /var/lib/slopnet manually before retrying")
+
+    # The checkout is root-owned code. Its one mutable crew choice is handed
+    # to the runtime account below; no server agent can replace the Python that
+    # a later setup invocation runs as root.
+    target = root
+    if target != pathlib.Path("/opt/slopnet"):
+        fail("Server setup is not running from SlopNet's managed install.",
+             "Root setup executes code, so an arbitrary checkout is not a trusted source.",
+             "Prepare the server through the SlopNet app, which installs /opt/slopnet first")
+    require_root_marker(VPS_INSTALL_MARKER, install_receipt(target),
+                        "SlopNet install")
+
     try:
         import pwd
         entry = pwd.getpwnam(VPS_AGENT_ACCOUNT)
@@ -914,14 +1142,23 @@ def bootstrap_vps_account(root):
              "Server setup needs a non-root account for provider credentials.",
              "Use a standard Linux server, then re-run: slopnet setup --vps")
 
-    target = root.resolve()
-    if target == pathlib.Path("/"):
-        fail("Refusing to prepare the filesystem root as a SlopNet workspace.",
-             "Only one checked-out project may move to the runtime account.",
-             "cd into the SlopNet checkout, then re-run: slopnet setup --vps")
+    marker_exists = os.path.lexists(VPS_ACCOUNT_MARKER)
+    created_account = False
+    if entry is not None:
+        home, home_state = validate_runtime_account(entry)
+        require_root_marker(VPS_ACCOUNT_MARKER, runtime_receipt(entry, home_state),
+                            "slopnet runtime account")
+    elif marker_exists:
+        fail("SlopNet's runtime-account marker exists but the account does not.",
+             "The server is only partly installed, so automatic ownership changes are unsafe.",
+             "Inspect the stale marker, then retry server setup")
+    elif os.path.lexists("/home/slopnet"):
+        fail("The slopnet account is absent but /home/slopnet already exists.",
+             "Creating the account could adopt somebody else's files, which a later uninstall might delete.",
+             "Archive the name collision yourself, then start server setup again")
     action = (
         f"create the locked local account {VPS_AGENT_ACCOUNT} (if missing), "
-        f"make its home private, and change ownership only of {target}"
+        "make its home private, and let it write only SlopNet's crew choice"
     )
     print("Server setup runs agents as a non-root account. It will " + action + ".")
     print("It does not change root SSH access, password SSH access, firewall rules, or ports.")
@@ -935,8 +1172,12 @@ def bootstrap_vps_account(root):
             fail("The Linux useradd command is unavailable.",
                  "SlopNet cannot create a private runtime account safely.",
                  "Create a non-root SlopNet account yourself, then re-run setup")
+        if not pathlib.Path("/usr/sbin/nologin").is_file():
+            fail("This Linux server has no /usr/sbin/nologin program.",
+                 "The private runtime account must not accept direct SSH logins.",
+                 "Install the standard login utilities, then retry server setup")
         created = subprocess.run(
-            [useradd, "--create-home", "--user-group", "--shell", "/bin/bash",
+            [useradd, "--create-home", "--user-group", "--shell", "/usr/sbin/nologin",
              "--password", "!", VPS_AGENT_ACCOUNT],
             text=True,
         )
@@ -946,22 +1187,49 @@ def bootstrap_vps_account(root):
                  "Read the command error above, fix the host account setup, then retry")
         import pwd
         entry = pwd.getpwnam(VPS_AGENT_ACCOUNT)
-    if entry.pw_uid == 0:
-        fail("The SlopNet runtime account resolves to root.",
-             "Provider credentials and agent work must not run as root.",
-             "Choose a normal non-root account before retrying")
+        created_account = True
 
-    home = pathlib.Path(entry.pw_dir)
+    home, home_state = validate_runtime_account(entry)
+    if created_account:
+        try:
+            VPS_MANAGED_DIRECTORY.mkdir(mode=0o755, parents=True, exist_ok=True)
+            directory = VPS_MANAGED_DIRECTORY.lstat()
+            if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != 0 or
+                    stat.S_IMODE(directory.st_mode) & 0o022):
+                raise OSError("management directory is not root-protected")
+            atomic_root_receipt(VPS_ACCOUNT_MARKER,
+                                runtime_receipt(entry, home_state))
+        except OSError:
+            fail("The runtime account was created but its ownership receipt could not be protected.",
+                 "SlopNet will never delete an account identified only by its name.",
+                 "Inspect /var/lib/slopnet and finish or archive this partial setup")
+    crew_directory = target / ".slopnet"
+    crew_choice = target / ".slopnet" / "crew.json"
     try:
+        home_state = home.lstat()
+        if (not stat.S_ISDIR(home_state.st_mode) or home_state.st_uid != entry.pw_uid):
+            raise OSError("the runtime home is redirected or has the wrong owner")
         home.chmod(0o700)
-        subprocess.run(
-            ["chown", "-R", f"{VPS_AGENT_ACCOUNT}:{VPS_AGENT_ACCOUNT}", "--", str(target)],
-            check=True,
-        )
-    except (OSError, subprocess.CalledProcessError):
+        crew_directory.mkdir(mode=0o755, exist_ok=True)
+        crew_directory_state = crew_directory.lstat()
+        if (not stat.S_ISDIR(crew_directory_state.st_mode) or
+                crew_directory_state.st_uid != 0 or
+                stat.S_IMODE(crew_directory_state.st_mode) & 0o022):
+            raise OSError("the crew-choice directory is not protected by root")
+        if not os.path.lexists(crew_choice):
+            descriptor = os.open(crew_choice, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(descriptor)
+        crew_state = crew_choice.lstat()
+        if (not stat.S_ISREG(crew_state.st_mode) or
+                crew_state.st_uid not in (0, entry.pw_uid) or
+                stat.S_IMODE(crew_state.st_mode) & 0o022):
+            raise OSError("the crew-choice file is redirected or writable by another account")
+        os.chown(crew_choice, entry.pw_uid, entry.pw_gid)
+        crew_choice.chmod(0o600)
+    except OSError:
         fail("Could not prepare the private SlopNet runtime workspace.",
-             "Setup stopped before installing or logging into any coding tool.",
-             "Fix the account or workspace ownership shown above, then retry")
+             "The released code stayed root-owned and setup stopped before any provider login.",
+             "Fix the account or crew-file ownership shown above, then retry")
 
     ensure_vps_sandbox_prerequisite()
     enable_ubuntu_bwrap_profile(VPS_AGENT_ACCOUNT)
@@ -1017,10 +1285,10 @@ CODING_APPS = {
         "name": "Antigravity",
         "installer": "https://antigravity.google/cli/install.sh",
         "binary": "agy",
-        # No login subcommand: `agy help` lists agent, changelog, install,
-        # models, plugin and update, and nothing else. It signs in when
-        # launched, so launching it is the sign-in.
-        "login": [],
+        # The real login recording was captured from this command. SlopNet
+        # still refuses it for build crews below until its unattended agent
+        # invocation has a separate edit proof.
+        "login": ["login"],
         "status": None,
     },
     "xai": {
@@ -1192,6 +1460,10 @@ def cmd_vps_setup(root, args):
 
     # From here on somebody has chosen this coding app, so now it is fetched.
     app = coding_app_or_refuse(provider)
+    if app["binary"] not in crew.KNOWN_AGENTS:
+        fail(f"{app['name']} can run interactively, but it is not yet a proved SlopNet coding worker.",
+             "Signing in is not enough: SlopNet needs a verified one-job invocation before it can give this app project files.",
+             "Use a proved coding app for builds; Antigravity remains available as an interactive server tool")
     executable = crew.find_exe(app["binary"])
     if not executable:
         executable = install_coding_app_for_current_user(home, provider)
@@ -1237,11 +1509,12 @@ def cmd_vps_setup(root, args):
           f"in this account only.")
     try:
         crew.setup(root, ask_operator, print, automatic=True,
-                   resource_limits=VPS_AGENT_LIMITS)
+                   resource_limits=VPS_AGENT_LIMITS,
+                   required_agent=app["binary"])
     except crew.CrewError as exc:
         die(str(exc))
-    print("\n[OK] Server setup passed: Codex edited the disposable workspace and the proof was removed.")
-    print("Codex is now the one approved coding app for this server.")
+    print(f"\n[OK] Server setup passed: {app['name']} edited the disposable workspace and the proof was removed.")
+    print(f"{app['name']} is now the one approved coding app for this server.")
     print("SlopNet did not install or sign into any other coding app without your choice.")
     print("Next: create a project from the SlopNet app, then review its plan before any code runs.")
 

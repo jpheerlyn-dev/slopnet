@@ -11,13 +11,17 @@
 // have already done. Once a server is connected, setup lives in the
 // Settings window and this one offers the next real step instead.
 //
-// "Server" means anything you can reach over SSH: a rented box, a
-// dedicated machine, a home server, a Raspberry Pi.
+// The guided path currently means a Linux server reachable over SSH. The
+// built-in terminal-tool downloads have been proved only on x86-64 Linux.
 
 #import <Cocoa/Cocoa.h>
+#import <CommonCrypto/CommonDigest.h>
 #import <float.h>
+#import <sys/stat.h>
+#import <unistd.h>
 #import "SlopNetBrand.h"
 #import "SlopNetConsole.h"
+#import "SlopNetEntryView.h"
 #import "SlopNetSettings.h"
 #import "SlopNetWizard.h"
 
@@ -42,76 +46,90 @@ static NSString *const kGuideKey    = @"SlopNetGuideReady";
 // itself. The Setup guide button in the sidebar reopens it any time.
 static NSString *const kWizardKey   = @"SlopNetWizardDone";
 
-// NSTextView has no native placeholder on the oldest macOS version SlopNet
-// supports. Keep the tiny drawing behaviour here instead of putting a fake
-// label over the editor (which would steal clicks and accessibility focus).
-@class SlopNetConsole;
-
-@interface SlopNetEntryView : NSTextView
-@property(nonatomic, copy) NSString *prompt;
-/// The running program these keys belong to, when there is one.
-@property(nonatomic, weak) SlopNetConsole *console;
-@end
-
-@implementation SlopNetEntryView
-- (void)setPrompt:(NSString *)prompt {
-    _prompt = [prompt copy];
-    [self setNeedsDisplay:YES];
-}
-- (void)drawRect:(NSRect)dirtyRect {
-    [super drawRect:dirtyRect];
-    if (self.string.length == 0 && self.prompt.length > 0) {
-        NSDictionary *attributes = @{
-            NSFontAttributeName: self.font ?: [NSFont systemFontOfSize:12],
-            NSForegroundColorAttributeName: [NSColor placeholderTextColor],
-        };
-        // Line-fragment padding sits inside the container on top of the inset,
-        // and typed text begins after both. Drawing the placeholder at the
-        // inset alone put it five points to the left of where the caret rests,
-        // so the insertion point appeared to sit inside the first word.
-        CGFloat left = self.textContainerInset.width + self.textContainer.lineFragmentPadding;
-        [self.prompt drawAtPoint:NSMakePoint(left, self.textContainerInset.height + 1)
-                   withAttributes:attributes];
-    }
-}
-/// Send a key straight to the running program instead of editing text.
-///
-/// A full-screen program — a login menu, a file browser — reads arrow keys as
-/// escape sequences and Enter as a carriage return. Without this the operator
-/// could see such a menu and had no way to move in it, which is what made a
-/// sign-in look frozen.
-///
-/// Only while something is running, and only for keys that mean nothing in a
-/// half-typed sentence. Enter still sends what has been typed when there is
-/// anything typed, so an ordinary question is unaffected.
-- (void)keyDown:(NSEvent *)event {
-    if (!self.console.running) { [super keyDown:event]; return; }
-    SlopNetKey key; BOOL send = YES;
-    switch (event.keyCode) {
-        case 126: key = SlopNetKeyUp;     break;
-        case 125: key = SlopNetKeyDown;   break;
-        case 124: key = SlopNetKeyRight;  break;
-        case 123: key = SlopNetKeyLeft;   break;
-        case 53:  key = SlopNetKeyEscape; break;
-        case 48:  key = SlopNetKeyTab;    break;
-        case 36:                                  // return
-        case 76:
-            key = SlopNetKeyEnter;
-            send = (self.string.length == 0);
-            break;
-        default: send = NO; key = SlopNetKeyEnter; break;
-    }
-    // Ctrl-C, so a program can be interrupted the way it expects.
-    if ((event.modifierFlags & NSEventModifierFlagControl) &&
-        [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"c"]) {
-        key = SlopNetKeyInterrupt; send = YES;
-    }
-    if (!send) { [super keyDown:event]; return; }
-    [self.console sendKey:key];
+static BOOL SlopNetLocalFile(NSString *path, mode_t type, mode_t permissions,
+                             struct stat *state) {
+    struct stat found;
+    if (lstat(path.fileSystemRepresentation, &found) != 0) return NO;
+    if ((found.st_mode & S_IFMT) != type || (found.st_mode & 0777) != permissions ||
+        found.st_uid != geteuid()) return NO;
+    if (state != NULL) *state = found;
+    return YES;
 }
 
-- (void)didChangeText { [super didChangeText]; [self setNeedsDisplay:YES]; }
-@end
+static BOOL SlopNetLocalPathExists(NSString *path) {
+    struct stat ignored;
+    return lstat(path.fileSystemRepresentation, &ignored) == 0;
+}
+
+static NSString *SlopNetSHA256(NSData *data) {
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
+    NSMutableString *hex = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+    for (NSUInteger index = 0; index < CC_SHA256_DIGEST_LENGTH; index++) {
+        [hex appendFormat:@"%02x", digest[index]];
+    }
+    return hex;
+}
+
+static NSString *SlopNetDerivedPublicKey(NSString *privateKey) {
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh-keygen"];
+    task.arguments = @[@"-y", @"-P", @"", @"-f", privateKey];
+    NSPipe *output = [NSPipe pipe];
+    task.standardOutput = output;
+    task.standardError = [NSFileHandle fileHandleWithNullDevice];
+    if (![task launchAndReturnError:nil]) return nil;
+    [task waitUntilExit];
+    if (task.terminationStatus != 0) return nil;
+    NSData *data = [output.fileHandleForReading readDataToEndOfFile];
+    NSString *line = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    return [line stringByTrimmingCharactersInSet:NSCharacterSet.newlineCharacterSet];
+}
+
+static BOOL SlopNetProvedKeyPair(NSString *keyPath) {
+    NSString *publicPath = [keyPath stringByAppendingString:@".pub"];
+    NSString *receiptPath = [keyPath stringByAppendingString:@".receipt"];
+    NSString *sshDirectory = keyPath.stringByDeletingLastPathComponent;
+    struct stat directoryState, privateState, publicState, receiptState;
+    if (!SlopNetLocalFile(sshDirectory, S_IFDIR, 0700, &directoryState) ||
+        !SlopNetLocalFile(keyPath, S_IFREG, 0600, &privateState) ||
+        !SlopNetLocalFile(publicPath, S_IFREG, 0600, &publicState) ||
+        !SlopNetLocalFile(receiptPath, S_IFREG, 0600, &receiptState)) return NO;
+    (void)directoryState; (void)receiptState;
+    NSData *privateData = [NSData dataWithContentsOfFile:keyPath];
+    NSData *publicData = [NSData dataWithContentsOfFile:publicPath];
+    NSData *receiptData = [NSData dataWithContentsOfFile:receiptPath];
+    NSString *derived = SlopNetDerivedPublicKey(keyPath);
+    if (privateData == nil || publicData == nil || receiptData == nil ||
+        ![derived hasPrefix:@"ssh-ed25519 "]) return NO;
+    NSString *publicLine = [derived stringByAppendingString:@" slopnet-vps"];
+    NSData *expectedPublic = [[publicLine stringByAppendingString:@"\n"]
+        dataUsingEncoding:NSUTF8StringEncoding];
+    if (![publicData isEqualToData:expectedPublic]) return NO;
+    NSString *receipt = [NSString stringWithFormat:
+        @"kind=slopnet-ssh-key-v1\nprivate_dev=%llu\nprivate_ino=%llu\n"
+         @"public_dev=%llu\npublic_ino=%llu\nprivate_sha256=%@\npublic_sha256=%@\n"
+         @"public_line=%@\n",
+        (unsigned long long)privateState.st_dev, (unsigned long long)privateState.st_ino,
+        (unsigned long long)publicState.st_dev, (unsigned long long)publicState.st_ino,
+        SlopNetSHA256(privateData), SlopNetSHA256(publicData), publicLine];
+    return [receiptData isEqualToData:[receipt dataUsingEncoding:NSUTF8StringEncoding]];
+}
+
+static BOOL SlopNetProvedKnownHosts(NSString *knownHostsPath) {
+    NSString *receiptPath = [knownHostsPath stringByAppendingString:@".receipt"];
+    NSString *sshDirectory = knownHostsPath.stringByDeletingLastPathComponent;
+    struct stat directoryState, hostsState, receiptState;
+    if (!SlopNetLocalFile(sshDirectory, S_IFDIR, 0700, &directoryState) ||
+        !SlopNetLocalFile(knownHostsPath, S_IFREG, 0600, &hostsState) ||
+        !SlopNetLocalFile(receiptPath, S_IFREG, 0600, &receiptState)) return NO;
+    (void)directoryState; (void)receiptState;
+    NSData *receiptData = [NSData dataWithContentsOfFile:receiptPath];
+    NSString *receipt = [NSString stringWithFormat:
+        @"kind=slopnet-known-hosts-v1\nknown_hosts_dev=%llu\nknown_hosts_ino=%llu\n",
+        (unsigned long long)hostsState.st_dev, (unsigned long long)hostsState.st_ino];
+    return [receiptData isEqualToData:[receipt dataUsingEncoding:NSUTF8StringEncoding]];
+}
 
 // One box, one button, no modes. What a message means depends on where the
 // conversation has got to, not on a control the person had to set first.
@@ -139,6 +157,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, strong) NSTextField *statusText;
 @property(nonatomic, strong) NSStackView *historyStack;
 @property(nonatomic, strong) NSButton *settingsToggle;
+@property(nonatomic, strong) NSButton *graniteButton;
 
 // the server, remembered between launches
 @property(nonatomic, copy) NSString *host;
@@ -203,8 +222,17 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, assign) BOOL planningRunning;
 @property(nonatomic, assign) BOOL approvedBuildRunning;
 @property(nonatomic, assign) BOOL uninstalling;
+/// An interactive tool deliberately opened in the terminal from Settings.
+/// It gets a plainly-labelled route back to Granite, rather than a
+/// generic Stop button that sounds like it might close the whole app.
+@property(nonatomic, assign) BOOL toolRunning;
+@property(nonatomic, assign) BOOL returningToGranite;
+@property(nonatomic, assign) BOOL signInQueueActive;
+@property(nonatomic, assign) BOOL skippingSignIn;
 @property(nonatomic, copy) NSString *activeProjectName;
 @property(nonatomic, copy) NSString *plannedProjectName;
+/// Exact server Git commit containing the plan the person just read.
+@property(nonatomic, copy) NSString *plannedProjectCommit;
 @property(nonatomic, copy) NSString *localModelName;
 @property(nonatomic, assign) SlopNetTurn turn;
 /// What they asked to have built, held while the offer and the name are
@@ -445,6 +473,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     status.alignment = NSLayoutAttributeCenterY;
     status.spacing = 6;
 
+    self.graniteButton = [self sidebarButton:@"Granite"
+                                       action:@selector(returnToGranite:)];
     NSButton *newButton = [self sidebarButton:@"＋   New"
                                        action:@selector(newConversation:)];
 
@@ -471,6 +501,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     NSStackView *sidebar = [NSStackView stackViewWithViews:@[
         title, status,
         [self separator],
+        self.graniteButton,
         newButton,
         historyTitle, self.historyStack,
         spacer,
@@ -657,6 +688,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         self.statusDot.textColor = [NSColor systemGrayColor];
         self.statusText.stringValue = @"No server yet";
     }
+    // Granite is always visible, but a setup, install, plan or build is not a
+    // disposable terminal tab. The route home is live while an interactive
+    // tool or sign-in owns the console, and while the app is idle; the normal
+    // Stop control remains the deliberate way to interrupt other work.
+    self.graniteButton.enabled = !self.busy || self.toolRunning || self.signingIn != nil;
     // Not shown at all now: it is out of the composer stack. The guide is
     // named on the board above and in the sidebar, and a third caption sat
     // directly over the one control a person came here to use.
@@ -720,13 +756,53 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 /// anything. Chat apps solved this years ago: the button sends while the app is
 /// idle and stops while it is working.
 - (void)showSendOrStop:(BOOL)busy {
-    self.sendButton.title = busy ? @"■ Stop" : @"Send";
-    self.sendButton.action = busy ? @selector(stopPressed:) : @selector(sendPressed:);
+    BOOL backToGranite = busy && self.toolRunning;
+    self.sendButton.title = busy ? (backToGranite ? @"Back to Granite" : @"■ Stop") : @"Send";
+    self.sendButton.action = busy
+        ? (backToGranite ? @selector(returnToGranite:) : @selector(stopPressed:))
+        : @selector(sendPressed:);
     self.sendButton.enabled = YES;
     self.sendButton.keyEquivalent = busy ? @"" : @"\r";
 }
 
 - (void)stopPressed:(id)sender {
+    [self.console stop];
+}
+
+/// Leave whatever owns the terminal and restore the ordinary Granite entry.
+///
+/// SlopNet starts Zellij with forced-close behaviour set to detach, so ending
+/// this Mac's SSH client leaves that named server session available to attach
+/// again. Other tools simply end when their terminal ends.
+/// The button is also permanent in the sidebar: a full-screen program can
+/// never hide the action that leaves it.
+- (void)returnToGranite:(id)sender {
+    // A permanent navigation row must not become an accidental second Stop
+    // button for a server install, plan, build or guide response.
+    if (self.busy && !self.toolRunning && self.signingIn == nil) return;
+
+    if (!self.console.running) {
+        self.toolRunning = NO;
+        self.returningToGranite = NO;
+        [self setBusy:NO];
+        [self showTypingBar];
+        return;
+    }
+
+    self.returningToGranite = YES;
+    [self endActivity];
+    self.promptBar.hidden = YES;
+    self.skipButton.hidden = YES;
+    self.signInPage = nil;
+    self.signInCode = nil;
+    self.openPageButton.hidden = YES;
+    self.codeButton.hidden = YES;
+    // Do not let a cancelled sign-in immediately advance to the next queued
+    // provider after the terminal closes. Granite means leave the whole run.
+    self.signingIn = nil;
+    self.skippingSignIn = NO;
+    self.signInQueueActive = NO;
+    [self.signInQueue removeAllObjects];
     [self.console stop];
 }
 
@@ -797,6 +873,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 - (void)newConversation:(id)sender {
     self.conversationURL = nil;
     self.plannedProjectName = nil;
+    self.plannedProjectCommit = nil;
     self.activeProjectName = nil;
     self.turn = SlopNetTurnTalking;
     self.pendingRequest = nil;
@@ -815,6 +892,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     if (text.length == 0) return;
     self.conversationURL = url;
     self.plannedProjectName = nil;
+    self.plannedProjectCommit = nil;
     self.turn = SlopNetTurnTalking;
     NSRange marker = [text rangeOfString:@"## Request\n\n" options:NSBackwardsSearch];
     if (marker.location != NSNotFound) {
@@ -868,7 +946,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 // Only the three details from your provider's welcome email are kept, in
 // macOS's own preferences for this app. A password is NEVER stored: it goes
 // from the console straight to your server. The SSH key that setup creates
-// stays in the macOS Keychain. Nothing is written into the SlopNet folder,
+// stays as a private file in this Mac account's .ssh folder. Nothing is
+// written into the SlopNet folder,
 // so none of it can be committed or uploaded by accident.
 - (void)remember {
     NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
@@ -1039,17 +1118,21 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         self.movingDirectory = YES;
         [self runOnServerInWorkingDirectory:
             [NSString stringWithFormat:@"cd %@ && pwd", target]
-                                      title:[NSString stringWithFormat:@"cd %@", target]];
+                                      title:[NSString stringWithFormat:@"cd %@", target]
+                                interactive:NO];
         return;
     }
     [self runOnServerInWorkingDirectory:command
-                                  title:[NSString stringWithFormat:@"Running %@", command]];
+                                  title:[NSString stringWithFormat:@"Running %@", command]
+                            interactive:YES];
 }
 
-- (void)runOnServerInWorkingDirectory:(NSString *)command title:(NSString *)title {
+- (void)runOnServerInWorkingDirectory:(NSString *)command
+                                 title:(NSString *)title
+                           interactive:(BOOL)interactive {
     NSString *full = [NSString stringWithFormat:@"cd %@ 2>/dev/null || cd /home/slopnet; %@",
                       self.workingDirectory, command];
-    [self settings:nil runOnServer:full title:title];
+    [self startServerCommand:full title:title interactive:interactive];
 }
 
 - (void)remember:(NSString *)line {
@@ -1291,11 +1374,19 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.signInQueue = [providers mutableCopy];
     self.signedIn = [NSMutableArray array];
     self.skipped = [NSMutableArray array];
+    self.signInQueueActive = YES;
     [self startNextCodingAppSignIn];
 }
 
 /// Put the ordinary typing box back and hide every prompt control.
 - (void)showTypingBar {
+    // A browser offer belongs only to the program run that printed it. Keeping
+    // these objects after returning to Granite lets a later prompt resurrect
+    // the old provider's page and one-time code.
+    self.signInPage = nil;
+    self.signInCode = nil;
+    self.openPageButton.hidden = YES;
+    self.codeButton.hidden = YES;
     self.promptBar.hidden = YES;
     self.skipButton.hidden = YES;
     self.entryScroller.hidden = NO;
@@ -1341,7 +1432,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                 caption:[NSString stringWithFormat:@"Waiting for you to sign in to %@…", name]];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
-                           arguments:@[script, self.host, self.port, self.username, provider]]) {
+                           arguments:@[script, self.host, self.port, self.username,
+                                       provider, [self pinnedRelease]]]) {
         [self setBusy:NO];
         [self codingAppSignInEnded:NO];
     }
@@ -1350,6 +1442,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 /// A person must always be able to leave a sign-in that will not complete.
 /// Without this, one coding app refusing a login strands the whole first run.
 - (void)showSkipControl:(NSString *)name {
+    // A queued provider starts with no browser offer of its own. Clear the
+    // previous provider's offer before this program can print another prompt.
+    self.signInPage = nil;
+    self.signInCode = nil;
     self.promptBar.hidden = NO;
     // The typing box STAYS. A coding app signing in asks its own questions —
     // Gemini opens with "Do you trust the files in this folder?" and a numbered
@@ -1366,8 +1462,14 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.openPageButton.hidden = YES;
     self.codeButton.hidden = YES;
     self.skipButton.hidden = NO;
+    self.skipButton.title = self.signInQueueActive ? @"Skip this one" : @"Back to Granite";
+    self.skipButton.action = self.signInQueueActive
+        ? @selector(skipThisSignIn:) : @selector(returnToGranite:);
+    // Antigravity becomes the interactive app after browser authorisation;
+    // there is no separate process exit that means "setup is over". Describe
+    // the durable truth instead of leaving a setup claim on screen forever.
     self.promptLabel.stringValue =
-        [NSString stringWithFormat:@"Setting up %@. Answer anything it asks below.", name];
+        [NSString stringWithFormat:@"%@ is using the console.", name];
     self.promptLabel.textColor = [NSColor labelColor];
     [self.window makeFirstResponder:self.entry];
 }
@@ -1385,14 +1487,14 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         [self.window makeFirstResponder:self.entry];
         return;
     }
-    [self.skipped addObject:self.signingIn];
     [self.console note:[NSString stringWithFormat:@"\nSkipped %@. You can sign in to it "
                                                   @"later from Settings.",
                         [SlopNetBrand displayNameForProvider:self.signingIn] ?: self.signingIn]];
-    self.signingIn = nil;
+    // Wait for this PTY to finish before launching the next one. Starting it
+    // here races the old process: runExecutable: refuses because the console
+    // is still occupied, and the whole remaining queue can be skipped.
+    self.skippingSignIn = YES;
     [self.console stop];
-    [self setBusy:NO];
-    [self startNextCodingAppSignIn];
 }
 
 /// One sign-in ended, for any reason. Record it and move to the next.
@@ -1404,6 +1506,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 }
 
 - (void)finishCodingAppSignIns {
+    self.signInQueueActive = NO;
+    self.skippingSignIn = NO;
     self.skipButton.hidden = YES;
     [self endActivity];
     [self setBusy:NO];
@@ -1456,13 +1560,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 - (void)openServerHelp:(id)sender {
     [self.console note:
-        @"\nSlopNet works with ANY computer you can reach over SSH:\n"
-        @"  • a rented server (Hetzner, Contabo, Hostinger and many others)\n"
-        @"  • a dedicated machine you already pay for\n"
-        @"  • a home server, or a Raspberry Pi on your own network\n"
+        @"\nSlopNet setup currently supports a Linux server you can reach over SSH:\n"
+        @"  • a rented Linux server\n"
+        @"  • a dedicated or home Linux machine\n"
         @"You need three things from it: its address, a login name, and the "
         @"port (almost always 22). Put them in Settings, bottom left.\n"
-        @"A small Linux machine is plenty to start with."];
+        @"The built-in terminal-tool downloads are currently proved only on "
+         "x86-64 Linux. ARM machines such as Raspberry Pi are not yet proved."];
 }
 
 - (void)clearConsole:(id)sender {
@@ -1599,9 +1703,67 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 ///
 /// The command goes over base64 so quoting, pipes and apostrophes inside it
 /// cannot break the wrapper — the same approach the setup scripts use.
-+ (NSString *)asRuntimeAccount:(NSString *)command asRoot:(BOOL)root {
++ (NSString *)asRuntimeAccount:(NSString *)command
+                         asRoot:(BOOL)root
+                        release:(NSString *)release {
     NSData *raw = [command dataUsingEncoding:NSUTF8StringEncoding];
     NSString *encoded = [raw base64EncodedStringWithOptions:0];
+    NSData *releaseRaw = [release dataUsingEncoding:NSUTF8StringEncoding];
+    NSString *releaseEncoded = [releaseRaw base64EncodedStringWithOptions:0];
+    NSMutableString *guard = [NSMutableString stringWithFormat:
+        @"set -eu\nPATH=/usr/sbin:/usr/bin:/sbin:/bin\nexport PATH\n"
+         "release=$(/usr/bin/printf %%s '%@' | /usr/bin/base64 -d)\n", releaseEncoded];
+    [guard appendString:
+        @"refuse() { echo 'This server is not prepared for this copy of SlopNet. "
+         "Open Settings and prepare it again; nothing ran.'; exit 1; }\n"
+         "[ \"$(uname -s)\" = Linux ] || refuse\n"
+         "[ \"$(id -u)\" = 0 ] || refuse\n"
+         "safe_marker() { marker=$1; expected=$2; "
+         "[ -d /var/lib/slopnet ] && [ ! -L /var/lib/slopnet ] || return 1; "
+         "[ \"$(stat -c %u /var/lib/slopnet)\" = 0 ] || return 1; "
+         "[ -z \"$(find /var/lib/slopnet -maxdepth 0 -perm /022 -print -quit)\" ] || return 1; "
+         "[ -f \"$marker\" ] && [ ! -L \"$marker\" ] || return 1; "
+         "[ \"$(stat -c %u \"$marker\")\" = 0 ] || return 1; "
+         "[ -z \"$(find \"$marker\" -maxdepth 0 -perm /022 -print -quit)\" ] || return 1; "
+         "[ \"$(cat \"$marker\")\" = \"$expected\" ]; }\n"
+         "runtime_receipt() { uid=$(id -u slopnet 2>/dev/null) || return 1; "
+         "gid=$(id -g slopnet 2>/dev/null) || return 1; "
+         "home=$(getent passwd slopnet | cut -d: -f6); "
+         "shell=$(getent passwd slopnet | cut -d: -f7); "
+         "[ \"$uid\" -ne 0 ] && [ \"$home\" = /home/slopnet ] && "
+         "[ \"$shell\" = /usr/sbin/nologin ] || return 1; "
+         "[ -d \"$home\" ] && [ ! -L \"$home\" ] && "
+         "[ \"$(stat -c %u \"$home\")\" = \"$uid\" ] || return 1; "
+         "[ \"$(stat -c %a \"$home\")\" = 700 ] && "
+         "[ \"$(getent group \"$gid\" | cut -d: -f1)\" = slopnet ] || return 1; "
+         "[ \"$(id -G slopnet)\" = \"$gid\" ] || return 1; "
+         "state=$(passwd -S slopnet 2>/dev/null | awk '{print $2}'); "
+         "[ \"$state\" = L ] || [ \"$state\" = LK ] || return 1; "
+         "printf 'kind=runtime-account-v2\\nname=slopnet\\nuid=%s\\ngid=%s\\n"
+         "home=/home/slopnet\\nshell=/usr/sbin/nologin\\nhome_dev=%s\\nhome_ino=%s' \"$uid\" \"$gid\" "
+         "\"$(stat -c %d \"$home\")\" \"$(stat -c %i \"$home\")\"; }\n"
+         "[ -d /opt/slopnet ] && [ ! -L /opt/slopnet ] && "
+         "[ \"$(stat -c %u /opt/slopnet)\" = 0 ] || refuse\n"
+         "[ -z \"$(find /opt/slopnet -maxdepth 0 -perm /022 -print -quit)\" ] || refuse\n"
+         "[ \"$(git -C /opt/slopnet remote get-url origin)\" = "
+         "https://github.com/jpheerlyn-dev/slopnet.git ] || refuse\n"
+         "commit=$(git -C /opt/slopnet rev-parse \"refs/tags/$release^{commit}\" 2>/dev/null) || refuse\n"
+         "[ \"$(git -C /opt/slopnet rev-parse HEAD)\" = \"$commit\" ] || refuse\n"
+         "git -C /opt/slopnet diff --quiet \"$commit\" -- && "
+         "[ -z \"$(git -C /opt/slopnet status --porcelain --untracked-files=all)\" ] || refuse\n"
+         "account=$(runtime_receipt) || refuse\n"
+         "safe_marker /var/lib/slopnet/runtime-account-v2 \"$account\" || refuse\n"
+         "install=$(printf 'kind=install-v2\\npath=/opt/slopnet\\ndev=%s\\nino=%s\\n"
+         "release=%s\\ncommit=%s' \"$(stat -c %d /opt/slopnet)\" "
+         "\"$(stat -c %i /opt/slopnet)\" \"$release\" \"$commit\")\n"
+         "safe_marker /var/lib/slopnet/install-v2 \"$install\" || refuse\n"
+         "safe_marker /var/lib/slopnet/release-v1 \"release=$release\" || refuse\n"
+         "uid=$(id -u slopnet 2>/dev/null) || refuse\n"
+         "home=$(getent passwd slopnet | cut -d: -f6)\n"
+         "[ \"$home\" = /home/slopnet ] && [ -d \"$home\" ] && [ ! -L \"$home\" ] || refuse\n"
+         "[ \"$(stat -c %u \"$home\")\" = \"$uid\" ] || refuse\n"];
+    NSString *guardEncoded = [[guard dataUsingEncoding:NSUTF8StringEncoding]
+        base64EncodedStringWithOptions:0];
     // A runtime directory, and a working directory this account can read.
     //
     // The locked account never logs in, so it is not given the runtime
@@ -1611,26 +1773,48 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // that puts itself into the background dies changing directory. Both were
     // found by running the real thing rather than by reading about it.
     NSString *runuser =
-        @"runuser -u slopnet -- env HOME=/home/slopnet "
+        @"/usr/sbin/runuser -u slopnet -- /usr/bin/env HOME=/home/slopnet "
         @"XDG_RUNTIME_DIR=/home/slopnet/.run "
         @"PATH=/opt/slopnet:/home/slopnet/.local/bin:"
+        @"/home/slopnet/.kimi-code/bin:"
         @"/home/slopnet/.local/node_modules/.bin:/usr/local/bin:/usr/bin:/bin "
-        @"sh -c \"mkdir -p /home/slopnet/.run; chmod 700 /home/slopnet/.run; "
-        @"cd /home/slopnet; exec sh\"";
-    return [NSString stringWithFormat:@"printf %%s '%@' | base64 -d | %@%@",
-            encoded, root ? @"" : @"sudo ", runuser];
+        @"/bin/sh -c \"cd /home/slopnet; exec /bin/sh\"";
+    // Everything below this home is controlled by the locked account. Create
+    // its runtime paths only after dropping privilege: following a path there
+    // with root install/chown would let a pre-planted symlink redirect the
+    // privileged operation. Old root-owned drift therefore fails closed and
+    // must be inspected rather than silently "repaired".
+    NSString *privilege = root ? @"" : @"/usr/bin/sudo ";
+    NSString *prepare = [NSString stringWithFormat:
+        @"%@/usr/sbin/runuser -u slopnet -- /bin/sh -c 'set -eu; umask 077; "
+         "for d in /home/slopnet/.run /home/slopnet/.local "
+         "/home/slopnet/.local/share; do "
+         "[ ! -L \"$d\" ] || exit 1; "
+         "if [ -e \"$d\" ]; then [ -d \"$d\" ] || exit 1; "
+         "else /bin/mkdir -- \"$d\"; fi; done; "
+         "/bin/chmod 700 /home/slopnet/.run'",
+        privilege];
+    return [NSString stringWithFormat:
+        @"PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
+         "/usr/bin/printf %%s '%@' | /usr/bin/base64 -d | %@/bin/sh && %@ && "
+         "/usr/bin/printf %%s '%@' | /usr/bin/base64 -d | %@%@",
+        guardEncoded, privilege, prepare, encoded, privilege, runuser];
 }
 
 /// The release this copy of the app expects on a server, read from the
 /// installer it ships with so there is one place it is written down.
 - (NSString *)pinnedRelease {
+#ifdef SLOPNET_NO_MAIN
+    NSString *testing = NSProcessInfo.processInfo.environment[@"SLOPNET_PINNED_RELEASE"];
+    if (testing.length > 0) return testing;
+#endif
     NSString *script = [self helper:@"slopnet-vps-onboard"];
     NSString *text = script ? [NSString stringWithContentsOfFile:script
                                                         encoding:NSUTF8StringEncoding
                                                            error:nil] : nil;
     if (text == nil) return @"";
     NSRegularExpression *pin = [NSRegularExpression regularExpressionWithPattern:
-        @"slopnet_release=\"([^\"]+)\"" options:0 error:nil];
+        @"(?m)^slopnet_release=\"(v[0-9]+\\.[0-9]+\\.[0-9]+)\"$" options:0 error:nil];
     NSTextCheckingResult *found = [pin firstMatchInString:text options:0
                                                     range:NSMakeRange(0, text.length)];
     return found ? [text substringWithRange:[found rangeAtIndex:1]] : @"";
@@ -1647,6 +1831,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     NSString *name = [SlopNetBrand displayNameForProvider:provider] ?: provider;
     [self.console note:[SlopNetBrand headerANSI:[NSString stringWithFormat:@"Setting up %@", name]
                                           width:[self panelWidth]]];
+    self.signInQueueActive = NO;
+    self.skippingSignIn = NO;
+    self.signInQueue = [NSMutableArray array];
+    self.signedIn = [NSMutableArray array];
+    self.skipped = [NSMutableArray array];
     self.signingIn = provider;
     [self showSkipControl:name];
     [self beginActivity:@"search"
@@ -1656,26 +1845,59 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                            arguments:@[script, self.host, self.port, self.username,
                                        provider, [self pinnedRelease]]]) {
         self.signingIn = nil;
+        [self endActivity];
         [self setBusy:NO];
+        [self showTypingBar];
     }
 }
 
-- (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
-           title:(NSString *)title {
-    if (self.busy || ![self connectionValid]) return;
+- (BOOL)startServerCommand:(NSString *)command title:(NSString *)title
+               interactive:(BOOL)interactive {
+    if (self.busy || ![self connectionValid]) return NO;
+    // A tool is unrelated to an old browser sign-in. Clear that specialised
+    // bar before showing the terminal, so "Setting up Antigravity" and Skip
+    // cannot survive underneath Zellij or another command.
+    [self showTypingBar];
+    NSString *release = [self pinnedRelease];
+    if (release.length == 0) {
+        [self.console note:@"This copy of SlopNet has no valid server release. "
+                           "Download it again before running a server tool."];
+        return NO;
+    }
+    self.toolRunning = interactive;
     command = [SlopNetAppDelegate asRuntimeAccount:command
-                                            asRoot:[self.username isEqualToString:@"root"]];
+                                            asRoot:[self.username isEqualToString:@"root"]
+                                           release:release];
     [self.console note:[SlopNetBrand headerANSI:title width:[self panelWidth]]];
     [self beginActivity:@"search" caption:title];
     [self setBusy:YES];
     NSString *target = [NSString stringWithFormat:@"%@@%@", self.username, self.host];
+    NSString *identity = [NSHomeDirectory() stringByAppendingPathComponent:
+                          @".ssh/slopnet_vps_ed25519"];
+    NSString *knownHosts = [NSHomeDirectory() stringByAppendingPathComponent:
+                            @".ssh/slopnet_vps_known_hosts"];
     // A real terminal on the far end, so a sudo password prompt works.
     if (![self.console runExecutable:@"/usr/bin/ssh"
-                           arguments:@[@"-t", @"-p", self.port,
+                           arguments:@[@"-t", @"-i", identity,
+                                       @"-o", @"IdentitiesOnly=yes", @"-p", self.port,
+                                       @"-o", [@"UserKnownHostsFile=" stringByAppendingString:knownHosts],
                                        @"-o", @"StrictHostKeyChecking=accept-new",
                                        target, command]]) {
+        self.toolRunning = NO;
         [self setBusy:NO];
+        return NO;
     }
+    return YES;
+}
+
+- (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
+           title:(NSString *)title {
+    [self startServerCommand:command title:title interactive:NO];
+}
+
+- (BOOL)settings:(SlopNetSettings *)settings openOnServer:(NSString *)command
+            title:(NSString *)title {
+    return [self startServerCommand:command title:title interactive:YES];
 }
 
 /// Remove SlopNet properly. Dragging the app to the Trash leaves the
@@ -1720,42 +1942,58 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [self removeLocalTraces];
 }
 
-/// Forget everything SlopNet put on this Mac, then say what is left to do.
-/// Drop a server's fingerprint from known_hosts.
-///
-/// ssh-keygen -R does the editing, so the file's format and its hashed
-/// entries are handled by the tool that owns it rather than by string
-/// matching here.
-- (void)forgetHostKeyFor:(NSString *)host {
-    if (host.length == 0) return;
-    NSTask *task = [[NSTask alloc] init];
-    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh-keygen"];
-    task.arguments = @[@"-R", host];
-    task.standardOutput = [NSFileHandle fileHandleWithNullDevice];
-    task.standardError = [NSFileHandle fileHandleWithNullDevice];
-    [task launchAndReturnError:nil];
-    [task waitUntilExit];
+/// Delete only the key and host-trust files whose sidecar receipts still bind
+/// their exact identities. A same-named file without that proof belongs to the
+/// person, not to SlopNet, and local-only removal deliberately leaves it.
+- (BOOL)removeProvedSSHArtifacts {
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSString *sshDirectory = [NSHomeDirectory() stringByAppendingPathComponent:@".ssh"];
+    NSString *key = [sshDirectory stringByAppendingPathComponent:@"slopnet_vps_ed25519"];
+    NSArray<NSString *> *keyFiles = @[
+        key, [key stringByAppendingString:@".pub"],
+        [key stringByAppendingString:@".receipt"]
+    ];
+    BOOL keyExists = NO;
+    for (NSString *path in keyFiles) keyExists |= SlopNetLocalPathExists(path);
+    BOOL allRemoved = YES;
+    if (keyExists) {
+        if (!SlopNetProvedKeyPair(key)) {
+            allRemoved = NO;
+        } else {
+            for (NSString *path in keyFiles) {
+                if (![files removeItemAtPath:path error:nil]) allRemoved = NO;
+            }
+        }
+    }
+
+    NSString *knownHosts = [sshDirectory stringByAppendingPathComponent:
+                            @"slopnet_vps_known_hosts"];
+    NSArray<NSString *> *hostFiles = @[
+        knownHosts, [knownHosts stringByAppendingString:@".receipt"]
+    ];
+    BOOL hostsExist = NO;
+    for (NSString *path in hostFiles) hostsExist |= SlopNetLocalPathExists(path);
+    if (hostsExist) {
+        if (!SlopNetProvedKnownHosts(knownHosts)) {
+            allRemoved = NO;
+        } else {
+            for (NSString *path in hostFiles) {
+                if (![files removeItemAtPath:path error:nil]) allRemoved = NO;
+            }
+        }
+    }
+    return allRemoved;
 }
 
 - (void)removeLocalTraces {
     NSUserDefaults *store = [NSUserDefaults standardUserDefaults];
-    NSString *removedHost = [self.host copy];
     for (NSString *key in @[kHostKey, kUserKey, kPortKey, kReadyKey, kGuideKey, kWizardKey,
                             @"SlopNetServerName", kSignedInProvidersKey, kLimitUntilKey]) {
         [store removeObjectForKey:key];
     }
     NSFileManager *files = NSFileManager.defaultManager;
     [files removeItemAtURL:[self historyDirectory] error:nil];
-    NSString *key = [NSHomeDirectory() stringByAppendingPathComponent:
-                     @".ssh/slopnet_vps_ed25519"];
-    [files removeItemAtPath:key error:nil];
-    [files removeItemAtPath:[key stringByAppendingString:@".pub"] error:nil];
-
-    // The server's fingerprint, put in known_hosts the first time SlopNet
-    // connected. Left behind it is a record of a machine somebody has just
-    // asked to be forgotten, and it makes reconnecting to a rebuilt server at
-    // the same address fail with a key-changed warning.
-    [self forgetHostKeyFor:removedHost];
+    BOOL removedSSH = [self removeProvedSSHArtifacts];
 
     // The preferences file itself, not just the keys inside it. Clearing the
     // keys left an empty plist with SlopNet's name on it.
@@ -1773,9 +2011,12 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
     NSAlert *done = [[NSAlert alloc] init];
     done.messageText = @"SlopNet has removed itself";
-    done.informativeText =
-        @"One thing left, and only you can do it: open your Applications folder "
-        @"and drag SlopNet to the Trash.\n\nSlopNet will quit now.";
+    done.informativeText = removedSSH
+        ? @"One thing left, and only you can do it: open your Applications folder "
+          @"and drag SlopNet to the Trash.\n\nSlopNet will quit now."
+        : @"A same-named SSH file did not match SlopNet's protected receipt, so it "
+          @"was left alone. Archive it manually if you no longer need it.\n\nOpen your "
+          @"Applications folder and drag SlopNet to the Trash. SlopNet will quit now.";
     [done addButtonWithTitle:@"Quit SlopNet"];
     [done runModal];
     [NSApp terminate:nil];
@@ -1839,7 +2080,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // is what left people staring at a screen that looked stuck.
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port, self.username,
-                                       model, @"--approved"]]) {
+                                       model, [self pinnedRelease], @"--approved"]]) {
         [self setBusy:NO];
     }
 }
@@ -1851,17 +2092,36 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         return;
     }
     // A quiet read-only check. It never starts a model, calls a coding CLI,
-    // asks for a password, or changes the server. A non-root login may not be
-    // able to read this private file; chat itself will then explain what is
-    // missing in the visible console.
+    // asks for a password, or changes the server. For a non-root connection,
+    // sudo is explicitly non-interactive: lacking that permission is a failed
+    // inspection, never false evidence that the private model is absent.
+    NSString *probe =
+        @"PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
+         "home=$(getent passwd slopnet | cut -d: -f6); test -n \"$home\" && "
+        @"sed -n 's/^SLOPNET_LOCAL_HELPER_MODEL=//p' "
+        @"\"$home/.local/share/slopnet/local-helper.env\" 2>/dev/null | head -n 1";
+    if (![self.username isEqualToString:@"root"]) {
+        NSString *encoded = [[probe dataUsingEncoding:NSUTF8StringEncoding]
+            base64EncodedStringWithOptions:0];
+        probe = [NSString stringWithFormat:
+            @"/usr/bin/printf %%s '%@' | /usr/bin/base64 -d | "
+             "/usr/bin/sudo -n /bin/sh", encoded];
+    }
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
-    task.arguments = @[@"-p", self.port,
+    NSString *identity = [NSHomeDirectory() stringByAppendingPathComponent:
+                          @".ssh/slopnet_vps_ed25519"];
+    NSString *knownHosts = [NSHomeDirectory() stringByAppendingPathComponent:
+                            @".ssh/slopnet_vps_known_hosts"];
+    task.arguments = @[@"-i", identity,
+                       @"-o", @"IdentitiesOnly=yes",
+                       @"-o", [@"UserKnownHostsFile=" stringByAppendingString:knownHosts],
+                       @"-p", self.port,
                        @"-o", @"BatchMode=yes",
                        @"-o", @"ConnectTimeout=10",
                        @"-o", @"StrictHostKeyChecking=accept-new",
                        [NSString stringWithFormat:@"%@@%@", self.username, self.host],
-                       @"home=$(getent passwd slopnet | cut -d: -f6); test -n \"$home\" && sed -n 's/^SLOPNET_LOCAL_HELPER_MODEL=//p' \"$home/.local/share/slopnet/local-helper.env\" 2>/dev/null | head -n 1"];
+                       probe];
     NSPipe *pipe = [NSPipe pipe];
     task.standardOutput = pipe;
     task.standardError = [NSPipe pipe];
@@ -1903,8 +2163,15 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [self beginActivity:@"search" caption:@"Reaching your server…"];
     [self setBusy:YES];
     NSString *target = [NSString stringWithFormat:@"%@@%@", self.username, self.host];
+    NSString *identity = [NSHomeDirectory() stringByAppendingPathComponent:
+                          @".ssh/slopnet_vps_ed25519"];
+    NSString *knownHosts = [NSHomeDirectory() stringByAppendingPathComponent:
+                            @".ssh/slopnet_vps_known_hosts"];
     if (![self.console runExecutable:@"/usr/bin/ssh"
-                           arguments:@[@"-p", self.port,
+                           arguments:@[@"-i", identity,
+                                       @"-o", @"IdentitiesOnly=yes",
+                                       @"-o", [@"UserKnownHostsFile=" stringByAppendingString:knownHosts],
+                                       @"-p", self.port,
                                        @"-o", @"BatchMode=yes",
                                        @"-o", @"ConnectTimeout=10",
                                        @"-o", @"StrictHostKeyChecking=accept-new",
@@ -1990,7 +2257,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         return;
     }
 
-    if (self.plannedProjectName.length > 0) {
+    if (self.plannedProjectName.length > 0 && self.plannedProjectCommit.length > 0) {
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"Start coding agents?";
         alert.informativeText = [NSString stringWithFormat:
@@ -2014,7 +2281,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         [self setBusy:YES];
         if (![self.console runExecutable:@"/bin/bash"
                                arguments:@[script, self.host, self.port, self.username,
-                                           self.plannedProjectName]]) {
+                                           self.plannedProjectName, self.plannedProjectCommit,
+                                           [self pinnedRelease]]]) {
             self.approvedBuildRunning = NO;
             [self setBusy:NO];
         }
@@ -2069,7 +2337,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.chatting = YES;
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port, self.username,
-                                       question, context]]) {
+                                       question, context, [self pinnedRelease]]]) {
         self.chatting = NO;
         [self setBusy:NO];
     }
@@ -2094,12 +2362,14 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         @"stops. It writes no project files and starts no coding agents. You will read "
         @"the plan and decide separately.", name, request]];
     self.activeProjectName = name;
+    self.plannedProjectName = nil;
+    self.plannedProjectCommit = nil;
     self.planningRunning = YES;
     [self beginActivity:@"think" caption:@"Writing a plan…"];
     [self setBusy:YES];
     if (![self.console runExecutable:@"/bin/bash"
                            arguments:@[script, self.host, self.port,
-                                       self.username, name, request]]) {
+                                       self.username, name, request, [self pinnedRelease]]]) {
         self.planningRunning = NO;
         [self setBusy:NO];
     }
@@ -2205,8 +2475,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         ? [NSString stringWithFormat:@"Paste this in your browser:   %@", code]
         : @"Finish signing in in your browser.";
     self.promptLabel.textColor = [NSColor labelColor];
-    [self.window makeFirstResponder:self.codeButton.hidden
-        ? self.openPageButton : self.codeButton];
+    // The program is still live and may be an alternate-screen menu. Keep its
+    // keyboard path active; the browser and copy controls remain clickable.
+    [self.window makeFirstResponder:self.entry];
 }
 
 - (void)openSignInPage:(id)sender {
@@ -2243,6 +2514,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
             self.workingDirectory = landed;
             [console note:[NSString stringWithFormat:@"\n%@", landed]];
         }
+        self.toolRunning = NO;
+        self.returningToGranite = NO;
         [self setBusy:NO];
         [self showTypingBar];
         return;
@@ -2263,6 +2536,14 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // past, so one refusal cannot strand the rest of the queue.
     if (self.signingIn != nil) {
         [self endActivity];
+        if (self.skippingSignIn) {
+            [self.skipped addObject:self.signingIn];
+            self.signingIn = nil;
+            self.skippingSignIn = NO;
+            [self setBusy:NO];
+            [self startNextCodingAppSignIn];
+            return;
+        }
         [self codingAppSignInEnded:(status == 0)];
         return;
     }
@@ -2299,25 +2580,49 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     if (self.planningRunning) {
         self.planningRunning = NO;
         if (status == 0 && self.activeProjectName.length > 0) {
-            self.plannedProjectName = self.activeProjectName;
-            [self.console note:@"The plan is ready above. Read it. No coding agent has run. Choose Build and press Start approved build only when you want the multi-agent run to begin."];
+            NSString *transcript = console.textForTesting ?: @"";
+            NSRegularExpression *proof = [NSRegularExpression
+                regularExpressionWithPattern:@"(?m)^SLOPNET_PLAN_COMMIT=([0-9a-f]{40,64})$"
+                                      options:0 error:nil];
+            NSArray<NSTextCheckingResult *> *matches =
+                [proof matchesInString:transcript options:0
+                                 range:NSMakeRange(0, transcript.length)];
+            NSTextCheckingResult *last = matches.lastObject;
+            if (last != nil) {
+                self.plannedProjectCommit =
+                    [transcript substringWithRange:[last rangeAtIndex:1]];
+                self.plannedProjectName = self.activeProjectName;
+                [self.console note:@"The plan is ready above. Read it. No coding agent has run. Choose Build and press Start approved build only when you want the multi-agent run to begin."];
+            } else {
+                self.plannedProjectName = nil;
+                self.plannedProjectCommit = nil;
+                [self.console note:@"The server did not return an exact identity for that plan, so SlopNet will not offer it to coding agents. Make the plan again."];
+            }
         }
     }
     if (self.uninstalling) {
         self.uninstalling = NO;
         [self setBusy:NO];
-        [self removeLocalTraces];
+        // Server removal has its own protected ownership proof. Keep the Mac
+        // connection and history if that proof refused or the person declined;
+        // otherwise a failed server uninstall would look complete locally.
+        if (status == 0) [self removeLocalTraces];
         return;
     }
     if (self.approvedBuildRunning) {
         self.approvedBuildRunning = NO;
         self.plannedProjectName = nil;
+        self.plannedProjectCommit = nil;
         if (status == 0) {
             [self.console note:@"The approved build finished. Read the result above; SlopNet kept only work that passed its checks and project tests."];
         }
     }
+    BOOL returningToGranite = self.returningToGranite;
+    BOOL wasTool = self.toolRunning;
+    self.returningToGranite = NO;
+    self.toolRunning = NO;
     [self setBusy:NO];
-    if (status != 0) {
+    if (status != 0 && !returningToGranite) {
         [self.console note:@"Nothing was left half-done. Read the last few lines above, "
                            @"fix what they mention, and try again."];
     }
@@ -2325,6 +2630,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.signInCode = nil;
     self.openPageButton.hidden = YES;
     self.codeButton.hidden = YES;
+    if (returningToGranite || wasTool) [self showTypingBar];
 
     // The guide has answered. If what they asked for sounded like something
     // to have made, offer now — after the reply, not on top of it.
@@ -2351,6 +2657,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 @end
 
+#ifndef SLOPNET_NO_MAIN
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
         (void)argc;
@@ -2363,3 +2670,4 @@ int main(int argc, const char * argv[]) {
     }
     return 0;
 }
+#endif

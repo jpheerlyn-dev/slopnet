@@ -449,14 +449,18 @@ def _probe_worker(worker):
         return True, f"wrote the file in {elapsed}s", elapsed
 
 
-def setup(root, ask, say, automatic=False, resource_limits=None):
+def setup(root, ask, say, automatic=False, resource_limits=None,
+          required_agent=None):
     """Onboarding. `ask(question, options)` returns the chosen string."""
     say("Let's meet your crew.\n")
     workers = available_workers()
+    if required_agent:
+        workers = [worker for worker in workers if worker.get("name") == required_agent]
     if not workers:
+        wanted = f" named {required_agent}" if required_agent else ""
         crew_fail(
-            "No coding agents found.",
-            "SlopNet needs an AI coding app installed and on your PATH.",
+            f"No proved coding agent{wanted} was found.",
+            "SlopNet needs a verified unattended adapter for the coding app you chose.",
             "Install one (claude, codex, gemini, hermes, …), log in, then: slopnet setup",
         )
 
