@@ -819,6 +819,30 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     [self.lines insertObject:[[NSMutableAttributedString alloc] init] atIndex:first];
 }
 
+/// Down one row, staying in the same column, which is what a line feed does.
+///
+/// Only a carriage return moves to the left edge. While a program is in the
+/// ordinary mode the terminal turns its newlines into both, so the difference
+/// never showed; a program driving its own screen turns that off and sends
+/// bare line feeds, and then it decides everything. Antigravity draws its
+/// header by ending a row and stepping back left from where that row finished
+/// — with the column reset to zero first, the step back clamps there and the
+/// row starts at the edge. Two rows of the logo lost their indentation that
+/// way, which is what stopped it forming a pyramid.
+- (void)lineFeed {
+    NSUInteger keep = self.column;
+    [self newline];
+    self.column = keep;
+    NSMutableAttributedString *line = [self currentLine];
+    if (line.length < self.column) {
+        NSString *gap = [@"" stringByPaddingToLength:(self.column - line.length)
+                                          withString:@" " startingAtIndex:0];
+        [line appendAttributedString:
+            [[NSAttributedString alloc] initWithString:gap
+                                            attributes:[self fieldAttributes]]];
+    }
+}
+
 - (void)newline {
     NSUInteger last = self.screenOrigin + [self lastScrollingRow];
     if (self.row >= last) {
@@ -1234,7 +1258,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
             continue;
         }
 
-        if (c == '\n') { [self newline]; i++; continue; }
+        if (c == '\n') { [self lineFeed]; i++; continue; }
         if (c == '\r') { self.column = 0; i++; continue; }
         if (c == 0x08) {                                   // backspace
             if (self.column > 0) self.column--;
@@ -1833,6 +1857,21 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
         if (line.length > 0) [kept addObject:line];
     }
     return SlopNetWithoutSecrets([kept componentsJoinedByString:@"\n"]);
+}
+
+- (NSString *)screenTextForTesting {
+    [self redraw];
+    NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    NSUInteger first = self.screenOrigin;
+    NSUInteger many = [self screenRows];
+    for (NSUInteger r = first; r < first + many; r++) {
+        NSString *row = r < self.lines.count ? self.lines[r].string : @"";
+        while (row.length > 0 && [row hasSuffix:@" "]) {
+            row = [row substringToIndex:row.length - 1];
+        }
+        [rows addObject:row];
+    }
+    return [rows componentsJoinedByString:@"\n"];
 }
 
 - (NSString *)textForTesting {

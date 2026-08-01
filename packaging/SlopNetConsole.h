@@ -88,6 +88,16 @@ typedef NS_ENUM(NSInteger, SlopNetKey) {
 /// Everything currently on screen, for probes to read back.
 - (NSString *)textForTesting;
 
+/// Just the rows the screen is showing, and how big it thinks it is.
+///
+/// A real terminal emulator can be handed the same recording and asked the
+/// same question, and any difference is a fault here. Comparing against the
+/// whole scrollback cannot do that — one is a screen and the other is a
+/// history, and two attempts to compare them anyway produced confident
+/// nonsense.
+- (NSString *)screenTextForTesting;
+@property(nonatomic, readonly) NSUInteger visibleRows;
+
 /// Feed the console bytes as though they had come from the running program.
 /// Used to replay a recording of a real session, which is the only way to
 /// check this against what a program actually prints rather than against a

@@ -6,6 +6,15 @@
 // the cell above with no join. Whether they do is a question about pixels, and
 // the only way to answer it is to look.
 //
+// With PRINT_SCREEN set it also prints the rows the screen is showing, and its
+// size. That is what makes a real terminal emulator usable as an oracle: size
+// one to match, feed both the same recording, and any difference is a fault
+// here. Comparing against the whole scrollback cannot do that, and two
+// attempts to do it anyway produced confident nonsense before this existed.
+//
+//   python3 -m venv /tmp/refterm && /tmp/refterm/bin/pip install pyte
+//   PRINT_SCREEN=1 /tmp/picture tests/agy_chat_recording.bin /tmp/shot.png
+//
 //   clang -fobjc-arc -framework AppKit -framework CoreText -I packaging \
 //     tests/console_picture.m packaging/SlopNetConsole.m \
 //     packaging/SlopNetBrand.m -o /tmp/picture && \
@@ -52,6 +61,11 @@ int main(int argc, const char **argv) {
         [console layoutSubtreeIfNeeded];
         [console displayIfNeeded];
 
+        if (getenv("PRINT_SCREEN")) {
+            fprintf(stderr, "COLUMNS %lu ROWS %lu\n",
+                    (unsigned long)console.columns, (unsigned long)console.visibleRows);
+            fprintf(stderr, "%s\n", console.screenTextForTesting.UTF8String);
+        }
         NSBitmapImageRep *shot =
             [console bitmapImageRepForCachingDisplayInRect:console.bounds];
         [console cacheDisplayInRect:console.bounds toBitmapImageRep:shot];
