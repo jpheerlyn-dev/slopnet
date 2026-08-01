@@ -1747,6 +1747,33 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
          "[ -z \"$(find /opt/slopnet -maxdepth 0 -perm /022 -print -quit)\" ] || refuse\n"
          "[ \"$(git -C /opt/slopnet remote get-url origin)\" = "
          "https://github.com/jpheerlyn-dev/slopnet.git ] || refuse\n"
+         // A server prepared for an earlier release is brought to this one
+         // rather than refused. Refusing meant every release this app cut
+         // stopped every tool on a working server, with no way back except
+         // editing the server by hand — the person is held hostage by a
+         // version number they never chose.
+         //
+         // Ownership is still proved first: the account receipt and the
+         // existing install receipt have to name this account and this
+         // folder. Only the release recorded in them is allowed to differ,
+         // and it is rewritten here once the new code is actually checked out.
+         "if [ \"$(cat /var/lib/slopnet/release-v1 2>/dev/null)\" != \"release=$release\" ]; then\n"
+         "  moving=$(runtime_receipt) || refuse\n"
+         "  safe_marker /var/lib/slopnet/runtime-account-v2 \"$moving\" || refuse\n"
+         "  [ -f /var/lib/slopnet/install-v2 ] && [ ! -L /var/lib/slopnet/install-v2 ] || refuse\n"
+         "  grep -qx 'path=/opt/slopnet' /var/lib/slopnet/install-v2 || refuse\n"
+         "  git -C /opt/slopnet fetch --quiet --tags --force origin || refuse\n"
+         "  moved=$(git -C /opt/slopnet rev-parse \"refs/tags/$release^{commit}\" 2>/dev/null) || refuse\n"
+         "  git -C /opt/slopnet -c advice.detachedHead=false checkout --quiet \"$release\" || refuse\n"
+         "  git -C /opt/slopnet clean -qfd || refuse\n"
+         "  chown -R 0:0 /opt/slopnet || refuse\n"
+         "  printf 'kind=install-v2\\npath=/opt/slopnet\\ndev=%s\\nino=%s\\nrelease=%s\\ncommit=%s' "
+         "\"$(stat -c %d /opt/slopnet)\" \"$(stat -c %i /opt/slopnet)\" \"$release\" \"$moved\" "
+         "> /var/lib/slopnet/install-v2 || refuse\n"
+         "  printf 'release=%s' \"$release\" > /var/lib/slopnet/release-v1 || refuse\n"
+         "  chmod 600 /var/lib/slopnet/install-v2 /var/lib/slopnet/release-v1 || refuse\n"
+         "  echo \"Updated this server to $release.\"\n"
+         "fi\n"
          "commit=$(git -C /opt/slopnet rev-parse \"refs/tags/$release^{commit}\" 2>/dev/null) || refuse\n"
          "[ \"$(git -C /opt/slopnet rev-parse HEAD)\" = \"$commit\" ] || refuse\n"
          "git -C /opt/slopnet diff --quiet \"$commit\" -- && "

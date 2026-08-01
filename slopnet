@@ -965,7 +965,11 @@ def bootstrap_vps_account(root):
             actual = path.read_text(encoding="utf-8")
         except OSError:
             actual = ""
-        if actual != expected:
+        # The shell that writes these markers ends them with a newline and the
+        # receipt built here does not, so an exact comparison never matched and
+        # setup refused a marker it had just written itself. One trailing
+        # newline is ignored on both sides; everything else still has to agree.
+        if actual.rstrip("\n") != expected.rstrip("\n"):
             fail(f"The {description} ownership marker does not name this resource.",
                  "A marker for something else is not permission to change this account or folder.",
                  "Inspect the marker and the server manually before retrying")
