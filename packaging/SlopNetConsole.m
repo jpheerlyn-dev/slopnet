@@ -191,6 +191,10 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 @property(nonatomic, strong) NSMutableArray<NSString *> *streamLines;
 @property(nonatomic, strong) NSMutableString *streamTail;
 @property(nonatomic, assign) BOOL announcedAnAuthorisation;
+/// Set once the program has stopped writing for a moment, at which point the
+/// last row is finished with too.
+@property(nonatomic, assign) BOOL outputSettled;
+@property(nonatomic, assign) NSUInteger writeGeneration;
 @property(nonatomic, assign) NSUInteger savedRow;
 @property(nonatomic, assign) NSUInteger savedColumn;
 @property(nonatomic, assign) BOOL hasSavedCursor;
@@ -709,6 +713,18 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     // Keep what the program wrote, with the escapes removed and nothing moved,
     // so a link can be read from it later without the redrawing damage.
     [self recordInStream:raw];
+    // A program may print a link and then simply wait, in which case nothing
+    // ever arrives to close it off. When writing stops, look again.
+    self.outputSettled = NO;
+    NSUInteger generation = ++self.writeGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf.writeGeneration != generation) return;
+        strongSelf.outputSettled = YES;
+        [strongSelf noticeASignInPage];
+    });
     NSUInteger i = 0, n = raw.length;
     while (i < n) {
         unichar c = [raw characterAtIndex:i];
@@ -998,6 +1014,21 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
 /// different way. A repeated parameter means the rebuilding went wrong, so the
 /// link is not offered at all rather than opened and refused.
 static BOOL addressSurvivedRebuilding(NSURL *page) {
+    // Two schemes in one address means two links were run together. The
+    // parameter names can still all be different when that happens, so the
+    // test below would pass it — this is what actually caught it.
+    NSString *whole = page.absoluteString;
+    NSUInteger schemes = 0, at = 0;
+    while (at < whole.length) {
+        NSRange found = [whole rangeOfString:@"://"
+                                     options:0
+                                       range:NSMakeRange(at, whole.length - at)];
+        if (found.location == NSNotFound) break;
+        schemes++;
+        at = NSMaxRange(found);
+    }
+    if (schemes != 1) return NO;
+
     NSURLComponents *parts = [NSURLComponents componentsWithURL:page
                                         resolvingAgainstBaseURL:NO];
     NSArray<NSURLQueryItem *> *items = parts.queryItems;
@@ -1032,14 +1063,26 @@ static BOOL addressSurvivedRebuilding(NSURL *page) {
     for (NSUInteger i = begin; i < self.streamLines.count; i++) {
         [rows addObject:self.streamLines[i]];
     }
+    NSUInteger finished = rows.count;
     if (self.streamTail.length > 0) [rows addObject:self.streamTail];
 
     NSMutableString *joined = [NSMutableString string];
+    NSUInteger closed = 0;
+    NSUInteger row = 0;
     for (NSString *line in rows) {
+        if (row++ == finished) closed = joined.length;
         NSString *trimmed = [line stringByTrimmingCharactersInSet:
             [NSCharacterSet whitespaceCharacterSet]];
         BOOL continues = NO;
+        // A program showing a link usually redraws the frame holding it — an
+        // animated "Signing in..." does it several times a second — so the
+        // same link arrives over and over. The row starting the next copy is
+        // made of link characters like any other, and joining it to the tail
+        // of the copy above produced one long spliced address that Google
+        // refused. A row carrying its own scheme starts a link, never
+        // continues one.
         if (trimmed.length > 0 &&
+            [trimmed rangeOfString:@"://"].location == NSNotFound &&
             [trimmed rangeOfCharacterFromSet:notLink].location == NSNotFound) {
             NSRange lastBreak = [joined rangeOfString:@"\n" options:NSBackwardsSearch];
             NSString *tail = (lastBreak.location == NSNotFound)
@@ -1056,6 +1099,21 @@ static BOOL addressSurvivedRebuilding(NSURL *page) {
             [joined appendString:line];
         }
     }
+    if (rows.count == finished) closed = joined.length;
+    // Everything before the final row is finished with. A link on the final
+    // row is not: the next row to arrive may continue it, and a chunk can end
+    // on a row boundary in the middle of one. Waiting costs a moment; not
+    // waiting opened a half-written address.
+    NSRange lastRow = [joined rangeOfString:@"\n" options:NSBackwardsSearch];
+    NSUInteger beforeLastRow = (lastRow.location == NSNotFound) ? 0 : NSMaxRange(lastRow);
+    if (closed > beforeLastRow) closed = beforeLastRow;
+    if (self.outputSettled) closed = joined.length;
+    // How much of this is finished with. A link still arriving sits at the end
+    // of the last row, and taking it then gives whatever has turned up so far
+    // — which is how a half-written address came to be opened, and then held
+    // on to by the one-per-run guard while the whole of it arrived a moment
+    // later. A link only counts once something after it has closed it off.
+    NSUInteger closedLength = closed;
     NSString *recent = joined;
     static NSRegularExpression *link;
     static NSRegularExpression *shortCode;
@@ -1085,6 +1143,7 @@ static BOOL addressSurvivedRebuilding(NSURL *page) {
     NSString *address = nil;
     BOOL authorisation = NO;
     for (NSTextCheckingResult *candidate in all) {
+        if (NSMaxRange(candidate.range) > closedLength) continue;   // still arriving
         NSString *found = [recent substringWithRange:candidate.range];
         while (found.length > 0 &&
                [@".,);:" rangeOfString:[found substringFromIndex:found.length - 1]].location
@@ -1096,13 +1155,24 @@ static BOOL addressSurvivedRebuilding(NSURL *page) {
                     || [lowered containsString:@"/auth"]   || [lowered containsString:@"/login"]
                     || [lowered containsString:@"/activate"]
                     || [lowered containsString:@"user_code"];
-        if (authish) { address = found; authorisation = YES; }
+        // The newest copy of a link can be half-written, because the frame
+        // holding it is still arriving. Every complete copy is identical, so
+        // the longest one is the whole of it.
+        if (authish) {
+            if (!authorisation || found.length >= address.length) address = found;
+            authorisation = YES;
+        }
         else if (address == nil) address = found;     // a fallback, until a better one
     }
     if (address == nil) return;
 
     NSURL *page = [NSURL URLWithString:address];
     if (page == nil) return;
+    // A half-written address can end inside a percent escape, and building a
+    // URL from that quietly re-encodes every escape in it — "%3A" becomes
+    // "%253A" and the whole thing means something else. If anything had to be
+    // rewritten to make it a URL, it was not a URL.
+    if (![page.absoluteString isEqualToString:address]) return;
 
     // A link on its own is not a sign-in. Installing a coding app prints an
     // npm upgrade notice carrying a changelog link, and that link was offered
@@ -1138,6 +1208,12 @@ static BOOL addressSurvivedRebuilding(NSURL *page) {
                       || [where containsString:@"user_code"];
     if (!saysSo && !looksLikeAuth) return;
     if (!addressSurvivedRebuilding(page)) return;
+    // Wait for the program to stop writing before opening anything. A link
+    // arrives in pieces and a program redrawing its frame prints more after
+    // each piece, so at any moment mid-write the longest thing that looks like
+    // a link may be half of one. Everything that went wrong here came from
+    // acting on what had turned up so far.
+    if (authorisation && !self.outputSettled) return;
 
     // The code first, because whether this is worth announcing depends on it.
     // Some sign-in pages carry it in the address, which is exact; otherwise

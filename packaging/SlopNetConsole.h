@@ -88,6 +88,12 @@ typedef NS_ENUM(NSInteger, SlopNetKey) {
 /// Everything currently on screen, for probes to read back.
 - (NSString *)textForTesting;
 
+/// Feed the console bytes as though they had come from the running program.
+/// Used to replay a recording of a real session, which is the only way to
+/// check this against what a program actually prints rather than against a
+/// guess at what it prints.
+- (void)consume:(NSString *)raw;
+
 /// The last `count` lines the window has shown, as plain text with the colour
 /// taken out and anything that looks like a credential replaced.
 ///

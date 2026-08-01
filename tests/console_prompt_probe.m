@@ -280,6 +280,47 @@ int main(void) {
             [c stop];
         }
 
+        // The same box arriving several times over with no gap, which is what
+        // an animated "Signing in..." does: it redraws the whole frame a few
+        // times a second, so several copies of the link land in one read. The
+        // row that starts the next copy is made of link characters like any
+        // other, and joining it onto the tail of the copy above made one long
+        // spliced address — unique parameter names throughout, so it looked
+        // valid, and Google refused it as not complying with its policy.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Watcher *w = [Watcher new];
+            c.delegate = w;
+            NSString *url =
+                @"https://accounts.google.com/o/oauth2/auth?access_type=offline"
+                @"&client_id=1071006060591-example23example4example5example6ex"
+                @".apps.googleusercontent.com&code_challenge=ar7uWo7Rl5dinfLOudKAkTIDaRK"
+                @"&code_challenge_method=S256&prompt=consent"
+                @"&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback"
+                @"&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcclog"
+                @"+openid&state=Z607yga1STKfmSyv3QeuDg";
+            NSMutableString *frame = [NSMutableString stringWithString:
+                @"Open the URL below in your browser:\n"];
+            for (NSUInteger at = 0; at < url.length; at += 72) {
+                NSUInteger take = MIN((NSUInteger)72, url.length - at);
+                [frame appendFormat:@" %@\n", [url substringWithRange:NSMakeRange(at, take)]];
+            }
+            NSMutableString *burst = [NSMutableString string];
+            for (int i = 0; i < 4; i++) [burst appendString:frame];
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c",
+                [NSString stringWithFormat:@"printf '%%s' '%@'; sleep 3", burst]]];
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:4];
+            while ([until timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check(w.signInPage != nil, "a link repeated by a redrawing frame is still offered");
+            check([w.signInPage.absoluteString isEqualToString:url],
+                  "and it is one link, not two spliced end to end");
+            [c stop];
+        }
+
         // A link that came back with a parameter twice was rebuilt wrongly.
         // Google refuses it — "OAuth 2 parameters can only have a single
         // value: scope" — so there is nothing to gain by opening it.
