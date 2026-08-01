@@ -20,7 +20,12 @@ static void check(BOOL ok, const char *what) {
 
 static NSString *firstDecodedPayload(NSString *command) {
     NSRegularExpression *payload = [NSRegularExpression
-        regularExpressionWithPattern:@"printf %s '([^']+)' \\| base64 -d"
+        // Absolute paths, because the payload is now sent with them so that a
+        // command on the far side cannot be steered by whatever is on the
+        // path. The pattern predates that and matched nothing, which read as
+        // a missing guard when the guard was there all along.
+        regularExpressionWithPattern:@"(?:/usr/bin/)?printf %s '([^']+)' \\| "
+                                     @"(?:/usr/bin/)?base64 -d"
                               options:0 error:nil];
     NSTextCheckingResult *match = [payload firstMatchInString:command ?: @""
                                                        options:0

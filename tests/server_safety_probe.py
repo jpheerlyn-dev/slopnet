@@ -252,7 +252,7 @@ check('slopnet_commit=""' in onboard_source and
               'rev-parse "refs/tags/$slopnet_release^{commit}"',
               'mv "$fresh/repo" /opt/slopnet'),
       "server setup validates the injected commit before publishing the checkout")
-check('rev-parse --verify \\\n+    "refs/tags/$slopnet_release^{commit}"' in build_app_source and
+check('rev-parse --verify \\\n    "refs/tags/$slopnet_release^{commit}"' in build_app_source and
       'sed "s/^slopnet_commit=\\"\\"$/slopnet_commit=\\"$slopnet_commit\\"/"' in build_app_source and
       'grep -qx "slopnet_commit=\\"$slopnet_commit\\""' in build_app_source,
       "app packaging injects and verifies the immutable release commit")
@@ -388,7 +388,14 @@ with tempfile.TemporaryDirectory() as raw:
             ["/usr/bin/ssh-keygen", "-y", "-P", "", "-f", str(key)],
             text=True, capture_output=True,
         )
-        public_line = derivation.stdout.strip() + " slopnet-vps"
+        # Whether ssh-keygen -y prints the comment differs between OpenSSH
+        # versions, and assuming it does not put "slopnet-vps" in twice here,
+        # so the expected line came out wrong while the installer was right.
+        # The public file itself is the line; that it really belongs to this
+        # private key is checked separately, on the key material alone.
+        public_line = public.read_text(encoding="utf-8").strip()
+        derived_material = derivation.stdout.strip().split()[:2]
+        public_material = public_line.split()[:2]
         expected_receipt = (
             "kind=slopnet-ssh-key-v1\n"
             f"private_dev={key.stat().st_dev}\nprivate_ino={key.stat().st_ino}\n"
@@ -399,7 +406,8 @@ with tempfile.TemporaryDirectory() as raw:
         )
         receipt_ok = (
             first.returncode != 0 and derivation.returncode == 0 and
-            public.read_text(encoding="utf-8") == public_line + "\n" and
+            derived_material == public_material and
+            public_line.endswith(" slopnet-vps") and
             receipt.read_text(encoding="utf-8") == expected_receipt and
             all(stat.S_IMODE(path.stat().st_mode) == 0o600
                 for path in (key, public, receipt))
@@ -602,8 +610,18 @@ def prove_near_version(tool_id, install, near_version):
         target = home / ".local/bin" / binary
         target.write_text("original\n", encoding="utf-8")
         target.chmod(0o755)
+        # The shipped recipe pins PATH to system directories, deliberately, so
+        # a privileged payload cannot be steered by whatever is on the caller's
+        # path. That also puts the controlled tools below out of reach, so this
+        # run — and only this run — prepends them. The pin itself is asserted
+        # separately just above, so the property is not lost by testing around
+        # it. What is under test here is the order of the checks: that a
+        # candidate is run and rejected on its version before anything replaces
+        # the command already installed.
+        drivable = install.replace("PATH=/usr/bin:/bin",
+                                   f"PATH={environment['PATH']}", 1)
         result = subprocess.run(
-            ["sh", "-c", install], env=environment, text=True, capture_output=True
+            ["sh", "-c", drivable], env=environment, text=True, capture_output=True
         )
         return (result.returncode != 0 and executed.exists() and
                 target.read_text(encoding="utf-8") == "original\n")
@@ -611,13 +629,15 @@ def prove_near_version(tool_id, install, near_version):
 
 for tool_id, version in versions.items():
     install = by_id[tool_id]["install"]
+    check("PATH=/usr/bin:/bin" in install and "export PATH" in install,
+          f"{tool_id} pins its path to system directories before doing anything")
     binary, digest = recipe_parts(install)
     check("$(uname -s)" in install and "$(uname -m)" in install and
           version in install and re.fullmatch(r"[0-9a-f]{64}", digest) and
           ordered(install, "curl -fsSL", "actual_digest=$(sha256sum", 
                   'if [ "$actual_digest" != "$digest" ]', 'file "$work/pkg"',
                   'tar -xzf "$work/pkg"', 'install -m 755',
-                  '"$stage" --version', 'mv -f "$stage"'),
+                  '"$stage" --version', 'mv -fT -- "$stage"'),
           f"{tool_id} authenticates bytes before extract, execute and replacement")
     check(prove_bad_digest(tool_id, install),
           f"{tool_id} stops a bad digest before archive handling or replacement")
