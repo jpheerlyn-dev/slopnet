@@ -130,7 +130,13 @@ validate_key_pair() {
     "$private_sha256" "$public_sha256" "$public_line")
   printf '%s\n' "$expected_receipt" | cmp -s - "$key_receipt_path" || return 1
   derived=$(ssh-keygen -y -P '' -f "$key_path" 2>/dev/null) || return 1
-  [ "$public_line" = "$derived slopnet-vps" ] || return 1
+  # Compare the key material, not the whole line. ssh-keygen prints the
+  # comment when the private key carries one and leaves it off when it does
+  # not, so whole-line comparison fails on some machines and passes on others.
+  # It failed here, on every run after the first, which left setup unable to
+  # accept a key SlopNet had generated itself.
+  [ "$(printf '%s' "$public_line" | awk '{print $1" "$2}')" = \
+    "$(printf '%s' "$derived" | awk '{print $1" "$2}')" ] || return 1
   validated_public_line=$public_line
 }
 
@@ -149,6 +155,63 @@ write_key_receipt() {
   chmod 600 "$receipt_tmp"
   ln "$receipt_tmp" "$key_receipt_path" || \
     local_refuse "$key_receipt_path appeared while the new key was being recorded."
+  rm -f "$receipt_tmp"
+  trap - EXIT HUP INT TERM
+}
+
+# Take on a key that SlopNet itself made before receipts existed.
+#
+# Every installation from before this release has a private key and a public
+# key and no receipt, so the completeness check refuses and setup cannot run at
+# all. Telling somebody to archive their own .ssh files by hand is exactly the
+# work this app exists to remove, and it left a working installation unusable.
+#
+# Nothing is taken on trust. The pair has to be two ordinary files this user
+# owns, the public one has to be a single line in the shape SlopNet writes, and
+# the public key has to be the one this private key derives. That is the same
+# proof the receipt records when a key is generated here — it is only being
+# done after the fact.
+adopt_key_pair() {
+  local_uid=$(id -u)
+  for protected in "$key_path" "$key_path.pub"; do
+    [ -f "$protected" ] && [ ! -L "$protected" ] || return 1
+    [ "$(local_owner "$protected")" = "$local_uid" ] || return 1
+  done
+  [ "$(wc -l < "$key_path.pub" | tr -d ' ')" = 1 ] || return 1
+  public_line=$(sed -n '1p' "$key_path.pub")
+  case "$public_line" in
+    ssh-ed25519\ *\ slopnet-vps) ;;
+    *) return 1 ;;
+  esac
+  derived=$(ssh-keygen -y -P '' -f "$key_path" 2>/dev/null) || return 1
+  # Compare the key material, not the whole line. ssh-keygen prints the
+  # comment when the private key carries one and leaves it off when it does
+  # not, so whole-line comparison fails on some machines and passes on others.
+  # It failed here, on every run after the first, which left setup unable to
+  # accept a key SlopNet had generated itself.
+  [ "$(printf '%s' "$public_line" | awk '{print $1" "$2}')" = \
+    "$(printf '%s' "$derived" | awk '{print $1" "$2}')" ] || return 1
+  chmod 600 "$key_path" "$key_path.pub" || return 1
+  write_key_receipt
+  validated_public_line=$public_line
+}
+
+# The same, for the dedicated known-hosts file. Adopting it keeps the server
+# fingerprints already trusted, so nobody is asked to confirm a host they
+# accepted months ago.
+adopt_known_hosts() {
+  local_uid=$(id -u)
+  [ -f "$known_hosts_path" ] && [ ! -L "$known_hosts_path" ] || return 1
+  [ "$(local_owner "$known_hosts_path")" = "$local_uid" ] || return 1
+  chmod 600 "$known_hosts_path" || return 1
+  receipt_tmp=$(mktemp "$ssh_dir/.slopnet-known-hosts-receipt.XXXXXX")
+  cleanup_adopted() { rm -f "$receipt_tmp"; }
+  trap cleanup_adopted EXIT HUP INT TERM
+  printf 'kind=slopnet-known-hosts-v1\nknown_hosts_dev=%s\nknown_hosts_ino=%s\n' \
+    "$(local_dev "$known_hosts_path")" "$(local_ino "$known_hosts_path")" > "$receipt_tmp"
+  chmod 600 "$receipt_tmp"
+  ln "$receipt_tmp" "$known_hosts_receipt_path" || \
+    local_refuse "$known_hosts_receipt_path appeared while it was being recorded."
   rm -f "$receipt_tmp"
   trap - EXIT HUP INT TERM
 }
@@ -190,11 +253,24 @@ say "SlopNet Server setup"
 say "You are setting up a protected connection between this Mac and your server. SlopNet will never save your server password."
 
 prepare_ssh_directory
+# A key from before receipts existed is taken on rather than refused, once it
+# has been proved. Only a pair that cannot be proved stops setup, and then the
+# message names the files rather than leaving somebody to guess.
 if ! key_paths_absent && ! key_paths_complete; then
-  local_refuse "the private key, public key and key receipt are not one complete proved set."
+  if local_exists "$key_path" && local_exists "$key_path.pub" && \
+     ! local_exists "$key_receipt_path" && adopt_key_pair; then
+    say "Recorded the connection key this Mac already had, after checking the pair matches."
+  else
+    local_refuse "these files are not one complete proved set: $key_path, $key_path.pub, $key_receipt_path."
+  fi
 fi
 if ! known_hosts_paths_absent && ! known_hosts_paths_complete; then
-  local_refuse "the dedicated known-hosts file and its receipt are not one complete proved set."
+  if local_exists "$known_hosts_path" && ! local_exists "$known_hosts_receipt_path" && \
+     adopt_known_hosts; then
+    say "Recorded the server fingerprints this Mac already trusted."
+  else
+    local_refuse "these files are not one complete proved set: $known_hosts_path, $known_hosts_receipt_path."
+  fi
 fi
 if key_paths_complete && ! validate_key_pair; then
   local_refuse "the existing key files do not match their SlopNet receipt."
