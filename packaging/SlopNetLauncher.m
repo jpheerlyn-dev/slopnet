@@ -176,6 +176,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, strong) NSStackView *tabStrip;
 @property(nonatomic, strong) NSView *consoleHolder;
 @property(nonatomic, assign) NSUInteger activeTab;
+/// How a new tab's terminal is made. Left alone it makes an ordinary one; a
+/// check can supply its own so that opening a tool can be watched without a
+/// real connection being made.
+@property(nonatomic, copy) SlopNetConsole *(^makeConsole)(void);
 @property(nonatomic, strong) NSTextField *modelLabel;
 @property(nonatomic, strong) SlopNetEntryView *entry;
 @property(nonatomic, strong) NSScrollView *entryScroller;
@@ -778,7 +782,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 /// A terminal of its own for something being launched.
 - (SlopNetConsole *)openTabTitled:(NSString *)title {
-    SlopNetConsole *fresh = [[SlopNetConsole alloc] initWithFrame:NSZeroRect];
+    SlopNetConsole *fresh = self.makeConsole ? self.makeConsole()
+                                             : [[SlopNetConsole alloc] initWithFrame:NSZeroRect];
     fresh.translatesAutoresizingMaskIntoConstraints = NO;
     fresh.delegate = self;
     [self.consoleHolder addSubview:fresh];
@@ -2032,12 +2037,17 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                            "Download it again before running a server tool."];
         return NO;
     }
-    // A tool will get a terminal of its own here — openTabTitled: is built and
-    // the strip works — but the launcher probe drives this path with a stand-in
-    // console, and a tool running on a newly created one is no longer that
-    // object, so four of its checks stop describing what happens. Wiring it up
-    // without first teaching the probe to follow the active tab would mean
-    // shipping this unverified, which is the habit that cost a day.
+    // A tool gets a terminal of its own, so Granite stays where it was and is
+    // one click away. Everything below runs against that new terminal, because
+    // `console` is whichever tab is on top.
+    if (interactive) {
+        [self openTabTitled:title];
+    } else {
+        // A typed command, an install, a check: these belong with Granite,
+        // not inside whatever tool happens to be open. Without this they ran
+        // in the tool's tab, which is not where anybody would look for them.
+        [self showTab:0];
+    }
     self.toolRunning = interactive;
     // Put the keyboard back on the typing box, and the window in front.
     //

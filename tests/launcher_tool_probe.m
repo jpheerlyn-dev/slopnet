@@ -40,6 +40,9 @@ static NSString *firstDecodedPayload(NSString *command) {
 /// actions this probe drives; the production implementation is linked below.
 @interface SlopNetAppDelegate : NSObject <SlopNetConsoleDelegate, SlopNetSettingsDelegate>
 - (NSView *)buildSidebar;
+/// The terminal on top, and how a new tab's terminal is made.
+@property(nonatomic, strong) SlopNetConsole *console;
+@property(nonatomic, copy) SlopNetConsole *(^makeConsole)(void);
 - (NSView *)buildMain;
 - (void)showSkipControl:(NSString *)name;
 - (void)skipThisSignIn:(id)sender;
@@ -196,9 +199,31 @@ int main(void) {
         console.fakeRunning = NO;
         [app setBusy:NO];
 
+        // A tool now opens a terminal of its own, so the checks below follow
+        // that one rather than the console Granite is using. The app is told
+        // how to make it, which is the only way to watch a tool open without
+        // a real connection being made.
+        __block FakeConsole *toolConsole = nil;
+        app.makeConsole = ^SlopNetConsole *{
+            toolConsole = [[FakeConsole alloc] initWithFrame:NSZeroRect];
+            toolConsole.fakeRunning = YES;
+            return toolConsole;
+        };
+        NSUInteger tabsBefore = [[app valueForKey:@"tabTitles"] count];
         [app settings:nil openOnServer:
             @"zellij attach --create slopnet options --on-force-close detach"
                               title:@"Zellij"];
+        check([[app valueForKey:@"tabTitles"] count] == tabsBefore + 1,
+              "opening a tool adds a tab of its own");
+        check(toolConsole != nil && app.console == toolConsole,
+              "and that tab's terminal is the one now on top");
+        check([[[app valueForKey:@"tabTitles"] firstObject] isEqualToString:@"Granite"],
+              "Granite is still the first tab");
+        // Two terminals from here on: the tool's, and Granite's underneath it.
+        // Checks about the tool follow the first; anything typed goes to the
+        // second, which is where a person would look for it.
+        FakeConsole *graniteConsole = console;
+        console = toolConsole ?: console;
         NSButton *send = [app valueForKey:@"sendButton"];
         NSButton *skip = [app valueForKey:@"skipButton"];
         check(promptBar.hidden && skip.hidden,
@@ -239,12 +264,16 @@ int main(void) {
 
         // A command typed with the launcher's $ prefix can itself be a
         // full-screen program. It needs the same escape hatch as Settings.
+        console = graniteConsole;
         console.stopped = NO;
         console.fakeRunning = NO;
         console.launchedPath = nil;
         [app runServerCommand:@"zellij"];
+        // A typed full-screen command opens a terminal of its own too, so the
+        // program to look at is the one now on top. Granite is a tab away, and
+        // the button says so.
         check([send.title isEqualToString:@"Back to Granite"] &&
-              send.action == @selector(returnToGranite:) && console.fakeRunning,
+              send.action == @selector(returnToGranite:) && ((FakeConsole *)app.console).fakeRunning,
               "a typed server command keeps Granite one action away");
         [app returnToGranite:nil];
         console.fakeRunning = NO;
