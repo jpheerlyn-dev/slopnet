@@ -18,7 +18,7 @@ server_name="${4:-your server}"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.47"
+slopnet_release="v0.9.48"
 # Filled with the verified tag commit when build_app.sh copies this helper
 # into SlopNet.app. Keeping the source empty prevents a mutable tag name from
 # being the only authority for code that will run as root.
@@ -470,6 +470,14 @@ upgrade_from_v1() {
   usermod -s /usr/sbin/nologin slopnet || return 1
   chown -R 0:0 /opt/slopnet || return 1
   chmod go-w /opt/slopnet || return 1
+  # Record the account in the current format straight away. Clearing the old
+  # receipts without writing the new one leaves the account unmarked, which the
+  # very next check refuses — the upgrade has to finish what it started.
+  upgraded_account=$(runtime_receipt) || return 1
+  account_tmp=$(mktemp "$managed/.account.XXXXXX") || return 1
+  printf "%s" "$upgraded_account" > "$account_tmp" || return 1
+  chmod 600 "$account_tmp" || return 1
+  mv -f "$account_tmp" "$account_marker" || return 1
   rm -f "$managed/runtime-account-v1" "$managed/install-v1" || return 1
   echo "Upgraded the SlopNet records on this server to the current format."
 }
