@@ -279,3 +279,81 @@ Comments explain **why**, especially where the reason is not obvious from the
 code — several in `SlopNetConsole.m` record what broke and how it was proved, so
 the next person does not repeat it. Match the surrounding density. The operator
 dislikes invented interface copy and filler; write what is true and stop.
+
+---
+
+# Since the handover — state at v0.9.56
+
+## What was wrong, and is now fixed
+
+A day went into "the keyboard does nothing in a running tool". None of it was
+the terminal emulator. In order, the real faults were:
+
+- **Tool commands were piped into a shell on the server**, so the pipe was the
+  program's standing input and the tool had no terminal at all. btop said so —
+  "No tty detected". Every key was forwarded correctly and delivered to a
+  terminal nothing was reading. Commands now go over as a file and are run.
+- **The local pseudo-terminal collected whole lines.** A single keypress sat in
+  the buffer waiting for a newline that never comes. The line discipline now
+  follows the alternate screen.
+- **The typing box never took the keyboard** when a tool was started from
+  Settings, so keys went to the Settings window.
+- **Five shipped scripts did not parse** — a literal `\n+` from a bad edit in
+  the chat, build, coding-app, local-helper and project helpers. `bash -n` over
+  everything shipped is now `checks/shell-syntax.sh`.
+- **A server one release behind refused every tool**, so each release broke a
+  working server. The gate now brings the server to the app's release after
+  proving ownership.
+- **Setup refused a marker it had written itself** — the shell ends them with a
+  newline and the comparison did not.
+
+## What exists now
+
+- **Tabs.** One terminal per running thing. Granite is tab one and never
+  closes. `console` returns whichever tab is on top, so all callers keep
+  working; its setter replaces the first tab. Typed commands go to Granite.
+- **`makeConsole`** — a block on the launcher deciding how a new tab's terminal
+  is made. Left alone it makes a real one; a probe supplies its own and can
+  watch a tool open without a connection. This is the seam that makes tab work
+  testable, and the Tools popup should use it too.
+- **A key readout.** The typing box names the last key it passed to a tool. It
+  is what found the pipe fault in one keypress after a day of guessing.
+- **`tests/keyboard_probe.m`** — a key posted through a real window, into the
+  real typing box, to a real program on a real pseudo-terminal, reading back
+  the bytes received. It deliberately sets no terminal mode of its own.
+- **All six tool install recipes are proved** on a real server: Zellij 0.44.3,
+  btop, LazyGit 0.63.1, Superfile 1.6.0, LazyDocker, Delta 0.19.2.
+
+## Next, in order
+
+1. **A Tools popup** — a Library tab to browse and install from the vetted list
+   in `tools.json`, an Installed tab to launch. Launching opens a new terminal
+   tab, which already works.
+2. **Take launching out of Settings.** Settings is for connection, model and
+   server configuration. It is not where anybody looks to start a tool.
+3. Antigravity's row reads "No command yet" because it is preinstalled and has
+   no install command. It reads as missing work. Say "already installed".
+
+## Decisions taken since the handover
+
+- **Use other people's CLI tools, do not rebuild them.** btop, lazygit and
+  delta are years of work each. SlopNet's value is making them installable and
+  usable by somebody who has never opened a terminal.
+- **Keep the hand-written terminal emulator.** Replacing it with a maintained
+  one was considered and rejected: the day's failures were not emulator faults,
+  and the emulator is now checked against a real terminal emulator on real
+  recordings. Revisit only if a specific tool defeats it.
+- **Zellij is one tool among many, not the app's window manager.** SlopNet's
+  own tabs cover "watch btop while chatting". Zellij keeps its place for split
+  panes with coding agents, and for sessions that survive a dropped connection.
+
+## The lesson that cost the most
+
+Every check that passed while the app failed had the same shape: it supplied
+the missing piece itself and then reported the path worked. The keyboard probe
+passed because its test program ran `stty raw` — the exact thing the console
+was failing to do. A recipe harness passed from a directory the real path never
+uses. Probes read a script's payload and never the script, so five files that
+would not parse sailed through.
+
+If a check needs the thing under test to already work, it is not a check.
