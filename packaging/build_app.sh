@@ -28,6 +28,7 @@ bundle_paths=(
   packaging/SlopNetEntryView.h packaging/SlopNetEntryView.m
   packaging/SlopNetLauncher.m
   packaging/SlopNetSettings.h packaging/SlopNetSettings.m
+  packaging/SlopNetTools.h packaging/SlopNetTools.m
   packaging/SlopNetWizard.h packaging/SlopNetWizard.m
   packaging/build_app.sh packaging/build_dmg.sh packaging/make_icon.py
   packaging/slopnet-local-ssh-proof.sh
@@ -117,7 +118,8 @@ clang -fobjc-arc -Wall -Wextra -mmacosx-version-min=13.0 \
   -framework AppKit -framework CoreText \
   -I "$source_pkg" "$source_pkg/SlopNetLauncher.m" "$source_pkg/SlopNetConsole.m" \
   "$source_pkg/SlopNetEntryView.m" \
-  "$source_pkg/SlopNetSettings.m" "$source_pkg/SlopNetBrand.m" \
+  "$source_pkg/SlopNetSettings.m" "$source_pkg/SlopNetTools.m" \
+  "$source_pkg/SlopNetBrand.m" \
   "$source_pkg/SlopNetWizard.m" \
   -o "$contents/MacOS/SlopNet"
 cp "$icon_file" "$contents/Resources/AppIcon.icns"

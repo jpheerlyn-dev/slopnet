@@ -23,6 +23,7 @@
 #import "SlopNetConsole.h"
 #import "SlopNetEntryView.h"
 #import "SlopNetSettings.h"
+#import "SlopNetTools.h"
 #import "SlopNetWizard.h"
 
 static NSString *const kHostKey     = @"SlopNetVPSHost";
@@ -148,8 +149,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 };
 
 @interface SlopNetAppDelegate : NSObject <NSApplicationDelegate, SlopNetConsoleDelegate,
-                                          SlopNetSettingsDelegate, SlopNetWizardDelegate,
-                                          NSTextViewDelegate>
+                                          SlopNetSettingsDelegate, SlopNetToolsDelegate,
+                                          SlopNetWizardDelegate, NSTextViewDelegate>
 @property(nonatomic, strong) NSWindow *window;
 
 // sidebar
@@ -164,6 +165,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, copy) NSString *username;
 @property(nonatomic, copy) NSString *port;
 @property(nonatomic, strong) SlopNetSettings *settings;
+@property(nonatomic, strong) SlopNetTools *tools;
 @property(nonatomic, strong) SlopNetWizard *wizard;
 
 // main
@@ -234,7 +236,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, assign) BOOL planningRunning;
 @property(nonatomic, assign) BOOL approvedBuildRunning;
 @property(nonatomic, assign) BOOL uninstalling;
-/// An interactive tool deliberately opened in the terminal from Settings.
+/// An interactive tool deliberately opened in the terminal from Tools.
 /// It gets a plainly-labelled route back to Granite, rather than a
 /// generic Stop button that sounds like it might close the whole app.
 @property(nonatomic, assign) BOOL toolRunning;
@@ -504,6 +506,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
     self.settingsToggle = [self sidebarButton:@"⚙   Settings"
                                        action:@selector(openSettings:)];
+    // Tools: install and launch. Settings is connection and model only.
+    NSButton *toolsButton = [self sidebarButton:@"⚒   Tools"
+                                         action:@selector(openTools:)];
     NSButton *providersButton = [self sidebarButton:@"◫   Providers"
                                             action:@selector(showProviders:)];
     // Setup is discoverable from the main window, not only from Settings.
@@ -519,6 +524,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         spacer,
         [self separator],
         wizardButton,
+        toolsButton,
         providersButton,
         self.settingsToggle,
         [self label:[NSString stringWithFormat:@"v%@", version] size:10 grey:YES]]];
@@ -1449,6 +1455,15 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [self.settings presentFrom:self.window];
 }
 
+- (void)openTools:(id)sender {
+    self.tools = [[SlopNetTools alloc] initWithHost:self.host
+                                               port:self.port
+                                               user:self.username
+                                          connected:[self isReady]];
+    self.tools.delegate = self;
+    [self.tools presentFrom:self.window];
+}
+
 #pragma mark - the setup wizard
 
 - (void)openWizardAtStep:(SlopNetWizardStep)step {
@@ -1993,7 +2008,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     return found ? [text substringWithRange:[found rangeAtIndex:1]] : @"";
 }
 
-- (void)settings:(SlopNetSettings *)settings signInToProvider:(NSString *)provider {
+- (void)signInToProvider:(NSString *)provider {
     if (self.busy || ![self connectionValid]) return;
     NSString *script = [self helper:@"slopnet-vps-coding-app"];
     if (script == nil) {
@@ -2024,6 +2039,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     }
 }
 
+- (void)tools:(SlopNetTools *)tools signInToProvider:(NSString *)provider {
+    (void)tools;
+    [self signInToProvider:provider];
+}
+
 - (BOOL)startServerCommand:(NSString *)command title:(NSString *)title
                interactive:(BOOL)interactive {
     if (self.busy || ![self connectionValid]) return NO;
@@ -2051,8 +2071,8 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.toolRunning = interactive;
     // Put the keyboard back on the typing box, and the window in front.
     //
-    // A tool is started from Settings, so that is where the keyboard is when
-    // it launches. Every key then goes to the Settings window and none of it
+    // A tool is started from the Tools popup, so that is where the keyboard
+    // is when it launches. Every key then goes to the sheet and none of it
     // reaches the box that forwards keys to the running program — so a
     // full-screen tool draws perfectly and answers nothing, which is exactly
     // how it looked. Raw input was working the whole time; it was never being
@@ -2084,13 +2104,15 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     return YES;
 }
 
-- (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
-           title:(NSString *)title {
+- (void)tools:(SlopNetTools *)tools runOnServer:(NSString *)command
+        title:(NSString *)title {
+    (void)tools;
     [self startServerCommand:command title:title interactive:NO];
 }
 
-- (BOOL)settings:(SlopNetSettings *)settings openOnServer:(NSString *)command
-            title:(NSString *)title {
+- (BOOL)tools:(SlopNetTools *)tools openOnServer:(NSString *)command
+        title:(NSString *)title {
+    (void)tools;
     return [self startServerCommand:command title:title interactive:YES];
 }
 

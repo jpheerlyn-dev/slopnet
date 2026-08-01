@@ -4,13 +4,15 @@
 //     -framework AppKit -framework CoreText -I packaging \
 //     tests/launcher_tool_probe.m packaging/SlopNetLauncher.m \
 //     packaging/SlopNetConsole.m packaging/SlopNetEntryView.m \
-//     packaging/SlopNetSettings.m packaging/SlopNetBrand.m \
-//     packaging/SlopNetWizard.m -o /tmp/launcher_tool && /tmp/launcher_tool
+//     packaging/SlopNetSettings.m packaging/SlopNetTools.m \
+//     packaging/SlopNetBrand.m packaging/SlopNetWizard.m \
+//     -o /tmp/launcher_tool && /tmp/launcher_tool
 
 #import <Cocoa/Cocoa.h>
 #import "SlopNetConsole.h"
 #import "SlopNetEntryView.h"
 #import "SlopNetSettings.h"
+#import "SlopNetTools.h"
 
 static int failures = 0;
 static void check(BOOL ok, const char *what) {
@@ -38,7 +40,8 @@ static NSString *firstDecodedPayload(NSString *command) {
 
 /// The launcher is deliberately private to the app. Redeclare only the
 /// actions this probe drives; the production implementation is linked below.
-@interface SlopNetAppDelegate : NSObject <SlopNetConsoleDelegate, SlopNetSettingsDelegate>
+@interface SlopNetAppDelegate : NSObject <SlopNetConsoleDelegate, SlopNetSettingsDelegate,
+                                          SlopNetToolsDelegate>
 - (NSView *)buildSidebar;
 /// The terminal on top, and how a new tab's terminal is made.
 @property(nonatomic, strong) SlopNetConsole *console;
@@ -53,11 +56,12 @@ static NSString *firstDecodedPayload(NSString *command) {
 - (void)console:(SlopNetConsole *)console needsSignIn:(NSURL *)page code:(NSString *)code;
 - (void)console:(SlopNetConsole *)console asksFor:(SlopNetPrompt)prompt
        question:(NSString *)question;
-- (void)settings:(SlopNetSettings *)settings runOnServer:(NSString *)command
-           title:(NSString *)title;
-- (BOOL)settings:(SlopNetSettings *)settings openOnServer:(NSString *)command
-            title:(NSString *)title;
-- (void)settings:(SlopNetSettings *)settings signInToProvider:(NSString *)provider;
+- (void)tools:(SlopNetTools *)tools runOnServer:(NSString *)command
+        title:(NSString *)title;
+- (BOOL)tools:(SlopNetTools *)tools openOnServer:(NSString *)command
+        title:(NSString *)title;
+- (void)tools:(SlopNetTools *)tools signInToProvider:(NSString *)provider;
+- (void)signInToProvider:(NSString *)provider;
 - (NSString *)helper:(NSString *)name;
 @end
 
@@ -95,23 +99,32 @@ static NSString *firstDecodedPayload(NSString *command) {
 }
 @end
 
-@interface SettingsCatcher : NSObject
+@interface ToolsCatcher : NSObject
 @property(nonatomic, copy) NSString *command;
 @property(nonatomic, copy) NSString *title;
 @property(nonatomic, assign) BOOL accepted;
 @end
-@implementation SettingsCatcher
-- (BOOL)settings:(SlopNetSettings *)settings openOnServer:(NSString *)command
-           title:(NSString *)title {
-    (void)settings;
+@implementation ToolsCatcher
+- (void)tools:(SlopNetTools *)tools runOnServer:(NSString *)command
+        title:(NSString *)title {
+    (void)tools; (void)command; (void)title;
+}
+- (BOOL)tools:(SlopNetTools *)tools openOnServer:(NSString *)command
+        title:(NSString *)title {
+    (void)tools;
     self.command = command;
     self.title = title;
     return self.accepted;
 }
+- (void)tools:(SlopNetTools *)tools signInToProvider:(NSString *)provider {
+    (void)tools; (void)provider;
+}
 @end
 
-@interface SlopNetSettings (Probe)
-- (void)runPressed:(NSButton *)sender;
+@interface SlopNetTools (Probe)
+- (void)openPressed:(NSButton *)sender;
+- (void)rebuildLibrary;
+- (void)rebuildInstalled;
 @end
 
 int main(void) {
@@ -174,11 +187,11 @@ int main(void) {
               "returning to the composer cannot resurrect a stale browser offer");
         console.fakeRunning = NO;
 
-        // A direct sign-in launched from Settings can lose a race for the
-        // console. The failure must put back the ordinary composer instead of
-        // leaving a spinner and a terminal-only Back button on screen.
+        // A direct sign-in can lose a race for the console. The failure must
+        // put back the ordinary composer instead of leaving a spinner and a
+        // terminal-only Back button on screen.
         console.refuseLaunch = YES;
-        [app settings:nil signInToProvider:@"claude"];
+        [app signInToProvider:@"claude"];
         check([app valueForKey:@"signingIn"] == nil &&
               [app valueForKey:@"actionTimer"] == nil &&
               ![[app valueForKey:@"busy"] boolValue] &&
@@ -186,7 +199,7 @@ int main(void) {
               ![[app valueForKey:@"entryScroller"] isHidden] &&
               ![[app valueForKey:@"sendButton"] isHidden] &&
               appWindow.firstResponder == entry,
-              "a refused Settings sign-in restores the ordinary composer");
+              "a refused sign-in restores the ordinary composer");
         console.refuseLaunch = NO;
 
         // Granite stays visible during protected work without becoming a
@@ -210,7 +223,7 @@ int main(void) {
             return toolConsole;
         };
         NSUInteger tabsBefore = [[app valueForKey:@"tabTitles"] count];
-        [app settings:nil openOnServer:
+        [app tools:nil openOnServer:
             @"zellij attach --create slopnet options --on-force-close detach"
                               title:@"Zellij"];
         check([[app valueForKey:@"tabTitles"] count] == tabsBefore + 1,
@@ -234,8 +247,8 @@ int main(void) {
         check([console.launchedPath isEqualToString:@"/usr/bin/ssh"] && console.fakeRunning,
               "the tool still launches through the normal SSH console path");
         // The keyboard has to be on the box that forwards keys to the program.
-        // It is started from Settings, so without this every key goes to the
-        // Settings window and a full-screen tool answers nothing.
+        // It is started from a sheet, so without this every key goes to the
+        // sheet and a full-screen tool answers nothing.
         check(appWindow.firstResponder == entry,
               "starting a tool puts the keyboard on the box that forwards keys");
         NSString *guard = firstDecodedPayload(console.launchedArguments.lastObject);
@@ -247,7 +260,7 @@ int main(void) {
               [guard containsString:@"install-v2"] &&
               [guard containsString:@"home_dev="] &&
               [guard containsString:@"getent passwd slopnet"],
-              "Settings tools validate the managed account and exact release before running");
+              "Tools validate the managed account and exact release before running");
 
         [app returnToGranite:nil];
         check(console.stopped, "Back to Granite stops the terminal owner");
@@ -263,7 +276,7 @@ int main(void) {
         check(!falseFailure, "choosing Back to Granite is not reported as a failure");
 
         // A command typed with the launcher's $ prefix can itself be a
-        // full-screen program. It needs the same escape hatch as Settings.
+        // full-screen program. It needs the same escape hatch as Tools.
         console = graniteConsole;
         console.stopped = NO;
         console.fakeRunning = NO;
@@ -339,32 +352,71 @@ int main(void) {
         [app console:console finishedWithStatus:-1];
         check(console.launchedPath == nil, "returning to Granite starts no next provider");
 
-        // Settings must step aside when Open is pressed; otherwise the tool
+        // Tools must step aside when Open is pressed; otherwise the tool
         // starts behind the sheet and appears not to have opened.
-        SettingsCatcher *catcher = [SettingsCatcher new];
+        ToolsCatcher *catcher = [ToolsCatcher new];
         catcher.accepted = NO;
-        SlopNetSettings *settings = [[SlopNetSettings alloc]
+        SlopNetTools *tools = [[SlopNetTools alloc]
             initWithHost:@"server.example.invalid" port:@"22" user:@"root" connected:YES];
-        settings.delegate = (id<SlopNetSettingsDelegate>)catcher;
-        [settings setValue:@[@{@"id": @"zellij", @"name": @"Zellij",
-                              @"run": @"zellij attach --create slopnet options --on-force-close detach"}]
-                  forKey:@"tools"];
+        tools.delegate = (id<SlopNetToolsDelegate>)catcher;
+        [tools setValue:@[@{@"id": @"zellij", @"name": @"Zellij",
+                            @"run": @"zellij attach --create slopnet options --on-force-close detach",
+                            @"install": @"true",
+                            @"check": @"zellij",
+                            @"subscription": @"free"},
+                          @{@"id": @"antigravity",
+                            @"name": @"Antigravity CLI  (preinstalled, interactive only)",
+                            @"run": @"agy",
+                            @"install": @"",
+                            @"check": @"agy",
+                            @"subscription": @"not a SlopNet build worker yet"}]
+                forKey:@"tools"];
+        // Rebuild rows after injecting the list the probe drives.
+        [tools setValue:[NSMutableDictionary dictionary] forKey:@"libraryStatus"];
+        [tools setValue:[NSMutableDictionary dictionary] forKey:@"libraryAction"];
+        [tools setValue:[NSMutableDictionary dictionary] forKey:@"installedStatus"];
+        [tools setValue:[NSMutableDictionary dictionary] forKey:@"installedOpen"];
+        [tools rebuildLibrary];
+        [tools rebuildInstalled];
+
+        // Antigravity is preinstalled: the Library must not read as unfinished.
+        NSDictionary *actions = [tools valueForKey:@"libraryAction"];
+        NSButton *agy = actions[@"antigravity"];
+        check([agy.title isEqualToString:@"Already installed"] && !agy.enabled,
+              "Antigravity says Already installed, not No command yet");
+
         NSWindow *parent = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,900,700)
                                                        styleMask:NSWindowStyleMaskTitled
                                                          backing:NSBackingStoreBuffered defer:NO];
-        [settings presentFrom:parent];
+        [tools presentFrom:parent];
         NSButton *open = [NSButton buttonWithTitle:@"Open" target:nil action:nil];
         open.identifier = @"zellij";
-        [settings runPressed:open];
-        check(settings.window.sheetParent == parent,
-              "Settings stays open when the console cannot accept the tool");
+        [tools openPressed:open];
+        check(tools.window.sheetParent == parent,
+              "Tools stays open when the console cannot accept the tool");
         catcher.accepted = YES;
-        [settings runPressed:open];
+        [tools openPressed:open];
         check([catcher.command isEqualToString:
                @"zellij attach --create slopnet options --on-force-close detach"],
-              "Settings Open sends the listed run command");
-        check(settings.window.sheetParent == nil,
-              "Settings closes after Open so the console is visible");
+              "Tools Open sends the listed run command");
+        check(tools.window.sheetParent == nil,
+              "Tools closes after Open so the console is visible");
+
+        // Settings is connection and model only — no way to launch a tool.
+        SlopNetSettings *settings = [[SlopNetSettings alloc]
+            initWithHost:@"server.example.invalid" port:@"22" user:@"root" connected:YES];
+        NSMutableArray<NSView *> *stack = [NSMutableArray arrayWithObject:settings.window.contentView];
+        BOOL settingsHasOpen = NO;
+        while (stack.count > 0) {
+            NSView *view = stack.lastObject;
+            [stack removeLastObject];
+            if ([view isKindOfClass:NSButton.class] &&
+                [((NSButton *)view).title isEqualToString:@"Open"]) {
+                settingsHasOpen = YES;
+            }
+            [stack addObjectsFromArray:view.subviews];
+        }
+        check(!settingsHasOpen, "Settings has no Open button for tools");
 
         fprintf(stderr, failures == 0 ? "\nLAUNCHER TOOL PROBE DONE — all ok\n"
                                       : "\nLAUNCHER TOOL PROBE DONE — %d failed\n", failures);

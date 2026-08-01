@@ -241,6 +241,7 @@ check("/bin/chmod 0555" in project_source and
 onboard_source = onboard_path.read_text(encoding="utf-8")
 launcher_source = (packaging / "SlopNetLauncher.m").read_text(encoding="utf-8")
 settings_source = (packaging / "SlopNetSettings.m").read_text(encoding="utf-8")
+tools_source = (packaging / "SlopNetTools.m").read_text(encoding="utf-8")
 wizard_source = (packaging / "SlopNetWizard.m").read_text(encoding="utf-8")
 build_app_source = (packaging / "build_app.sh").read_text(encoding="utf-8")
 build_dmg_path = packaging / "build_dmg.sh"
@@ -256,7 +257,7 @@ check("kind=slopnet-known-hosts-v1" in onboard_source and
       "SlopNetProvedKnownHosts" in launcher_source and '@"-R"' not in launcher_source,
       "Mac-only removal deletes only receipt-proved SSH files and never global trust")
 check(all("UserKnownHostsFile=" in source for source in
-          (launcher_source, settings_source, wizard_source)) and
+          (launcher_source, settings_source, tools_source, wizard_source)) and
       "/usr/bin/nc" in wizard_source and "UserKnownHostsFile=/dev/null" not in wizard_source,
       "authenticated Mac SSH uses dedicated trust; pre-onboarding uses only TCP reachability")
 check('slopnet_commit=""' in onboard_source and

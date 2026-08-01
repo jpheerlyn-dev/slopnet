@@ -1,6 +1,6 @@
 # SlopNet — handing over
 
-Updated 2026-08-01 for `v0.9.45`, for whoever picks this up next.
+Updated 2026-08-01 for `v0.9.57`, for whoever picks this up next.
 
 ## What it is, and who it is for
 
@@ -121,16 +121,18 @@ characters tile is a question about pixels; text comparison cannot answer it.
 - `packaging/SlopNetLauncher.m` — the window, the sidebar, the chat turn loop
   and the SSH plumbing.
 - `packaging/SlopNetEntryView.h/.m` — the typing box and its `keyDown:`.
-- `packaging/SlopNetSettings.h/.m` — Settings, including the tools table with
-  Install and Open buttons.
+- `packaging/SlopNetSettings.h/.m` — Settings: connection, model and server
+  configuration only.
+- `packaging/SlopNetTools.h/.m` — Tools popup: Library to install, Installed
+  to launch into a new terminal tab.
 - `packaging/SlopNetBrand.h/.m` — panels, colours, the bundled colour font,
   provider marks.
 - `packaging/SlopNetWizard.m` — the retro installer. The operator likes it; it
   stays.
-- `packaging/tools.json` — the tools Settings offers. `install` runs on the
-  server; `run` starts the tool in the console. **An empty `install` means
-  nobody has verified that command.** Do not invent one; a wrong install command
-  runs on somebody's server.
+- `packaging/tools.json` — the tools the Tools popup offers. `install` runs on
+  the server; `run` starts the tool in its own tab. **An empty `install` means
+  nobody has verified that command** (Antigravity is preinstalled and says so).
+  Do not invent one; a wrong install command runs on somebody's server.
 - `slopnet` — the Python CLI that lives on the server. Stdlib only.
 - `packaging/slopnet-vps-*.sh` — onboarding and per-tool helpers.
 
@@ -282,7 +284,7 @@ dislikes invented interface copy and filler; write what is true and stop.
 
 ---
 
-# Since the handover — state at v0.9.56
+# Since the handover — state at v0.9.57
 
 ## What was wrong, and is now fixed
 
@@ -326,13 +328,13 @@ the terminal emulator. In order, the real faults were:
 
 ## Next, in order
 
-1. **A Tools popup** — a Library tab to browse and install from the vetted list
-   in `tools.json`, an Installed tab to launch. Launching opens a new terminal
-   tab, which already works.
-2. **Take launching out of Settings.** Settings is for connection, model and
-   server configuration. It is not where anybody looks to start a tool.
-3. Antigravity's row reads "No command yet" because it is preinstalled and has
-   no install command. It reads as missing work. Say "already installed".
+1. **Tools popup — done in v0.9.57.** Library installs from `tools.json`;
+   Installed launches into a new terminal tab through the same `makeConsole`
+   seam the launcher probe uses. Settings no longer has Open or a tools table.
+   Antigravity's Library row says **Already installed**.
+2. Whatever the operator asks for next. The live proof path is still one
+   x86-64 Ubuntu server; fresh second-server setup and Antigravity as an
+   unattended build worker remain open from earlier sections.
 
 ## Decisions taken since the handover
 

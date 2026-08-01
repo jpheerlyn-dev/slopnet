@@ -8,11 +8,6 @@
 @property(nonatomic, strong) NSTextField *port;
 @property(nonatomic, strong) NSTextField *user;
 @property(nonatomic, strong) NSTextField *connectionNote;
-@property(nonatomic, strong) NSGridView *toolGrid;
-@property(nonatomic, strong) NSArray<NSDictionary *> *tools;
-@property(nonatomic, strong) NSMutableDictionary<NSString *, NSTextField *> *toolStatus;
-@property(nonatomic, strong) NSMutableDictionary<NSString *, NSButton *> *toolButton;
-@property(nonatomic, strong) NSMutableDictionary<NSString *, NSButton *> *toolRunButton;
 @property(nonatomic, strong) NSTextField *localModel;
 @property(nonatomic, strong) NSTextField *localHelperNote;
 @property(nonatomic, strong) NSButton *localHelperButton;
@@ -26,7 +21,7 @@
                         user:(NSString *)user
                    connected:(BOOL)connected {
     NSWindow *window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, 660, 580)
+        initWithContentRect:NSMakeRect(0, 0, 660, 480)
                   styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                              NSWindowStyleMaskResizable)
                     backing:NSBackingStoreBuffered
@@ -36,23 +31,8 @@
     self = [super initWithWindow:window];
     if (!self) return nil;
     _connected = connected;
-    _toolStatus = [NSMutableDictionary dictionary];
-    _toolButton = [NSMutableDictionary dictionary];
-    _toolRunButton = [NSMutableDictionary dictionary];
-    _tools = [self loadTools];
     [self buildWithHost:host port:port user:user];
     return self;
-}
-
-#pragma mark - tool list
-
-- (NSArray<NSDictionary *> *)loadTools {
-    NSString *path = [[NSBundle mainBundle] pathForResource:@"tools" ofType:@"json"];
-    if (path == nil) return @[];
-    NSData *data = [NSData dataWithContentsOfFile:path];
-    if (data == nil) return @[];
-    NSDictionary *root = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    return [root isKindOfClass:NSDictionary.class] ? (root[@"tools"] ?: @[]) : @[];
 }
 
 #pragma mark - little builders
@@ -185,15 +165,6 @@
     utilityButtons.spacing = 10;
     utilityButtons.translatesAutoresizingMaskIntoConstraints = NO;
 
-    self.toolGrid = [NSGridView gridViewWithNumberOfColumns:4 rows:0];
-    self.toolGrid.translatesAutoresizingMaskIntoConstraints = NO;
-    self.toolGrid.rowSpacing = 8;
-    self.toolGrid.columnSpacing = 14;
-    [self buildToolRows];
-
-    NSButton *recheck = [self button:@"Check what is installed"
-                             action:@selector(refreshPressed:)];
-
     self.localModel = [self field:@"ibm-granite/granite-4.1-3b-GGUF:Q4_K_M"
                        placeholder:@"owner/model:quant"];
     [self.localModel.widthAnchor constraintGreaterThanOrEqualToConstant:360].active = YES;
@@ -243,13 +214,6 @@
         self.connectionNote,
         utilityButtons,
         [self separator],
-        [self label:@"Coding tools on your server" size:15 grey:NO bold:YES],
-        [self helpText:@"SlopNet asks your server which of these it already has. "
-                       @"Installing runs in the main window, so you can watch exactly "
-                       @"what happens."],
-        recheck,
-        self.toolGrid,
-        [self separator],
         [self label:helperTitle size:15 grey:NO bold:YES],
         [self helpText:helperHelp],
         localModelRow,
@@ -290,84 +254,6 @@
     ]];
 }
 
-/// Start a tool on the server, in the console.
-- (void)runPressed:(NSButton *)sender {
-    NSString *toolID = sender.identifier ?: @"";
-    for (NSDictionary *tool in self.tools) {
-        if (![tool[@"id"] isEqualToString:toolID]) continue;
-        NSString *runs = tool[@"run"] ?: @"";
-        if (runs.length == 0) return;
-        if ([self.delegate settings:self openOnServer:runs
-                               title:tool[@"name"] ?: toolID]) {
-            [self closePressed:nil];
-        }
-        return;
-    }
-}
-
-- (void)buildToolRows {
-    while (self.toolGrid.numberOfRows > 0) {
-        [self.toolGrid removeRowAtIndex:0];
-    }
-    [self.toolStatus removeAllObjects];
-    [self.toolButton removeAllObjects];
-    [self.toolRunButton removeAllObjects];
-
-    if (self.tools.count == 0) {
-        [self.toolGrid addRowWithViews:@[
-            [self label:@"No tools list found in this app." size:12 grey:YES bold:NO]]];
-        return;
-    }
-
-    NSGridRow *header = [self.toolGrid addRowWithViews:@[
-        [self label:@"TOOL" size:10 grey:YES bold:NO],
-        [self label:@"ON YOUR SERVER" size:10 grey:YES bold:NO],
-        [self label:@"" size:10 grey:YES bold:NO],
-        [self label:@"" size:10 grey:YES bold:NO],
-        [self label:@"SUBSCRIPTION" size:10 grey:YES bold:NO]]];
-    header.bottomPadding = 3;
-
-    for (NSDictionary *tool in self.tools) {
-        NSString *toolID = tool[@"id"] ?: @"";
-        NSTextField *name = [self label:tool[@"name"] ?: toolID size:12 grey:NO bold:NO];
-
-        NSTextField *status = [self label:@"unknown" size:11 grey:YES bold:NO];
-        self.toolStatus[toolID] = status;
-
-        NSString *install = tool[@"install"] ?: @"";
-        NSString *provider = [SlopNetBrand providerForTool:toolID];
-        BOOL signsIn = [SlopNetSettings signInSupportedForProvider:provider];
-        BOOL canPrepare = install.length > 0 || signsIn;
-        NSString *actionTitle = signsIn ? @"Set up"
-            : (install.length > 0 ? @"Install" : @"No command yet");
-        NSButton *action = [self button:actionTitle
-                                 action:@selector(installPressed:)];
-        action.identifier = toolID;
-        action.enabled = canPrepare && self.connected;
-        if (!canPrepare) {
-            action.toolTip = @"Nobody has verified this tool's install command yet, so "
-                             @"SlopNet will not guess one. Add it to tools.json.";
-        }
-        self.toolButton[toolID] = action;
-
-        NSTextField *subscription = [self label:tool[@"subscription"] ?: @""
-                                           size:10 grey:YES bold:NO];
-        // Installing a tool and never being able to start it is half a
-        // feature. A tool with something to run gets a button that runs it in
-        // the console, the same place everything else on the server appears.
-        NSString *runs = tool[@"run"] ?: @"";
-        NSButton *open = [self button:@"Open" action:@selector(runPressed:)];
-        open.identifier = toolID;
-        open.enabled = runs.length > 0 && self.connected;
-        if (runs.length == 0) {
-            open.toolTip = @"This one has no command to start it on its own.";
-        }
-        self.toolRunButton[toolID] = open;
-
-        [self.toolGrid addRowWithViews:@[name, status, action, open, subscription]];
-    }
-}
-
 /// Copy the typed value across, so either field can be the one edited.
 - (void)syncHostFields {
     if (self.host.hidden) self.host.stringValue = self.hiddenHost.stringValue;
@@ -395,10 +281,7 @@
 
 - (void)presentFrom:(NSWindow *)parent {
     [parent beginSheet:self.window completionHandler:nil];
-    if (self.connected) {
-        [self refreshToolStatus];
-        [self refreshLocalHelperStatus];
-    }
+    if (self.connected) [self refreshLocalHelperStatus];
 }
 
 #pragma mark - actions
@@ -431,7 +314,6 @@
     self.connected = NO;
     self.host.stringValue = @"";
     [self updateConnectionNote];
-    [self buildToolRows];
 }
 
 - (void)checkConnectionPressed:(id)sender {
@@ -448,47 +330,6 @@
     [self.delegate settingsShowServerHelp:self];
     [self closePressed:nil];
 }
-
-/// Which providers SlopNet can carry through a browser sign-in.
-///
-/// Only providers with a proved unattended SlopNet worker. Antigravity can be
-/// used interactively when preinstalled, but sign-in alone is not a build
-/// adapter, so Settings does not present it as one.
-+ (BOOL)signInSupportedForProvider:(NSString *)provider {
-    static NSSet *supported;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        supported = [NSSet setWithArray:@[@"openai", @"anthropic", @"xai"]];
-    });
-    return provider != nil && [supported containsObject:provider];
-}
-
-- (void)installPressed:(NSButton *)sender {
-    NSString *toolID = sender.identifier;
-    for (NSDictionary *tool in self.tools) {
-        if (![tool[@"id"] isEqualToString:toolID]) continue;
-        // Install and sign in are one action. Pressing Install and then being
-        // left with a tool you cannot use is not an install — SlopNet already
-        // has a step that fetches the tool and takes you through the browser
-        // sign-in, and it is the one proved on a real server.
-        NSString *provider = [SlopNetBrand providerForTool:toolID];
-        if ([SlopNetSettings signInSupportedForProvider:provider]) {
-            [self.delegate settings:self signInToProvider:provider];
-            [self closePressed:nil];
-            return;
-        }
-        // Anything SlopNet cannot sign in to yet is installed and no more.
-        NSString *install = tool[@"install"] ?: @"";
-        if (install.length == 0) return;
-        [self.delegate settings:self runOnServer:install
-                          title:[NSString stringWithFormat:@"Installing %@",
-                                 tool[@"name"] ?: toolID]];
-        [self closePressed:nil];
-        return;
-    }
-}
-
-- (void)refreshPressed:(id)sender { [self refreshToolStatus]; }
 
 - (BOOL)localModelValid:(NSString *)model {
     NSRegularExpression *expression = [NSRegularExpression
@@ -512,101 +353,6 @@
 }
 
 - (void)refreshLocalPressed:(id)sender { [self refreshLocalHelperStatus]; }
-
-#pragma mark - asking the server what it has
-
-- (void)refreshToolStatus {
-    if (!self.connected || self.host.stringValue.length == 0) {
-        for (NSTextField *status in self.toolStatus.allValues) {
-            status.stringValue = @"connect first";
-        }
-        return;
-    }
-    for (NSTextField *status in self.toolStatus.allValues) status.stringValue = @"checking…";
-
-    // One quiet, non-interactive SSH call. It only asks where commands are;
-    // it changes nothing. Interactive work belongs in the main console.
-    NSMutableString *probe = [NSMutableString stringWithString:
-        @"PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "];
-    for (NSDictionary *tool in self.tools) {
-        NSString *check = tool[@"check"] ?: @"";
-        if (check.length == 0) continue;
-        // Looked for on the runtime account's PATH, because that is where the
-        // installs go. Checking root's PATH found only the one tool whose
-        // installer had symlinked itself machine-wide, so the list said "not
-        // installed" for things that were.
-        [probe appendFormat:
-            @"if /usr/sbin/runuser -u slopnet -- /usr/bin/env HOME=/home/slopnet "
-            @"PATH=/home/slopnet/.local/bin:/home/slopnet/.kimi-code/bin:"
-            @"/home/slopnet/.local/node_modules/.bin:"
-            @"/usr/local/bin:/usr/bin:/bin "
-            @"/bin/sh -c 'command -v %@' >/dev/null 2>&1; then echo '%@ yes'; "
-            @"else echo '%@ no'; fi; ",
-            check, tool[@"id"], tool[@"id"]];
-    }
-    if (![self.user.stringValue isEqualToString:@"root"]) {
-        NSString *encoded = [[[probe copy] dataUsingEncoding:NSUTF8StringEncoding]
-            base64EncodedStringWithOptions:0];
-        probe = [[NSString stringWithFormat:
-            @"/usr/bin/printf %%s '%@' | /usr/bin/base64 -d | "
-             "/usr/bin/sudo -n /bin/sh", encoded] mutableCopy];
-    }
-
-    NSTask *task = [[NSTask alloc] init];
-    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
-    NSString *identity = [NSHomeDirectory() stringByAppendingPathComponent:
-                          @".ssh/slopnet_vps_ed25519"];
-    NSString *knownHosts = [NSHomeDirectory() stringByAppendingPathComponent:
-                            @".ssh/slopnet_vps_known_hosts"];
-    task.arguments = @[@"-i", identity,
-                       @"-o", @"IdentitiesOnly=yes",
-                       @"-o", [@"UserKnownHostsFile=" stringByAppendingString:knownHosts],
-                       @"-p", self.port.stringValue,
-                       @"-o", @"BatchMode=yes",
-                       @"-o", @"ConnectTimeout=10",
-                       @"-o", @"StrictHostKeyChecking=accept-new",
-                       [NSString stringWithFormat:@"%@@%@",
-                        self.user.stringValue, self.host.stringValue],
-                       probe];
-    NSPipe *pipe = [NSPipe pipe];
-    task.standardOutput = pipe;
-    task.standardError = [NSPipe pipe];
-
-    __weak typeof(self) weakSelf = self;
-    task.terminationHandler = ^(NSTask *finished) {
-        NSData *data = [pipe.fileHandleForReading readDataToEndOfFile];
-        NSString *text = [[NSString alloc] initWithData:data
-                                              encoding:NSUTF8StringEncoding] ?: @"";
-        dispatch_async(dispatch_get_main_queue(), ^{
-            typeof(self) strongSelf = weakSelf;
-            if (strongSelf == nil) return;
-            if (finished.terminationStatus != 0 && text.length == 0) {
-                for (NSTextField *status in strongSelf.toolStatus.allValues) {
-                    status.stringValue = @"could not ask the server";
-                }
-                return;
-            }
-            for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
-                NSArray *parts = [line componentsSeparatedByString:@" "];
-                if (parts.count < 2) continue;
-                NSTextField *status = strongSelf.toolStatus[parts[0]];
-                NSButton *action = strongSelf.toolButton[parts[0]];
-                if (status == nil) continue;
-                BOOL present = [parts[1] isEqualToString:@"yes"];
-                status.stringValue = present ? @"●  installed" : @"not installed";
-                status.textColor = present ? [NSColor systemGreenColor]
-                                           : [NSColor secondaryLabelColor];
-                if (action && present && action.enabled) action.title = @"Reinstall";
-            }
-        });
-    };
-    NSError *error = nil;
-    if (![task launchAndReturnError:&error]) {
-        for (NSTextField *status in self.toolStatus.allValues) {
-            status.stringValue = @"could not run ssh";
-        }
-    }
-}
 
 #pragma mark - local helper inspection
 

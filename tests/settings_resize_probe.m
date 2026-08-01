@@ -15,9 +15,6 @@
 @interface Probe : NSObject <SlopNetSettingsDelegate> @end
 @implementation Probe
 - (void)settings:(SlopNetSettings *)s connectToHost:(NSString *)h port:(NSString *)p user:(NSString *)u {}
-- (void)settings:(SlopNetSettings *)s signInToProvider:(NSString *)p {}
-- (void)settings:(SlopNetSettings *)s runOnServer:(NSString *)c title:(NSString *)t {}
-- (BOOL)settings:(SlopNetSettings *)s openOnServer:(NSString *)c title:(NSString *)t { return YES; }
 - (void)settingsDidForget:(SlopNetSettings *)s {}
 - (void)settingsWantsUninstall:(SlopNetSettings *)s {}
 - (void)settingsCheckConnection:(SlopNetSettings *)s {}
@@ -29,11 +26,12 @@ int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         Probe *probe = [Probe new];
+        // A non-routable documentation address; the probe never connects.
         SlopNetSettings *settings = [[SlopNetSettings alloc]
             initWithHost:@"203.0.113.10" port:@"22" user:@"root" connected:YES];
         settings.delegate = probe;
         NSWindow *w = settings.window;
-        CGFloat sizes[][2] = {{660,580},{520,360},{1200,900},{520,360},{800,420}};
+        CGFloat sizes[][2] = {{660,480},{520,360},{1200,900},{520,360},{800,420}};
         for (int i = 0; i < 5; i++) {
             [w setFrame:NSMakeRect(0, 0, sizes[i][0], sizes[i][1]) display:YES];
             [w.contentView layoutSubtreeIfNeeded];

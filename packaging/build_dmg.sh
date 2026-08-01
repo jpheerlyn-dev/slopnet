@@ -65,6 +65,7 @@ if [ -n "$pinned" ] && git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
     packaging/SlopNetEntryView.h packaging/SlopNetEntryView.m
     packaging/SlopNetLauncher.m
     packaging/SlopNetSettings.h packaging/SlopNetSettings.m
+    packaging/SlopNetTools.h packaging/SlopNetTools.m
     packaging/SlopNetWizard.h packaging/SlopNetWizard.m
     packaging/build_app.sh packaging/build_dmg.sh packaging/make_icon.py
     "${server_paths[@]}"
