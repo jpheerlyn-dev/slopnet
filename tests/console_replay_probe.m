@@ -94,7 +94,11 @@ int main(int argc, const char **argv) {
             fprintf(stderr, "cannot read %s\n", argv[1]);
             return 2;
         }
-        NSString *expected = argc > 2 ? @(argv[2]) : nil;
+        NSString *expected = (argc > 2 && strlen(argv[2]) > 0) ? @(argv[2]) : nil;
+        // Something that must appear on the drawn screen. For a conversation
+        // that is the reply: it was arriving in the bytes all along and being
+        // erased before it could be seen.
+        NSString *mustShow = (argc > 3 && strlen(argv[3]) > 0) ? @(argv[3]) : nil;
 
         // Whole, and cut up the way a pseudo-terminal actually delivers it.
         NSArray<NSNumber *> *sizes = @[@(recording.length), @4096, @1024, @137];
@@ -116,6 +120,14 @@ int main(int argc, const char **argv) {
                       [NSString stringWithFormat:
                        @"the address opened is the one the program printed (%lu-byte pieces)",
                        (unsigned long)size.unsignedIntegerValue].UTF8String);
+            }
+        }
+
+        if (mustShow != nil) {
+            for (NSUInteger i = 0; i < screens.count; i++) {
+                check([screens[i] containsString:mustShow],
+                      [NSString stringWithFormat:@"%@ is on the screen (%@-byte pieces)",
+                       mustShow, sizes[i]].UTF8String);
             }
         }
 

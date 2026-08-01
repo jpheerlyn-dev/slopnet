@@ -199,6 +199,12 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 @property(nonatomic, copy) NSString *pendingEscape;
 @property(nonatomic, strong) NSMutableData *readCarry;
 @property(nonatomic, assign) BOOL flushingHeldBack;
+/// A full-screen program asks for its own screen and gets a blank one, then
+/// hands back what was underneath when it leaves.
+@property(nonatomic, assign) BOOL onAlternateScreen;
+@property(nonatomic, strong) NSMutableArray<NSMutableAttributedString *> *screenUnderneath;
+@property(nonatomic, assign) NSUInteger rowUnderneath;
+@property(nonatomic, assign) NSUInteger columnUnderneath;
 @property(nonatomic, assign) NSUInteger savedRow;
 @property(nonatomic, assign) NSUInteger savedColumn;
 @property(nonatomic, assign) BOOL hasSavedCursor;
@@ -596,6 +602,8 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 /// top of everything the person has scrolled past. Without this, a program
 /// asking for row 1 would land on the first line of the session.
 - (NSUInteger)screenTop {
+    // A program with its own screen counts rows from the top of it.
+    if (self.onAlternateScreen) return 0;
     NSUInteger rows = self.visibleRows > 0 ? self.visibleRows : 24;
     return self.lines.count > rows ? self.lines.count - rows : 0;
 }
@@ -771,6 +779,11 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         [parameters appendFormat:@"%C", f];
                         continue;
                     }
+                    // Some sequences carry an intermediate byte before the one
+                    // that ends them — a cursor-shape request is ESC [ 0 space
+                    // q. Taking the space as the end left the q to be printed
+                    // as ordinary text.
+                    if (f >= 0x20 && f <= 0x2F) continue;
                     final = f;
                     break;
                 }
@@ -788,6 +801,37 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         for (NSString *one in [parameters componentsSeparatedByString:@";"]) {
                             if (one.integerValue == 1) {
                                 self.applicationCursorKeys = (final == 'h');
+                            }
+                            // Its own screen. A program drawing a whole
+                            // interface — a menu, an editor, this chat — asks
+                            // for a blank one and then addresses rows by
+                            // number within it. Ignoring the request left it
+                            // drawing over whatever was already here, with
+                            // every row number counted from the wrong place:
+                            // the logo came out scrambled, pieces of old rows
+                            // showed through, and a reply landed somewhere
+                            // that was never displayed.
+                            if (one.integerValue == 1049) {
+                                if (final == 'h' && !self.onAlternateScreen) {
+                                    self.screenUnderneath = self.lines;
+                                    self.rowUnderneath = self.row;
+                                    self.columnUnderneath = self.column;
+                                    self.lines = [NSMutableArray array];
+                                    [self.lines addObject:
+                                        [[NSMutableAttributedString alloc] init]];
+                                    self.row = 0;
+                                    self.column = 0;
+                                    self.onAlternateScreen = YES;
+                                } else if (final == 'l' && self.onAlternateScreen) {
+                                    self.lines = self.screenUnderneath.count > 0
+                                        ? self.screenUnderneath
+                                        : [NSMutableArray arrayWithObject:
+                                            [[NSMutableAttributedString alloc] init]];
+                                    self.screenUnderneath = nil;
+                                    self.row = MIN(self.rowUnderneath, self.lines.count - 1);
+                                    self.column = self.columnUnderneath;
+                                    self.onAlternateScreen = NO;
+                                }
                             }
                         }
                     }
@@ -854,6 +898,24 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         [self currentLine];
                         break;
                     }
+                    case 'X': {                            // erase characters
+                        // Blank out what is there without moving the cursor
+                        // and without shortening the row. Skipping it left
+                        // pieces of the previous frame showing through.
+                        NSMutableAttributedString *line = [self currentLine];
+                        NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                        if (self.column < line.length) {
+                            NSUInteger take = MIN(many, line.length - self.column);
+                            NSString *blank = [@"" stringByPaddingToLength:take
+                                                                withString:@" "
+                                                           startingAtIndex:0];
+                            [line replaceCharactersInRange:NSMakeRange(self.column, take)
+                                      withAttributedString:
+                                [[NSAttributedString alloc] initWithString:blank
+                                                                attributes:[self fieldAttributes]]];
+                        }
+                        break;
+                    }
                     case 'K': {                            // erase in line
                         NSMutableAttributedString *line = [self currentLine];
                         NSInteger part = parameters.length ? [parameters intValue] : 0;
@@ -876,13 +938,49 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         }
                         break;
                     }
-                    case 'J':                              // erase screen
-                        if (value == 2 || parameters.length == 0) {
+                    case 'J': {                            // erase in screen
+                        // No parameter means erase from the cursor to the end
+                        // of the screen, not erase everything. Wiping the lot
+                        // threw away the whole conversation each time the
+                        // program tidied up below the cursor — the reply had
+                        // arrived and was deleted a moment later.
+                        NSInteger part = parameters.length ? [parameters intValue] : 0;
+                        if (part == 2 || part == 3) {
                             [self.lines removeAllObjects];
                             [self.lines addObject:[[NSMutableAttributedString alloc] init]];
-                            self.row = 0; self.column = 0;
+                            self.row = 0;
+                            self.column = 0;
+                            break;
+                        }
+                        if (part == 0) {
+                            NSMutableAttributedString *line = [self currentLine];
+                            if (self.column < line.length) {
+                                [line deleteCharactersInRange:
+                                    NSMakeRange(self.column, line.length - self.column)];
+                            }
+                            if (self.row + 1 < self.lines.count) {
+                                [self.lines removeObjectsInRange:
+                                    NSMakeRange(self.row + 1,
+                                                self.lines.count - self.row - 1)];
+                            }
+                        } else if (part == 1) {
+                            for (NSUInteger r = [self screenTop]; r < self.row &&
+                                                                  r < self.lines.count; r++) {
+                                [self.lines[r] deleteCharactersInRange:
+                                    NSMakeRange(0, self.lines[r].length)];
+                            }
+                            NSMutableAttributedString *line = [self currentLine];
+                            NSUInteger upto = MIN(self.column, line.length);
+                            NSString *blank = [@"" stringByPaddingToLength:upto
+                                                                withString:@" "
+                                                           startingAtIndex:0];
+                            [line replaceCharactersInRange:NSMakeRange(0, upto)
+                                      withAttributedString:
+                                [[NSAttributedString alloc] initWithString:blank
+                                                                attributes:[self fieldAttributes]]];
                         }
                         break;
+                    }
                     default: break;
                 }
             } else if (i < n && [raw characterAtIndex:i] == ']') {
@@ -1703,6 +1801,8 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     self.streamTail = [NSMutableString string];
     self.pendingEscape = @"";
     self.readCarry = [NSMutableData data];
+    self.onAlternateScreen = NO;
+    self.screenUnderneath = nil;
     self.announcedCode = nil;
     self.stopButton.enabled = YES;
     [self setStatusText:[NSString stringWithFormat:@"Running %@ …", path.lastPathComponent]
