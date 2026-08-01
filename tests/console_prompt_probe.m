@@ -238,6 +238,71 @@ int main(void) {
             [c stop];
         }
 
+        // The same box, redrawn over itself — which is what Antigravity does,
+        // and what left drawn rows holding pieces of two frames at once. Three
+        // links were rebuilt from that wreckage and all three were opened.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Watcher *w = [Watcher new];
+            c.delegate = w;
+            NSString *url =
+                @"https://accounts.google.com/o/oauth2/auth?access_type=offline"
+                @"&client_id=1071006060591-example23example4example5example6ex"
+                @".apps.googleusercontent.com&code_challenge=5Wlp4AI8JBpGIgtZbhmUWdeqkYE"
+                @"&code_challenge_method=S256&prompt=consent"
+                @"&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback"
+                @"&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcclog"
+                @"+openid&state=QITdK1VlG3kPtWVJ7xxXjw";
+            NSMutableString *box = [NSMutableString string];
+            NSUInteger rows = 0, step = 72;
+            for (NSUInteger at = 0; at < url.length; at += step) {
+                NSUInteger take = MIN(step, url.length - at);
+                [box appendFormat:@" %@\n", [url substringWithRange:NSMakeRange(at, take)]];
+                rows++;
+            }
+            NSString *frame = [NSString stringWithFormat:
+                @"Open the URL below in your browser:\n%@", box];
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c",
+                [NSString stringWithFormat:
+                 @"printf '%%s' '%@'; sleep 1; printf '\\033[%luA'; printf '%%s' '%@'; sleep 3",
+                 frame, (unsigned long)(rows + 1), frame]]];
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:6];
+            while ([until timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check(w.signInPage != nil &&
+                  [w.signInPage.absoluteString isEqualToString:url],
+                  "a redrawn box still yields the link the program actually printed");
+            check(w.signInOffers == 1,
+                  "and it is offered once, not once per frame");
+            [c stop];
+        }
+
+        // A link that came back with a parameter twice was rebuilt wrongly.
+        // Google refuses it — "OAuth 2 parameters can only have a single
+        // value: scope" — so there is nothing to gain by opening it.
+        {
+            SlopNetConsole *c = [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0,0,900,400)];
+            [c layoutSubtreeIfNeeded];
+            Watcher *w = [Watcher new];
+            c.delegate = w;
+            NSString *twice =
+                @"printf 'Open the URL below to sign in:\n%s\n' "
+                @"'https://accounts.google.com/o/oauth2/auth?client_id=abc"
+                @"&scope=openid&response_type=code&scope=email'; sleep 3";
+            [c runExecutable:@"/bin/bash" arguments:@[@"-c", twice]];
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:4];
+            while ([until timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+            }
+            check(w.signInPage == nil,
+                  "a link carrying the same parameter twice is not offered at all");
+            [c stop];
+        }
+
             // The real shape of a device sign-in: the link prints, and the code
         // arrives a moment later. Offering once per link meant the bar went up
         // with the link and no code, and never updated — so the code had to be

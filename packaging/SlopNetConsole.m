@@ -184,6 +184,13 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 /// A redraw is already scheduled for the next turn of the run loop.
 @property(nonatomic, assign) BOOL redrawScheduled;
 @property(nonatomic, assign) BOOL applicationCursorKeys;
+/// What the program wrote, with the escape sequences taken out and nothing
+/// moved. The drawn screen is the wrong place to read a link from: a program
+/// redrawing a frame overwrites part of what is there, so rows end up holding
+/// pieces of several frames at once. This does not.
+@property(nonatomic, strong) NSMutableArray<NSString *> *streamLines;
+@property(nonatomic, strong) NSMutableString *streamTail;
+@property(nonatomic, assign) BOOL announcedAnAuthorisation;
 @property(nonatomic, assign) NSUInteger savedRow;
 @property(nonatomic, assign) NSUInteger savedColumn;
 @property(nonatomic, assign) BOOL hasSavedCursor;
@@ -698,6 +705,10 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
         [self.collected appendString:raw];
         return;
     }
+
+    // Keep what the program wrote, with the escapes removed and nothing moved,
+    // so a link can be read from it later without the redrawing damage.
+    [self recordInStream:raw];
     NSUInteger i = 0, n = raw.length;
     while (i < n) {
         unichar c = [raw characterAtIndex:i];
@@ -946,27 +957,85 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 static NSString *codeInsideAddress(NSURL *page);
 static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
 
+/// Strip the escape sequences and keep the text, split into rows the way the
+/// program wrote them. Nothing here moves a cursor or overwrites anything.
+- (void)recordInStream:(NSString *)raw {
+    static NSRegularExpression *escapes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        escapes = [NSRegularExpression regularExpressionWithPattern:
+            @"\033\\][^\007\033]*(\007|\033\\\\)"   // window title
+            @"|\033\\[[0-9;?<>=]*[@-~]"                       // the usual sort
+            @"|\033[78MDEHc=>]"                               // the bracketless sort
+                                                           options:0 error:nil];
+    });
+    NSString *plain = [escapes stringByReplacingMatchesInString:raw options:0
+                                                          range:NSMakeRange(0, raw.length)
+                                                   withTemplate:@""];
+    if (self.streamLines == nil) self.streamLines = [NSMutableArray array];
+    if (self.streamTail == nil) self.streamTail = [NSMutableString string];
+    for (NSUInteger i = 0; i < plain.length; i++) {
+        unichar c = [plain characterAtIndex:i];
+        if (c == '\n' || c == '\r') {
+            if (self.streamTail.length > 0) {
+                [self.streamLines addObject:[self.streamTail copy]];
+                [self.streamTail setString:@""];
+            }
+            continue;
+        }
+        [self.streamTail appendFormat:@"%C", c];
+    }
+    if (self.streamLines.count > 400) {
+        [self.streamLines removeObjectsInRange:NSMakeRange(0, self.streamLines.count - 400)];
+    }
+}
+
+/// Whether a sign-in address is intact enough to be worth opening.
+///
+/// A link rebuilt from pieces can come out with a parameter repeated, and
+/// Google says so in as many words: "OAuth 2 parameters can only have a single
+/// value: scope". Three such links were opened in three windows, each broken a
+/// different way. A repeated parameter means the rebuilding went wrong, so the
+/// link is not offered at all rather than opened and refused.
+static BOOL addressSurvivedRebuilding(NSURL *page) {
+    NSURLComponents *parts = [NSURLComponents componentsWithURL:page
+                                        resolvingAgainstBaseURL:NO];
+    NSArray<NSURLQueryItem *> *items = parts.queryItems;
+    if (items.count == 0) return YES;
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    for (NSURLQueryItem *item in items) {
+        if ([seen containsObject:item.name]) return NO;
+        [seen addObject:item.name];
+    }
+    return YES;
+}
+
 - (void)noticeASignInPage {
     if (!self.running) return;
-    // Put a link back together that arrived split across rows.
+    // Read the link from what the program wrote, not from the drawn screen.
     //
-    // It comes in pieces two ways. This console wraps at the width the
-    // program was told, so a program printing a long link in one go has it
-    // broken into rows here. And a program may split it itself, into a
-    // bordered box with a space of padding either side of each row — which is
-    // how Antigravity shows its sign-in link.
+    // A program redrawing a boxed frame writes over part of what is already
+    // there, so a drawn row can hold pieces of two or three frames at once.
+    // Three attempts at reassembling that produced three different malformed
+    // links, and all three were opened. What the program wrote is not damaged
+    // in that way, so the link is taken from there.
     //
-    // Both end up the same: rows that are nothing but link characters. Such a
-    // row continues the one before it, provided a link has already started on
-    // that row. Anything with a space in it, a box rule, or a blank row ends
-    // the link, which is what stops ordinary words being swallowed into one.
+    // It can still arrive in pieces, because a program may split it itself to
+    // fit a box. A row of nothing but link characters continues the row above
+    // it; a space, a box rule or a blank row ends it, which is what stops
+    // ordinary words being pulled into a link.
     NSCharacterSet *notLink = [[NSCharacterSet characterSetWithCharactersInString:
         @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         @"0123456789-._~:/?#[]@!$&'()*+,;=%"] invertedSet];
+    NSMutableArray<NSString *> *rows = [NSMutableArray array];
+    NSUInteger begin = self.streamLines.count > 40 ? self.streamLines.count - 40 : 0;
+    for (NSUInteger i = begin; i < self.streamLines.count; i++) {
+        [rows addObject:self.streamLines[i]];
+    }
+    if (self.streamTail.length > 0) [rows addObject:self.streamTail];
+
     NSMutableString *joined = [NSMutableString string];
-    NSUInteger from = self.lines.count > 24 ? self.lines.count - 24 : 0;
-    for (NSUInteger i = from; i < self.lines.count; i++) {
-        NSString *line = self.lines[i].string;
+    for (NSString *line in rows) {
         NSString *trimmed = [line stringByTrimmingCharactersInSet:
             [NSCharacterSet whitespaceCharacterSet]];
         BOOL continues = NO;
@@ -1068,6 +1137,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
                       || [where containsString:@"/activate"]
                       || [where containsString:@"user_code"];
     if (!saysSo && !looksLikeAuth) return;
+    if (!addressSurvivedRebuilding(page)) return;
 
     // The code first, because whether this is worth announcing depends on it.
     // Some sign-in pages carry it in the address, which is exact; otherwise
@@ -1086,7 +1156,10 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
     // once per address meant the bar went up with the link and no code, and
     // never updated — so the code had to be copied by hand, which is the whole
     // thing this was meant to stop. Announce again when the code arrives.
+    // One sign-in page per run. Three were offered last time, each rebuilt
+    // wrongly in a different way, and all three were opened at once.
     BOOL sameAddress = [address isEqualToString:self.announcedSignIn];
+    if (authorisation && self.announcedAnAuthorisation && !sameAddress) return;
     if (sameAddress) {
         if (code == nil) return;                                  // nothing new
         if ([code isEqualToString:self.announcedCode]) return;    // already said
@@ -1094,6 +1167,7 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
     self.announcedSignIn = address;
     self.announcedCode = code;
     self.signInLinkIsAuthorisation = authorisation;
+    if (authorisation) self.announcedAnAuthorisation = YES;
 
     if ([self.delegate respondsToSelector:@selector(console:needsSignIn:code:)]) {
         [self.delegate console:self needsSignIn:page code:code];
@@ -1413,6 +1487,9 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     self.master = master;
     self.child = pid;
     self.announcedSignIn = nil;
+    self.announcedAnAuthorisation = NO;
+    self.streamLines = [NSMutableArray array];
+    self.streamTail = [NSMutableString string];
     self.announcedCode = nil;
     self.stopButton.enabled = YES;
     [self setStatusText:[NSString stringWithFormat:@"Running %@ …", path.lastPathComponent]
@@ -1422,6 +1499,7 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     __weak typeof(self) weakSelf = self;
     dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
     self.reader = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, master, 0, queue);
+    __block NSMutableData *carry = [NSMutableData data];
     dispatch_source_set_event_handler(self.reader, ^{
         char buffer[4096];
         ssize_t got = read(master, buffer, sizeof(buffer));
@@ -1429,14 +1507,32 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
             dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf childEnded]; });
             return;
         }
-        NSString *chunk = [[NSString alloc] initWithBytes:buffer
-                                                   length:(NSUInteger)got
-                                                 encoding:NSUTF8StringEncoding];
-        if (chunk == nil) {
-            chunk = [[NSString alloc] initWithBytes:buffer
-                                             length:(NSUInteger)got
-                                           encoding:NSISOLatin1StringEncoding];
+        // A read stops wherever it stops, which can be halfway through a
+        // character. Decoding that as UTF-8 fails, and falling back to Latin-1
+        // for the whole read turned every box rule into a row of "â" — the
+        // rest of the chunk was fine and got mangled with it. Whatever is left
+        // over waits here for the bytes that finish it.
+        [carry appendBytes:buffer length:(NSUInteger)got];
+        NSString *chunk = nil;
+        NSUInteger usable = carry.length;
+        while (usable > 0) {
+            chunk = [[NSString alloc] initWithBytes:carry.bytes
+                                             length:usable
+                                           encoding:NSUTF8StringEncoding];
+            if (chunk != nil) break;
+            // No character is longer than four bytes, so anything that will
+            // not decode after trimming that many is genuinely not UTF-8.
+            if (carry.length - usable >= 4) {
+                usable = carry.length;
+                chunk = [[NSString alloc] initWithBytes:carry.bytes
+                                                 length:usable
+                                               encoding:NSISOLatin1StringEncoding];
+                break;
+            }
+            usable--;
         }
+        if (usable > 0) [carry replaceBytesInRange:NSMakeRange(0, usable)
+                                         withBytes:NULL length:0];
         if (chunk.length == 0) return;
         dispatch_async(dispatch_get_main_queue(), ^{
             typeof(self) strongSelf = weakSelf;
