@@ -19,7 +19,7 @@ context="$5"
 release="$6"
 key_path="$HOME/.ssh/slopnet_vps_ed25519"
 known_hosts_path="$HOME/.ssh/slopnet_vps_known_hosts"
-\n+if ! [[ "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$ ]] ||
+if ! [[ "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$ ]] ||
    ! [[ "$username" =~ ^[A-Za-z_][A-Za-z0-9_-]{0,31}$ ]] ||
    ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
   printf '%s\n' 'The server address, login name or port is invalid. Nothing connected.' >&2
