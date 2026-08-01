@@ -44,13 +44,18 @@ static void check(BOOL ok, const char *what) {
 /// opened. The size matters: it decides how much the console has seen each
 /// time it looks, which is exactly what differed between the fixtures that
 /// passed and the failure the operator hit.
-static NSURL *replay(NSData *recording, NSUInteger chunk, NSInteger *offers) {
+static NSURL *replay(NSData *recording, NSUInteger chunk, NSInteger *offers,
+                     NSString **rendered) {
     SlopNetConsole *console =
         [[SlopNetConsole alloc] initWithFrame:NSMakeRect(0, 0, 900, 400)];
     [console layoutSubtreeIfNeeded];
     Catcher *catcher = [Catcher new];
     console.delegate = catcher;
-    [console runExecutable:@"/bin/bash" arguments:@[@"-c", @"sleep 4"]];
+    // Long enough to outlive every replay. At four seconds it expired part way
+    // through the set, and the console noted the program had finished on
+    // whichever screen was unlucky — a difference in the recording's rendering
+    // that had nothing to do with the recording.
+    [console runExecutable:@"/bin/bash" arguments:@[@"-c", @"sleep 600"]];
     NSDate *ready = [NSDate dateWithTimeIntervalSinceNow:0.5];
     while ([ready timeIntervalSinceNow] > 0) {
         [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
@@ -58,15 +63,7 @@ static NSURL *replay(NSData *recording, NSUInteger chunk, NSInteger *offers) {
     }
     for (NSUInteger at = 0; at < recording.length; at += chunk) {
         NSUInteger take = MIN(chunk, recording.length - at);
-        NSString *piece = [[NSString alloc]
-            initWithData:[recording subdataWithRange:NSMakeRange(at, take)]
-                encoding:NSUTF8StringEncoding];
-        if (piece == nil) {
-            piece = [[NSString alloc]
-                initWithData:[recording subdataWithRange:NSMakeRange(at, take)]
-                    encoding:NSISOLatin1StringEncoding];
-        }
-        [console consume:piece];
+        [console consumeBytes:[recording subdataWithRange:NSMakeRange(at, take)]];
     }
     // Let the console notice that the program has stopped writing.
     NSDate *quiet = [NSDate dateWithTimeIntervalSinceNow:1.2];
@@ -75,6 +72,11 @@ static NSURL *replay(NSData *recording, NSUInteger chunk, NSInteger *offers) {
                                  beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     }
     if (offers) *offers = catcher.offers;
+    // Copied deliberately. This hands back the console's own text, which the
+    // console goes on changing — a capture kept for comparison later picked up
+    // notes written after it was taken, and read as a difference in the
+    // recording's rendering.
+    if (rendered) *rendered = [console.textForTesting copy];
     NSURL *page = catcher.page;
     [console stop];
     return page;
@@ -96,9 +98,16 @@ int main(int argc, const char **argv) {
 
         // Whole, and cut up the way a pseudo-terminal actually delivers it.
         NSArray<NSNumber *> *sizes = @[@(recording.length), @4096, @1024, @137];
+        NSMutableArray<NSString *> *screens = [NSMutableArray array];
         for (NSNumber *size in sizes) {
             NSInteger offers = 0;
-            NSURL *page = replay(recording, size.unsignedIntegerValue, &offers);
+            NSString *drawn = nil;
+            NSURL *page = replay(recording, size.unsignedIntegerValue, &offers, &drawn);
+            [screens addObject:drawn ?: @""];
+            if (getenv("REPLAY_DUMP")) {
+                [(drawn ?: @"") writeToFile:[NSString stringWithFormat:@"/tmp/screen_%@.txt", size]
+                                 atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            }
             fprintf(stderr, "\n--- delivered in %lu-byte pieces, offered %ld time(s)\n",
                     (unsigned long)size.unsignedIntegerValue, (long)offers);
             fprintf(stderr, "    %s\n", page ? page.absoluteString.UTF8String : "(nothing offered)");
@@ -108,6 +117,37 @@ int main(int argc, const char **argv) {
                        @"the address opened is the one the program printed (%lu-byte pieces)",
                        (unsigned long)size.unsignedIntegerValue].UTF8String);
             }
+        }
+
+        // How the bytes are cut up is an accident of timing and has nothing to
+        // do with what the program drew, so it must not change what is drawn.
+        // An escape sequence split across two reads used to lose its ESC — the
+        // rest printed as text, and the cursor move it asked for never
+        // happened, so every frame after it landed in the wrong place.
+        for (NSUInteger i = 1; i < screens.count; i++) {
+            if (![screens[i] isEqualToString:screens[0]]) {
+                NSString *a = screens[0], *b = screens[i];
+                NSUInteger at = 0;
+                while (at < a.length && at < b.length &&
+                       [a characterAtIndex:at] == [b characterAtIndex:at]) at++;
+                if (at < a.length) {
+                    NSString *extra = [a substringFromIndex:at];
+                    if (extra.length > 60) extra = [extra substringToIndex:60];
+                    NSMutableString *shown = [NSMutableString string];
+                    for (NSUInteger k = 0; k < extra.length; k++) {
+                        [shown appendFormat:@"%04x ", [extra characterAtIndex:k]];
+                    }
+                    fprintf(stderr, "  only in the first: %s\n", shown.UTF8String);
+                }
+                fprintf(stderr, "  differ at %lu of %lu/%lu: %04x vs %04x\n",
+                        (unsigned long)at, (unsigned long)a.length, (unsigned long)b.length,
+                        at < a.length ? [a characterAtIndex:at] : 0,
+                        at < b.length ? [b characterAtIndex:at] : 0);
+            }
+            check([screens[i] isEqualToString:screens[0]],
+                  [NSString stringWithFormat:
+                   @"the screen is the same whether delivered whole or in %@-byte pieces",
+                   sizes[i]].UTF8String);
         }
 
         fprintf(stderr, failures == 0 ? "\nREPLAY PROBE DONE — all ok\n"

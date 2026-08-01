@@ -94,6 +94,12 @@ typedef NS_ENUM(NSInteger, SlopNetKey) {
 /// guess at what it prints.
 - (void)consume:(NSString *)raw;
 
+/// Feed the console raw bytes exactly as they come off a running program.
+/// Prefer this to consume: — it is where a character split across two reads is
+/// put back together, so replaying a recording in pieces goes through the same
+/// path the running program does.
+- (void)consumeBytes:(NSData *)data;
+
 /// The last `count` lines the window has shown, as plain text with the colour
 /// taken out and anything that looks like a credential replaced.
 ///

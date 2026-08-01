@@ -195,6 +195,10 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 /// last row is finished with too.
 @property(nonatomic, assign) BOOL outputSettled;
 @property(nonatomic, assign) NSUInteger writeGeneration;
+/// The start of an escape sequence that arrived without its end.
+@property(nonatomic, copy) NSString *pendingEscape;
+@property(nonatomic, strong) NSMutableData *readCarry;
+@property(nonatomic, assign) BOOL flushingHeldBack;
 @property(nonatomic, assign) NSUInteger savedRow;
 @property(nonatomic, assign) NSUInteger savedColumn;
 @property(nonatomic, assign) BOOL hasSavedCursor;
@@ -710,6 +714,20 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
         return;
     }
 
+    // Put back the start of any escape sequence the last read cut in half,
+    // and hold back the one this read cuts, so every sequence is parsed whole.
+    if (self.pendingEscape.length > 0) {
+        raw = [self.pendingEscape stringByAppendingString:raw];
+        self.pendingEscape = @"";
+    }
+    NSUInteger unfinished = self.flushingHeldBack ? NSNotFound
+                                                  : [self unfinishedEscapeIn:raw];
+    if (unfinished != NSNotFound) {
+        self.pendingEscape = [raw substringFromIndex:unfinished];
+        raw = [raw substringToIndex:unfinished];
+        if (raw.length == 0) return;
+    }
+
     // Keep what the program wrote, with the escapes removed and nothing moved,
     // so a link can be read from it later without the redrawing damage.
     [self recordInStream:raw];
@@ -722,6 +740,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                    dispatch_get_main_queue(), ^{
         typeof(self) strongSelf = weakSelf;
         if (strongSelf == nil || strongSelf.writeGeneration != generation) return;
+        [strongSelf flushHeldBack];
         strongSelf.outputSettled = YES;
         [strongSelf noticeASignInPage];
     });
@@ -975,6 +994,122 @@ static BOOL codeLooksReal(NSString *candidate, NSString *text, NSRange where);
 
 /// Strip the escape sequences and keep the text, split into rows the way the
 /// program wrote them. Nothing here moves a cursor or overwrites anything.
+/// Where an escape sequence begins that this text does not finish.
+///
+/// A read stops wherever it stops, which can be in the middle of an escape
+/// sequence. Parsing each read on its own loses that sequence twice over: the
+/// ESC is consumed with nothing after it, so the rest is printed as ordinary
+/// text — "[19;34H" turned up in the middle of a menu — and the cursor move it
+/// asked for never happens, so every frame after it lands in the wrong place.
+/// A full-screen program writes thousands of these, so at four kilobytes a
+/// read it is not a question of whether one gets cut.
+/// Take bytes as they come off the program, however they are cut up.
+///
+/// A read stops wherever it stops, which can be halfway through a character.
+/// Decoding each read on its own fails there, and falling back to Latin-1 for
+/// the whole read turned every box rule into a row of "â" — the rest of the
+/// read was fine and was mangled with it. Whatever is left over waits here for
+/// the bytes that finish it.
+///
+/// This is the one place bytes become text, so that a recording replayed in
+/// pieces goes through exactly what the running program goes through.
+/// How many of these bytes end on a character boundary.
+///
+/// Asking Foundation to decode a run that stops halfway through a character
+/// does not reliably fail — it drops the partial character and hands back the
+/// rest. The dropped bytes are then missing from the next read, which begins
+/// midway through a character, and every read after that is wrong too: one cut
+/// in the wrong place turned every box rule from there on into rows of "â".
+/// So the boundary is found here rather than inferred from a decode failing.
+static NSUInteger wholeCharacterBytes(const unsigned char *bytes, NSUInteger count) {
+    if (count == 0) return 0;
+    NSUInteger at = count, back = 0;
+    while (at > 0 && back < 4) {
+        at--; back++;
+        unsigned char c = bytes[at];
+        if ((c & 0xC0) == 0x80) continue;              // inside a character
+        NSUInteger needs = 1;
+        if ((c & 0x80) == 0x00)      needs = 1;
+        else if ((c & 0xE0) == 0xC0) needs = 2;
+        else if ((c & 0xF0) == 0xE0) needs = 3;
+        else if ((c & 0xF8) == 0xF0) needs = 4;
+        return (at + needs <= count) ? count : at;
+    }
+    return count;
+}
+
+/// Let go of anything being held back for an end that is not coming.
+///
+/// Bytes wait here for the ones that finish them, and the start of an escape
+/// sequence waits for its end. That is right while a program is writing and
+/// wrong once it has stopped: whatever is held is then simply missing from the
+/// screen. A terminal shows it rather than swallowing it.
+- (void)flushHeldBack {
+    if (self.readCarry.length > 0) {
+        NSString *rest = [[NSString alloc] initWithData:self.readCarry
+                                               encoding:NSISOLatin1StringEncoding];
+        [self.readCarry setLength:0];
+        if (rest.length > 0) [self consume:rest];
+    }
+    if (self.pendingEscape.length > 0) {
+        NSString *stuck = self.pendingEscape;
+        self.pendingEscape = @"";
+        self.flushingHeldBack = YES;
+        [self consume:stuck];
+        self.flushingHeldBack = NO;
+    }
+}
+
+- (void)consumeBytes:(NSData *)data {
+    if (self.readCarry == nil) self.readCarry = [NSMutableData data];
+    [self.readCarry appendData:data];
+    const unsigned char *bytes = self.readCarry.bytes;
+    NSUInteger usable = wholeCharacterBytes(bytes, self.readCarry.length);
+    if (usable == 0) return;                            // wait for the rest
+    NSString *chunk = [[NSString alloc] initWithBytes:bytes
+                                               length:usable
+                                             encoding:NSUTF8StringEncoding];
+    if (chunk == nil) {
+        // Genuinely not UTF-8 rather than merely cut short.
+        chunk = [[NSString alloc] initWithBytes:bytes
+                                         length:usable
+                                       encoding:NSISOLatin1StringEncoding];
+    }
+    [self.readCarry replaceBytesInRange:NSMakeRange(0, usable) withBytes:NULL length:0];
+    if (chunk.length > 0) [self consume:chunk];
+}
+
+- (NSUInteger)unfinishedEscapeIn:(NSString *)text {
+    NSRange last = [text rangeOfString:@"\033" options:NSBackwardsSearch];
+    if (last.location == NSNotFound) return NSNotFound;
+    NSUInteger n = text.length;
+    // Long enough that it is not an escape sequence at all; keeping it would
+    // swallow real output waiting for an end that never comes. A window title
+    // can be long, so this is well above anything a cursor move needs — at 128
+    // it fired on ordinary sequences whenever the reads were small, which is
+    // the same fault it was meant to prevent.
+    if (n - last.location > 4096) return NSNotFound;
+    NSUInteger i = last.location + 1;
+    if (i >= n) return last.location;
+    unichar kind = [text characterAtIndex:i];
+    if (kind == '[') {
+        // Parameters are all below '@', so they cannot be mistaken for the
+        // byte that ends the sequence.
+        for (i++; i < n; i++) {
+            unichar f = [text characterAtIndex:i];
+            if (f >= '@' && f <= '~') return NSNotFound;
+        }
+        return last.location;
+    }
+    if (kind == ']') {
+        for (i++; i < n; i++) {
+            if ([text characterAtIndex:i] == 0x07) return NSNotFound;
+        }
+        return last.location;
+    }
+    return NSNotFound;                       // one character, and it is here
+}
+
 - (void)recordInStream:(NSString *)raw {
     static NSRegularExpression *escapes;
     static dispatch_once_t once;
@@ -1566,6 +1701,8 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     self.announcedAnAuthorisation = NO;
     self.streamLines = [NSMutableArray array];
     self.streamTail = [NSMutableString string];
+    self.pendingEscape = @"";
+    self.readCarry = [NSMutableData data];
     self.announcedCode = nil;
     self.stopButton.enabled = YES;
     [self setStatusText:[NSString stringWithFormat:@"Running %@ …", path.lastPathComponent]
@@ -1575,7 +1712,6 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     __weak typeof(self) weakSelf = self;
     dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
     self.reader = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, master, 0, queue);
-    __block NSMutableData *carry = [NSMutableData data];
     dispatch_source_set_event_handler(self.reader, ^{
         char buffer[4096];
         ssize_t got = read(master, buffer, sizeof(buffer));
@@ -1583,37 +1719,11 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
             dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf childEnded]; });
             return;
         }
-        // A read stops wherever it stops, which can be halfway through a
-        // character. Decoding that as UTF-8 fails, and falling back to Latin-1
-        // for the whole read turned every box rule into a row of "â" — the
-        // rest of the chunk was fine and got mangled with it. Whatever is left
-        // over waits here for the bytes that finish it.
-        [carry appendBytes:buffer length:(NSUInteger)got];
-        NSString *chunk = nil;
-        NSUInteger usable = carry.length;
-        while (usable > 0) {
-            chunk = [[NSString alloc] initWithBytes:carry.bytes
-                                             length:usable
-                                           encoding:NSUTF8StringEncoding];
-            if (chunk != nil) break;
-            // No character is longer than four bytes, so anything that will
-            // not decode after trimming that many is genuinely not UTF-8.
-            if (carry.length - usable >= 4) {
-                usable = carry.length;
-                chunk = [[NSString alloc] initWithBytes:carry.bytes
-                                                 length:usable
-                                               encoding:NSISOLatin1StringEncoding];
-                break;
-            }
-            usable--;
-        }
-        if (usable > 0) [carry replaceBytesInRange:NSMakeRange(0, usable)
-                                         withBytes:NULL length:0];
-        if (chunk.length == 0) return;
+        NSData *piece = [NSData dataWithBytes:buffer length:(NSUInteger)got];
         dispatch_async(dispatch_get_main_queue(), ^{
             typeof(self) strongSelf = weakSelf;
             if (strongSelf == nil) return;
-            [strongSelf consume:chunk];
+            [strongSelf consumeBytes:piece];
         });
     });
     dispatch_resume(self.reader);

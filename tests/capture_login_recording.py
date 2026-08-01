@@ -23,7 +23,8 @@ pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
     os.environ["COLUMNS"] = str(cols)
-    os.execvp("agy", ["agy", "login"])
+    argv = sys.argv[3:] or ["agy", "login"]
+    os.execvp(argv[0], argv)
 
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, cols, 0, 0))
 
@@ -49,7 +50,7 @@ raw = b"".join(chunks)
 text = raw.decode("utf-8", "replace")
 plain = re.sub(r"\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b\[[0-9;?<>=]*[@-~]|\x1b[78MDEHc=>]", "", text)
 
-open("/tmp/agy_raw.bin", "wb").write(raw)
+open(os.environ.get("CAPTURE_TO", "/tmp/agy_raw.bin"), "wb").write(raw)
 print("WIDTH", cols, "BYTES", len(raw))
 rows = plain.replace("\r", "\n").split("\n")
 for i, line in enumerate(rows):
