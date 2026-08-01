@@ -205,6 +205,20 @@ static NSString *const kCellFill = @"SlopNetCellFill";
 @property(nonatomic, strong) NSMutableArray<NSMutableAttributedString *> *screenUnderneath;
 @property(nonatomic, assign) NSUInteger rowUnderneath;
 @property(nonatomic, assign) NSUInteger columnUnderneath;
+/// Where the screen begins in the buffer, kept rather than guessed.
+///
+/// A program drawing a whole interface counts rows from the top of the screen,
+/// so the console has to know where that is. It used to be worked out from how
+/// many lines had accumulated, which is only right when nothing has scrolled
+/// and is wrong the rest of the time — every absolute move landed somewhere
+/// near enough to look plausible and wrong enough to shred the frame.
+@property(nonatomic, assign) NSUInteger screenOrigin;
+/// The rows a program has asked to confine scrolling to, counted from the top
+/// of the screen. Full-screen programs keep a header or a status bar still by
+/// scrolling only the region between them.
+@property(nonatomic, assign) NSUInteger scrollFirst;
+@property(nonatomic, assign) NSUInteger scrollLast;
+@property(nonatomic, assign) BOOL scrollRegionSet;
 @property(nonatomic, assign) NSUInteger savedRow;
 @property(nonatomic, assign) NSUInteger savedColumn;
 @property(nonatomic, assign) BOOL hasSavedCursor;
@@ -601,11 +615,40 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 /// Rows in an absolute move are counted from the top of the screen, not the
 /// top of everything the person has scrolled past. Without this, a program
 /// asking for row 1 would land on the first line of the session.
-- (NSUInteger)screenTop {
-    // A program with its own screen counts rows from the top of it.
-    if (self.onAlternateScreen) return 0;
-    NSUInteger rows = self.visibleRows > 0 ? self.visibleRows : 24;
-    return self.lines.count > rows ? self.lines.count - rows : 0;
+- (NSUInteger)screenTop { return self.screenOrigin; }
+
+/// How many rows the screen has.
+- (NSUInteger)screenRows {
+    return self.visibleRows > 0 ? self.visibleRows : 24;
+}
+
+/// The last row scrolling may touch, counted from the top of the screen.
+- (NSUInteger)lastScrollingRow {
+    NSUInteger rows = [self screenRows];
+    if (self.scrollRegionSet && self.scrollLast < rows) return self.scrollLast;
+    return rows - 1;
+}
+
+/// Move the contents of the scrolling region up by one, losing the top row of
+/// the region and opening a blank one at the bottom.
+///
+/// When the region is the whole screen this is ordinary scrolling and the top
+/// row simply becomes scrollback, which is why it is kept rather than deleted.
+- (void)scrollRegionUp {
+    NSUInteger first = self.screenOrigin + (self.scrollRegionSet ? self.scrollFirst : 0);
+    NSUInteger last = self.screenOrigin + [self lastScrollingRow];
+    if (!self.scrollRegionSet || (self.scrollFirst == 0 && last + 1 >= self.screenOrigin + [self screenRows])) {
+        self.screenOrigin++;                       // the row above becomes history
+        while (self.lines.count <= last + 1) {
+            [self.lines addObject:[[NSMutableAttributedString alloc] init]];
+        }
+        return;
+    }
+    while (self.lines.count <= last) {
+        [self.lines addObject:[[NSMutableAttributedString alloc] init]];
+    }
+    [self.lines removeObjectAtIndex:first];
+    [self.lines insertObject:[[NSMutableAttributedString alloc] init] atIndex:last];
 }
 
 - (NSMutableAttributedString *)currentLine {
@@ -698,14 +741,34 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     self.column = end;
 }
 
+/// The other direction: open a blank row at the top of the region and lose the
+/// bottom one. This is what a program does when something arrives above what
+/// is already showing.
+- (void)scrollRegionDown {
+    NSUInteger first = self.screenOrigin + (self.scrollRegionSet ? self.scrollFirst : 0);
+    NSUInteger last = self.screenOrigin + [self lastScrollingRow];
+    while (self.lines.count <= last) {
+        [self.lines addObject:[[NSMutableAttributedString alloc] init]];
+    }
+    [self.lines removeObjectAtIndex:last];
+    [self.lines insertObject:[[NSMutableAttributedString alloc] init] atIndex:first];
+}
+
 - (void)newline {
-    self.row++;
+    NSUInteger last = self.screenOrigin + [self lastScrollingRow];
+    if (self.row >= last) {
+        [self scrollRegionUp];
+        self.row = self.screenOrigin + [self lastScrollingRow];
+    } else {
+        self.row++;
+    }
     self.column = 0;
     [self currentLine];
     if (self.lines.count > kMaxLines) {
         NSUInteger drop = self.lines.count - kMaxLines;
         [self.lines removeObjectsInRange:NSMakeRange(0, drop)];
         self.row = self.row > drop ? self.row - drop : 0;
+        self.screenOrigin = self.screenOrigin > drop ? self.screenOrigin - drop : 0;
         self.droppedLines += (NSInteger)drop;
     }
 }
@@ -821,6 +884,8 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                                         [[NSMutableAttributedString alloc] init]];
                                     self.row = 0;
                                     self.column = 0;
+                                    self.screenOrigin = 0;
+                                    self.scrollRegionSet = NO;
                                     self.onAlternateScreen = YES;
                                 } else if (final == 'l' && self.onAlternateScreen) {
                                     self.lines = self.screenUnderneath.count > 0
@@ -830,6 +895,9 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                                     self.screenUnderneath = nil;
                                     self.row = MIN(self.rowUnderneath, self.lines.count - 1);
                                     self.column = self.columnUnderneath;
+                                    self.scrollRegionSet = NO;
+                                    self.screenOrigin = self.lines.count > [self screenRows]
+                                        ? self.lines.count - [self screenRows] : 0;
                                     self.onAlternateScreen = NO;
                                 }
                             }
@@ -896,6 +964,77 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         self.row = [self screenTop] + (NSUInteger)(wantRow - 1);
                         self.column = (NSUInteger)(wantColumn - 1);
                         [self currentLine];
+                        break;
+                    }
+                    case 'r': {                            // set the scrolling region
+                        NSArray<NSString *> *parts =
+                            [parameters componentsSeparatedByString:@";"];
+                        NSUInteger rows = [self screenRows];
+                        NSInteger first = parts.count > 0 ? [parts[0] integerValue] : 1;
+                        NSInteger last = parts.count > 1 ? [parts[1] integerValue] : (NSInteger)rows;
+                        if (first < 1) first = 1;
+                        if (last < 1 || last > (NSInteger)rows) last = (NSInteger)rows;
+                        if (first >= last) {                 // nonsense, so no region
+                            self.scrollRegionSet = NO;
+                        } else {
+                            self.scrollFirst = (NSUInteger)(first - 1);
+                            self.scrollLast = (NSUInteger)(last - 1);
+                            self.scrollRegionSet = YES;
+                        }
+                        // Setting the region puts the cursor at the top left.
+                        self.row = self.screenOrigin;
+                        self.column = 0;
+                        [self currentLine];
+                        break;
+                    }
+                    case 'L': {                            // insert blank rows here
+                        NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                        NSUInteger last = self.screenOrigin + [self lastScrollingRow];
+                        for (NSUInteger k = 0; k < many && self.row <= last; k++) {
+                            while (self.lines.count <= last) {
+                                [self.lines addObject:[[NSMutableAttributedString alloc] init]];
+                            }
+                            [self.lines removeObjectAtIndex:last];
+                            [self.lines insertObject:[[NSMutableAttributedString alloc] init]
+                                             atIndex:self.row];
+                        }
+                        self.column = 0;
+                        break;
+                    }
+                    case 'M': {                            // delete rows here
+                        NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                        NSUInteger last = self.screenOrigin + [self lastScrollingRow];
+                        for (NSUInteger k = 0; k < many && self.row <= last; k++) {
+                            if (self.row >= self.lines.count) break;
+                            [self.lines removeObjectAtIndex:self.row];
+                            NSUInteger at = MIN(last, self.lines.count);
+                            [self.lines insertObject:[[NSMutableAttributedString alloc] init]
+                                             atIndex:at];
+                        }
+                        self.column = 0;
+                        break;
+                    }
+                    case '@': {                            // open blank cells here
+                        NSMutableAttributedString *line = [self currentLine];
+                        NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                        if (self.column <= line.length) {
+                            NSString *blank = [@"" stringByPaddingToLength:many
+                                                                withString:@" "
+                                                           startingAtIndex:0];
+                            [line insertAttributedString:
+                                [[NSAttributedString alloc] initWithString:blank
+                                                                attributes:[self fieldAttributes]]
+                                                 atIndex:self.column];
+                        }
+                        break;
+                    }
+                    case 'P': {                            // remove cells here
+                        NSMutableAttributedString *line = [self currentLine];
+                        NSUInteger many = value > 0 ? (NSUInteger)value : 1;
+                        if (self.column < line.length) {
+                            NSUInteger take = MIN(many, line.length - self.column);
+                            [line deleteCharactersInRange:NSMakeRange(self.column, take)];
+                        }
                         break;
                     }
                     case 'X': {                            // erase characters
@@ -994,7 +1133,15 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                 // last one instead of on top of it.
                 unichar next = [raw characterAtIndex:i];
                 i++;
-                if (next == '7') {
+                // Escapes that name a character set take a second character:
+                // ESC ( B says "ASCII from here on", and programs built on
+                // ncurses emit it constantly. Consuming only the bracket left
+                // the B to be printed, which is why top came out with stray Bs
+                // scattered through every row.
+                if (next == '(' || next == ')' || next == '*' || next == '+' ||
+                    next == '#' || next == '%') {
+                    if (i < n) i++;
+                } else if (next == '7') {
                     self.savedRow = self.row;
                     self.savedColumn = self.column;
                     self.hasSavedCursor = YES;
@@ -1004,8 +1151,19 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                         self.column = self.savedColumn;
                         [self currentLine];
                     }
-                } else if (next == 'M') {               // up one line
-                    if (self.row > 0) self.row -= 1;
+                } else if (next == 'M') {               // up one row, scrolling
+                    NSUInteger first = self.screenOrigin +
+                        (self.scrollRegionSet ? self.scrollFirst : 0);
+                    if (self.row <= first) {
+                        [self scrollRegionDown];
+                    } else {
+                        self.row -= 1;
+                    }
+                } else if (next == 'D') {               // down one row, scrolling
+                    [self newline];
+                } else if (next == 'E') {               // down one row, column one
+                    [self newline];
+                    self.column = 0;
                 }
             }
             continue;
@@ -1198,6 +1356,10 @@ static NSUInteger wholeCharacterBytes(const unsigned char *bytes, NSUInteger cou
             if (f >= '@' && f <= '~') return NSNotFound;
         }
         return last.location;
+    }
+    if (kind == '(' || kind == ')' || kind == '*' || kind == '+' ||
+        kind == '#' || kind == '%') {
+        return (i + 1 < n) ? NSNotFound : last.location;
     }
     if (kind == ']') {
         for (i++; i < n; i++) {

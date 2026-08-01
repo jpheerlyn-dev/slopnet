@@ -1,4 +1,4 @@
-# agy_login_recording.bin, agy_picker_recording.bin
+# Recordings of real programs
 
 Every byte Antigravity CLI 1.1.9 wrote to a pseudo-terminal 94 columns wide on
 a Linux server. The first is `agy login`, up to the point where it shows a
@@ -32,3 +32,19 @@ Nothing here is private. The request is one the capture itself created, the
 client id belongs to Google's own application and is public by design, and the
 challenge and state are single-use values from a sign-in nobody completed. The
 server address does not appear.
+
+
+## top_recording.bin
+
+Eight seconds of `top` on the same server, at the same width. It is here
+because it is an ordinary full-screen program of the kind the whole tool list
+is made of — btop, lazydocker, superfile, lazygit, zellij — and none of the
+Antigravity recordings exercise what those do: a screen addressed by row
+number, repainted several times a second, with the cursor put back to the top
+between frames.
+
+It found something within a minute of being replayed. `ESC ( B` names a
+character set and is two characters long; this console read the bracket and
+printed the B, so every row of `top` came out peppered with stray Bs. Anything
+built on ncurses emits that sequence constantly, so it would have marked every
+tool on the list.
