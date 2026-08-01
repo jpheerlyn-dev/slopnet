@@ -1805,7 +1805,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         @"PATH=/opt/slopnet:/home/slopnet/.local/bin:"
         @"/home/slopnet/.kimi-code/bin:"
         @"/home/slopnet/.local/node_modules/.bin:/usr/local/bin:/usr/bin:/bin "
-        @"/bin/sh -c \"cd /home/slopnet; exec /bin/sh\"";
+        @"/bin/sh -c \"cd /home/slopnet; exec /bin/sh $f\"";
     // Everything below this home is controlled by the locked account. Create
     // its runtime paths only after dropping privilege: following a path there
     // with root install/chown would let a pre-planted symlink redirect the
@@ -1821,10 +1821,21 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
          "else /bin/mkdir -- \"$d\"; fi; done; "
          "/bin/chmod 700 /home/slopnet/.run'",
         privilege];
+    // The command goes to the far side in a file, not down a pipe.
+    //
+    // Piping it in made the pipe the program's standing input, so a tool that
+    // needs a terminal had none — btop said so in as many words, "No tty
+    // detected" — and every key typed here went to a terminal the tool was not
+    // reading. It rendered perfectly and answered nothing. Written to a file
+    // and run, the program keeps the terminal it was given.
     return [NSString stringWithFormat:
         @"PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
          "/usr/bin/printf %%s '%@' | /usr/bin/base64 -d | %@/bin/sh && %@ && "
-         "/usr/bin/printf %%s '%@' | /usr/bin/base64 -d | %@%@",
+         "f=$(/usr/bin/mktemp /tmp/slopnet-tool-XXXXXXXX) && "
+         "cleanup_tool() { /bin/rm -f -- \"$f\"; } && "
+         "trap cleanup_tool EXIT HUP INT TERM && "
+         "/usr/bin/printf %%s '%@' | /usr/bin/base64 -d > \"$f\" && "
+         "/bin/chmod 644 \"$f\" && %@%@",
         guardEncoded, privilege, prepare, encoded, privilege, runuser];
 }
 
