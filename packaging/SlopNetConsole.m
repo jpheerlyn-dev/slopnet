@@ -439,7 +439,10 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     }
 }
 
-@implementation SlopNetConsole
+@implementation SlopNetConsole {
+    struct termios _savedLineDiscipline;
+    BOOL _haveSavedLineDiscipline;
+}
 
 - (instancetype)initWithFrame:(NSRect)frame {
     self = [super initWithFrame:frame];
@@ -1116,6 +1119,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                                     self.modeledColumns = self.columns;
                                     self.modeledRows = [self screenRows];
                                     self.onAlternateScreen = YES;
+                                    [self setLineDisciplineRaw:YES];
                                 } else if (final == 'l' && self.onAlternateScreen) {
                                     self.lines = self.screenUnderneath.count > 0
                                         ? self.screenUnderneath
@@ -1128,6 +1132,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                                     self.screenOrigin = self.lines.count > [self screenRows]
                                         ? self.lines.count - [self screenRows] : 0;
                                     self.onAlternateScreen = NO;
+                                    [self setLineDisciplineRaw:NO];
                                     [self clampCursorToScreen];
                                 }
                             }
@@ -2388,6 +2393,31 @@ static NSString *SlopNetWithoutSecrets(NSString *text) {
     }
     [self sendKeys:[NSString stringWithFormat:@"\033%@%@",
                     self.applicationCursorKeys ? @"O" : @"[", letter]];
+}
+
+/// Let single keys through, or go back to whole lines.
+///
+/// A terminal starts in the mode where the line discipline collects what is
+/// typed and hands the program a whole line at a time. That is right for a
+/// password or a yes-or-no answer. It is wrong for a program that reads keys
+/// as they come: Control-G written to the terminal simply sat in the buffer,
+/// waiting for a newline that a keystroke never sends. The keys were being
+/// forwarded correctly the whole time and were never delivered.
+- (void)setLineDisciplineRaw:(BOOL)raw {
+    if (self.master < 0) return;
+    struct termios settings;
+    if (tcgetattr(self.master, &settings) != 0) return;
+    if (raw) {
+        if (!_haveSavedLineDiscipline) {
+            _savedLineDiscipline = settings;
+            _haveSavedLineDiscipline = YES;
+        }
+        cfmakeraw(&settings);
+        tcsetattr(self.master, TCSANOW, &settings);
+    } else if (_haveSavedLineDiscipline) {
+        tcsetattr(self.master, TCSANOW, &_savedLineDiscipline);
+        _haveSavedLineDiscipline = NO;
+    }
 }
 
 - (BOOL)rawInputActive {

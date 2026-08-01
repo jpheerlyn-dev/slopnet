@@ -87,7 +87,12 @@ int main(void) {
         // is given. The alternate screen is what turns raw input on, so this is
         // the state a tool like Zellij puts the terminal in.
         NSString *reader =
-            @"printf '\\033[?1049h'; stty raw -echo; "
+            // Deliberately no stty here. The program does what a real one
+            // does — takes the alternate screen and reads bytes — and leaves
+            // the line discipline to the terminal. With the terminal left
+            // collecting whole lines, a single key never arrives at all, which
+            // is exactly what happened in the app while every check passed.
+            @"printf '\\033[?1049h'; "
             @"head -c 2 | od -An -c | tr -d ' \\n' | sed 's/^/got:/'; printf '\\n'";
         [console runExecutable:@"/bin/bash" arguments:@[@"-c", reader]];
         settle(1.0);
