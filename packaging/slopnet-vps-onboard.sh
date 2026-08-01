@@ -443,6 +443,42 @@ fi
 for needed in stat find getent runuser install mktemp passwd awk; do
   command -v "$needed" >/dev/null 2>&1 || refuse "The Linux $needed command is missing."
 done
+# An installation made before the v2 receipts existed.
+#
+# Those servers carry runtime-account-v1 and install-v1, a runtime account with
+# a login shell, and an install owned by that account. Every later check refuses
+# all three, so a working installation became unusable and the only advice was
+# to archive it by hand. The v1 receipts are themselves the proof that SlopNet
+# made what is there — nothing else can write a root-owned file in this folder —
+# so they are enough to justify upgrading it in place rather than refusing it.
+#
+# The v1 receipts are consumed by the upgrade. If it is interrupted after that,
+# the v2 receipts written below are what the next run reads, and if it is
+# interrupted before, nothing has changed.
+upgrade_from_v1() {
+  for legacy in "$managed/runtime-account-v1" "$managed/install-v1"; do
+    [ -f "$legacy" ] && [ ! -L "$legacy" ] || return 1
+    [ "$(stat -c %u "$legacy")" = 0 ] || return 1
+    [ -z "$(find "$legacy" -maxdepth 0 -perm /022 -print -quit)" ] || return 1
+  done
+  id -u slopnet >/dev/null 2>&1 || return 1
+  [ "$(getent passwd slopnet | cut -d: -f6)" = /home/slopnet ] || return 1
+  [ -d /opt/slopnet ] && [ ! -L /opt/slopnet ] || return 1
+
+  # The account must not be able to log in, and the install must belong to
+  # root, which is what the v2 receipts record and every later check requires.
+  usermod -s /usr/sbin/nologin slopnet || return 1
+  chown -R 0:0 /opt/slopnet || return 1
+  chmod go-w /opt/slopnet || return 1
+  rm -f "$managed/runtime-account-v1" "$managed/install-v1" || return 1
+  echo "Upgraded the SlopNet records on this server to the current format."
+}
+
+if [ -d "$managed" ] && [ ! -L "$managed" ] && [ "$(stat -c %u "$managed")" = 0 ] && \
+   { [ -e "$managed/runtime-account-v1" ] || [ -e "$managed/install-v1" ]; }; then
+  upgrade_from_v1 || refuse "The older SlopNet records on this server could not be upgraded."
+fi
+
 if [ -e "$managed" ] || [ -L "$managed" ]; then
   [ -d "$managed" ] && [ ! -L "$managed" ] && \
     [ "$(stat -c %u "$managed")" = 0 ] && \

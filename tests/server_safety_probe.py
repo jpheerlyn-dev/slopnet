@@ -107,9 +107,22 @@ install_identity = (
 for helper_name, remote in remote_helpers:
     check(runtime_identity in remote and install_identity in remote,
           f"{helper_name} binds receipts to every v2 identity field")
+    # A v1 name is never ownership on its own. It may appear only in the
+    # upgrade that retires it, which has to prove the receipt is a root-owned
+    # ordinary file before it changes anything and has to delete it afterwards,
+    # so it cannot be presented twice. Banning the names outright left every
+    # installation made before v2 unusable with no way forward but to archive
+    # it by hand, which is the work this app exists to remove.
+    legacy_named = "runtime-account-v1" in remote or "install-v1" in remote
+    legacy_only_upgrades = (not legacy_named) or (
+        "upgrade_from_v1" in remote and
+        'safe_marker "$managed/runtime-account-v1"' not in remote and
+        'safe_marker "$managed/install-v1"' not in remote and
+        ordered(remote, "upgrade_from_v1() {", 'stat -c %u "$legacy"',
+                'rm -f "$managed/runtime-account-v1" "$managed/install-v1"'))
     check("runtime-account-v2" in remote and "install-v2" in remote and
-          "runtime-account-v1" not in remote and "install-v1" not in remote,
-          f"{helper_name} accepts v2 ownership receipts, never legacy v1 names")
+          legacy_only_upgrades,
+          f"{helper_name} takes ownership only from v2 receipts, and retires v1 ones")
 
 check("An unmarked slopnet account already exists" in onboard,
       "setup refuses to adopt an account by name alone")
