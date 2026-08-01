@@ -1212,8 +1212,20 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                     default: break;
                 }
             } else if (i < n && [raw characterAtIndex:i] == ']') {
-                while (i < n && [raw characterAtIndex:i] != 0x07) i++;   // title
-                if (i < n) i++;
+                // A window title, or a hyperlink wrapped around some text.
+                // Either may be ended by a bell or by ESC backslash, and this
+                // looked only for the bell. Zellij marks up nearly everything
+                // it draws with hyperlinks ended the other way, so the search
+                // ran off the end and ate the entire screen: sixty-four
+                // kilobytes of output arrived and one character was drawn.
+                i++;
+                while (i < n) {
+                    unichar here = [raw characterAtIndex:i];
+                    if (here == 0x07) { i++; break; }
+                    if (here == 0x1B && i + 1 < n &&
+                        [raw characterAtIndex:i + 1] == '\\') { i += 2; break; }
+                    i++;
+                }
             } else if (i < n) {
                 // Escapes with no bracket. Two of these move the cursor, and
                 // skipping them is what made a menu walk down the screen: the
@@ -1452,7 +1464,11 @@ static NSUInteger wholeCharacterBytes(const unsigned char *bytes, NSUInteger cou
     }
     if (kind == ']') {
         for (i++; i < n; i++) {
-            if ([text characterAtIndex:i] == 0x07) return NSNotFound;
+            unichar here = [text characterAtIndex:i];
+            if (here == 0x07) return NSNotFound;
+            if (here == 0x1B && i + 1 < n && [text characterAtIndex:i + 1] == '\\') {
+                return NSNotFound;
+            }
         }
         return last.location;
     }

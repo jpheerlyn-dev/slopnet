@@ -65,6 +65,8 @@ int main(int argc, const char **argv) {
             fprintf(stderr, "COLUMNS %lu ROWS %lu\n",
                     (unsigned long)console.columns, (unsigned long)console.visibleRows);
             fprintf(stderr, "%s\n", console.screenTextForTesting.UTF8String);
+            fprintf(stderr, "--- scrollback has %lu characters ---\n",
+                    (unsigned long)console.textForTesting.length);
         }
         NSBitmapImageRep *shot =
             [console bitmapImageRepForCachingDisplayInRect:console.bounds];

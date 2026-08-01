@@ -48,3 +48,21 @@ character set and is two characters long; this console read the bracket and
 printed the B, so every row of `top` came out peppered with stray Bs. Anything
 built on ncurses emits that sequence constantly, so it would have marked every
 tool on the list.
+
+## zellij_recording.bin
+
+Twelve seconds of Zellij 0.44.3 on the same server. It is the multiplexer the
+operator chose for running several tools at once, so it is the program this
+console most has to get right, and it is the most demanding one on the list:
+six hundred absolute cursor moves, a scrolling region, mouse reporting, its own
+screen, and questions asked of the terminal.
+
+It rendered as a completely blank screen. Zellij wraps nearly everything it
+draws in hyperlinks, and a hyperlink ends with ESC backslash rather than a
+bell; this console looked only for the bell, so the search ran off the end and
+swallowed the lot. Sixty-four kilobytes arrived and one character was drawn.
+
+Checked against `reference_screen.py` rather than by eye: thirty-six of its
+thirty-eight rows now match a known-good terminal exactly. The two that differ
+are the bottom row, where Zellij puts its shortcut bar and this console still
+has the pane frame — an off-by-one at the last row, not yet found.
