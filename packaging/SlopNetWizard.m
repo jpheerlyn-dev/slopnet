@@ -1,4 +1,5 @@
 #import "SlopNetWizard.h"
+#import "SlopNetBrand.h"
 
 // The capacity floors for the default guide. These are the same numbers the
 // server-side script enforces in slopnet-vps-local-helper.sh — shown here so a
@@ -22,7 +23,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 - (BOOL)isFlipped { return YES; }
 @end
 
-@interface SlopNetWizard ()
+@interface SlopNetWizard () <NSWindowDelegate>
 @property(nonatomic, assign) SlopNetWizardStep step;
 @property(nonatomic, copy) NSString *host;
 @property(nonatomic, copy) NSString *port;
@@ -52,6 +53,10 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 @property(nonatomic, strong) NSMutableArray<NSString *> *chosenProviders;
 @property(nonatomic, strong) NSButton *continueToSignIn;
 @property(nonatomic, strong) NSTextField *chosenSummary;
+/// One shared field editor, so every field on this window gets the crimson
+/// caret. It must be built here, not fetched from the window — asking the
+/// window from inside the delegate calls the delegate again.
+@property(nonatomic, strong) NSTextView *fieldEditor;
 @end
 
 @implementation SlopNetWizard
@@ -69,8 +74,10 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
                       defer:NO];
     window.title = @"Set up SlopNet";
     window.minSize = NSMakeSize(520, 380);
+    [SlopNetBrand applyPanelChromeToWindow:window];
     self = [super initWithWindow:window];
     if (!self) return nil;
+    window.delegate = self;
     _host = [host copy] ?: @"";
     _port = port.length ? [port copy] : @"22";
     _user = user.length ? [user copy] : @"root";
@@ -98,11 +105,27 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     return SlopNetWizardStepReady;
 }
 
+/// A crimson caret in every field on this window, to match the console's.
+- (id)windowWillReturnFieldEditor:(NSWindow *)sender toObject:(id)client {
+    (void)sender; (void)client;
+    if (self.fieldEditor == nil) {
+        NSTextView *editor = [[NSTextView alloc] initWithFrame:NSZeroRect];
+        editor.fieldEditor = YES;
+        [SlopNetBrand styleFieldEditor:editor];
+        self.fieldEditor = editor;
+    }
+    return self.fieldEditor;
+}
+
 #pragma mark - small builders
 
+/// The one heading on a step. Not upper case: these are questions in plain
+/// English for somebody who finds terminals frightening, and shouting them
+/// would undo the point of the wizard.
 - (NSTextField *)title:(NSString *)text {
     NSTextField *label = [NSTextField labelWithString:text];
-    label.font = [NSFont boldSystemFontOfSize:17];
+    label.font = [NSFont monospacedSystemFontOfSize:16 weight:NSFontWeightBold];
+    label.textColor = [SlopNetBrand crimsonColor];
     label.lineBreakMode = NSLineBreakByWordWrapping;
     label.maximumNumberOfLines = 3;
     return label;
@@ -110,28 +133,45 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 
 - (NSTextField *)body:(NSString *)text {
     NSTextField *label = [NSTextField wrappingLabelWithString:text];
-    label.font = [NSFont systemFontOfSize:12.5];
     label.selectable = NO;
-    label.textColor = [NSColor labelColor];
+    [SlopNetBrand stylePanelLabel:label size:12];
     return label;
 }
 
 - (NSTextField *)quiet:(NSString *)text {
     NSTextField *label = [NSTextField wrappingLabelWithString:text];
-    label.font = [NSFont systemFontOfSize:11.5];
     label.selectable = NO;
-    label.textColor = [NSColor secondaryLabelColor];
+    [SlopNetBrand stylePanelHelp:label];
+    return label;
+}
+
+/// A field row label, matching Settings: quiet crimson down the left edge.
+- (NSTextField *)rowLabel:(NSString *)text {
+    NSTextField *label = [NSTextField labelWithString:text];
+    label.font = [NSFont monospacedSystemFontOfSize:11.5 weight:NSFontWeightRegular];
+    label.textColor = [[SlopNetBrand crimsonColor] colorWithAlphaComponent:0.80];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
     return label;
 }
 
 - (NSButton *)button:(NSString *)title action:(SEL)action {
-    NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
-    button.title = title;
-    button.bezelStyle = NSBezelStyleRounded;
-    button.target = self;
-    button.action = action;
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    return button;
+    return [self button:title action:action role:SlopNetButtonRoleNormal];
+}
+
+- (NSButton *)button:(NSString *)title action:(SEL)action role:(SlopNetButtonRole)role {
+    return [SlopNetBrand panelButtonWithTitle:title role:role target:self action:action];
+}
+
+/// Put a field in its crimson-edged box. The caller keeps its pointer to the
+/// field itself, so reading `stringValue` is unchanged.
+- (NSView *)boxed:(NSTextField *)field width:(CGFloat)width {
+    NSView *box = [SlopNetBrand panelFieldBoxWrapping:field];
+    if (width > 0) {
+        [box.widthAnchor constraintEqualToConstant:width].active = YES;
+    } else {
+        [box.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
+    }
+    return box;
 }
 
 /// The saved name, or nothing on a first run.
@@ -145,7 +185,6 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     field.stringValue = value ?: @"";
     field.placeholderString = placeholder;
     field.translatesAutoresizingMaskIntoConstraints = NO;
-    [field.heightAnchor constraintEqualToConstant:24].active = YES;
     return field;
 }
 
@@ -154,16 +193,11 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     field.stringValue = value ?: @"";
     field.placeholderString = placeholder;
     field.translatesAutoresizingMaskIntoConstraints = NO;
-    [field.heightAnchor constraintEqualToConstant:24].active = YES;
     return field;
 }
 
-- (NSBox *)separator {
-    NSBox *line = [[NSBox alloc] initWithFrame:NSZeroRect];
-    line.boxType = NSBoxSeparator;
-    line.translatesAutoresizingMaskIntoConstraints = NO;
-    [line.heightAnchor constraintEqualToConstant:1].active = YES;
-    return line;
+- (NSView *)separator {
+    return [SlopNetBrand hairline];
 }
 
 /// Every screen ends the same way: where you are, a way back where that is
@@ -182,9 +216,11 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     [row addObject:[self button:@"Close" action:@selector(closePressed:)]];
     if (allowBack) [row addObject:[self button:@"Back" action:@selector(backPressed:)]];
     if (primaryTitle.length > 0) {
-        NSButton *primary = [self button:primaryTitle action:primaryAction];
+        NSButton *primary = [self button:primaryTitle
+                                  action:primaryAction
+                                    role:SlopNetButtonRolePrimary];
         primary.keyEquivalent = @"\r";
-        [primary.widthAnchor constraintGreaterThanOrEqualToConstant:120].active = YES;
+        [primary.widthAnchor constraintGreaterThanOrEqualToConstant:130].active = YES;
         [row addObject:primary];
     }
     NSStackView *footer = [NSStackView stackViewWithViews:row];
@@ -226,9 +262,23 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     self.scroller.borderType = NSNoBorder;
     self.scroller.translatesAutoresizingMaskIntoConstraints = NO;
     self.scroller.contentView = [[SlopNetTopClipView alloc] initWithFrame:NSZeroRect];
+    // A freshly assigned clip view brings its own opaque grey background back
+    // with it, which would hide the backdrop below. Turn it off after the
+    // swap, not before.
+    self.scroller.drawsBackground = NO;
+    self.scroller.contentView.drawsBackground = NO;
     self.scroller.documentView = self.page;
 
     NSView *content = self.window.contentView;
+    // The void field, bloom, scanlines and corner brackets, as in Settings.
+    NSView *backdrop = [SlopNetBrand panelBackdrop];
+    [content addSubview:backdrop];
+    [NSLayoutConstraint activateConstraints:@[
+        [backdrop.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [backdrop.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [backdrop.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [backdrop.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+    ]];
     [content addSubview:self.scroller];
     [NSLayoutConstraint activateConstraints:@[
         [self.scroller.topAnchor constraintEqualToAnchor:content.topAnchor],
@@ -307,14 +357,11 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     self.hostField = [self secureField:self.host placeholder:@"address of your server"];
     self.userField = [self field:self.user placeholder:@"root"];
     self.portField = [self field:self.port placeholder:@"22"];
-    [self.userField.widthAnchor constraintEqualToConstant:170].active = YES;
-    [self.portField.widthAnchor constraintEqualToConstant:70].active = YES;
-
     NSGridView *grid = [NSGridView gridViewWithViews:@[
-        @[[self body:@"Name"], self.nameField],
-        @[[self body:@"Address"], self.hostField],
-        @[[self body:@"Login name"], self.userField],
-        @[[self body:@"Port"], self.portField],
+        @[[self rowLabel:@"Name"], [self boxed:self.nameField width:0]],
+        @[[self rowLabel:@"Address"], [self boxed:self.hostField width:0]],
+        @[[self rowLabel:@"Login name"], [self boxed:self.userField width:170]],
+        @[[self rowLabel:@"Port"], [self boxed:self.portField width:78]],
     ]];
     grid.translatesAutoresizingMaskIntoConstraints = NO;
     grid.rowSpacing = 8;
@@ -325,7 +372,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     self.serverNote = [self quiet:self.serverReady
         ? @"●  This server is already set up."
         : @"These three details come from your server provider's welcome email."];
-    if (self.serverReady) self.serverNote.textColor = [NSColor systemGreenColor];
+    if (self.serverReady) self.serverNote.textColor = [SlopNetBrand okColor];
 
     NSButton *check = [self button:@"Check it answers" action:@selector(checkPressed:)];
     NSStackView *checkRow = [NSStackView stackViewWithViews:@[check]];
@@ -385,7 +432,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
         NSTextField *good = [self body:self.provedModel.length > 0
             ? [NSString stringWithFormat:@"●  Installed and proved: %@", self.provedModel]
             : @"●  Installed and proved on your server."];
-        good.textColor = [NSColor systemGreenColor];
+        good.textColor = [SlopNetBrand okColor];
         [views addObjectsFromArray:@[
             good,
             [self body:@"This small IBM Granite model answers ordinary setup questions on "
@@ -401,7 +448,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 
     self.modelField = [self field:kDefaultGuideModel placeholder:@"owner/model:quant"];
     NSGridView *modelRow = [NSGridView gridViewWithViews:@[
-        @[[self body:@"Model"], self.modelField],
+        @[[self rowLabel:@"Model"], [self boxed:self.modelField width:0]],
     ]];
     modelRow.translatesAutoresizingMaskIntoConstraints = NO;
     modelRow.columnSpacing = 10;
@@ -475,15 +522,25 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
                                           action:@selector(providerToggled:)];
     toggle.buttonType = NSButtonTypeSwitch;
     toggle.identifier = provider[@"id"];
-    NSMutableAttributedString *label = [[NSMutableAttributedString alloc]
+    // The provider's own colour badge in front of its name, the same way the
+    // Tools list and the console draw it.
+    NSMutableAttributedString *label = [[NSMutableAttributedString alloc] init];
+    NSAttributedString *mark = [SlopNetBrand markAttributedForProvider:provider[@"id"]
+                                                                  size:13];
+    if (mark != nil) {
+        [label appendAttributedString:mark];
+        [label appendAttributedString:[[NSAttributedString alloc] initWithString:@"  "]];
+    }
+    [label appendAttributedString:[[NSAttributedString alloc]
         initWithString:provider[@"name"]
-            attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:13
-                                                                weight:NSFontWeightMedium],
-                         NSForegroundColorAttributeName: NSColor.labelColor}];
+            attributes:@{NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.5
+                                                                          weight:NSFontWeightMedium],
+                         NSForegroundColorAttributeName: [SlopNetBrand inkColor]}]];
     [label appendAttributedString:[[NSAttributedString alloc]
         initWithString:[NSString stringWithFormat:@"   %@", provider[@"note"]]
-            attributes:@{NSFontAttributeName: [NSFont systemFontOfSize:12],
-                         NSForegroundColorAttributeName: NSColor.secondaryLabelColor}]];
+            attributes:@{NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11
+                                                                          weight:NSFontWeightRegular],
+                         NSForegroundColorAttributeName: [SlopNetBrand quietColor]}]];
     toggle.attributedTitle = label;
     toggle.state = [self.chosenProviders containsObject:provider[@"id"]]
         ? NSControlStateValueOn : NSControlStateValueOff;
@@ -678,7 +735,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     if (![self validHost:host user:user port:port]) {
         self.serverNote.stringValue = @"Check the address and login name. The port is almost "
                                       @"always 22.";
-        self.serverNote.textColor = [NSColor systemRedColor];
+        self.serverNote.textColor = [SlopNetBrand warnColor];
         return NO;
     }
     self.host = host;
@@ -700,7 +757,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
 - (void)checkPressed:(id)sender {
     if (![self saveConnection]) return;
     self.serverNote.stringValue = @"Checking whether your server is reachable…";
-    self.serverNote.textColor = [NSColor secondaryLabelColor];
+    self.serverNote.textColor = [SlopNetBrand quietColor];
 
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/nc"];
@@ -715,21 +772,21 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
             if (strongSelf == nil || strongSelf.serverNote == nil) return;
             if (status == 0) {
                 strongSelf.serverNote.stringValue = @"●  Your server's SSH port answered.";
-                strongSelf.serverNote.textColor = [NSColor systemGreenColor];
+                strongSelf.serverNote.textColor = [SlopNetBrand okColor];
             } else {
                 // Not a trust decision and not a mutation. Setup still owns
                 // the real SSH login and will show its precise error.
                 strongSelf.serverNote.stringValue =
                     @"That address did not answer on this port. Check the details, or "
                     @"continue and setup will show the precise connection error.";
-                strongSelf.serverNote.textColor = [NSColor secondaryLabelColor];
+                strongSelf.serverNote.textColor = [SlopNetBrand quietColor];
             }
         });
     };
     NSError *error = nil;
     if (![task launchAndReturnError:&error]) {
         self.serverNote.stringValue = @"This Mac could not run its reachability check.";
-        self.serverNote.textColor = [NSColor systemRedColor];
+        self.serverNote.textColor = [SlopNetBrand warnColor];
     }
 }
 
@@ -809,7 +866,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     if (self.capacityNote == nil) return;
     [self.capacitySpinner startAnimation:nil];
     self.capacityNote.stringValue = @"Checking what your server has room for…";
-    self.capacityNote.textColor = [NSColor secondaryLabelColor];
+    self.capacityNote.textColor = [SlopNetBrand quietColor];
     self.installButton.enabled = NO;
 
     __weak typeof(self) weakSelf = self;
@@ -827,7 +884,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     if (error != nil) {
         self.capacityNote.stringValue = [error stringByAppendingString:
             @" Check the connection on the previous screen, then try again."];
-        self.capacityNote.textColor = [NSColor systemRedColor];
+        self.capacityNote.textColor = [SlopNetBrand warnColor];
         self.installButton.enabled = NO;
         return;
     }
@@ -870,7 +927,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
             @"%@ That is not enough for IBM Granite 4.1 3B, which needs %ld MiB free so its "
             @"2.1 GB download and cache both fit. Free some space, or choose a smaller "
             @"public model above.", found, (long)kGuideDiskFloorMiB];
-        self.capacityNote.textColor = [NSColor systemRedColor];
+        self.capacityNote.textColor = [SlopNetBrand warnColor];
         self.installButton.enabled = NO;
         return;
     }
@@ -880,7 +937,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
             @"available — its proved run used about 3.9 GiB and SlopNet leaves room for "
             @"the rest of your server. Stop other work on the server, or use a larger one.",
             found, (long)kGuideMemoryFloorMiB];
-        self.capacityNote.textColor = [NSColor systemRedColor];
+        self.capacityNote.textColor = [SlopNetBrand warnColor];
         self.installButton.enabled = NO;
         return;
     }
@@ -892,7 +949,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
         : [NSString stringWithFormat:@"%@ SlopNet cannot know this model's size in advance, "
                                      @"so your server will show the real figures and ask "
                                      @"again before downloading.%@", found, cached];
-    self.capacityNote.textColor = [NSColor secondaryLabelColor];
+    self.capacityNote.textColor = [SlopNetBrand quietColor];
     self.installButton.enabled = YES;
 }
 
@@ -912,7 +969,7 @@ static NSString *const kDefaultGuideModel = @"ibm-granite/granite-4.1-3b-GGUF:Q4
     if (![self validModel:model]) {
         self.capacityNote.stringValue = @"Use a public Hugging Face name in the form "
                                         @"owner/model:quant — not a link, and never a token.";
-        self.capacityNote.textColor = [NSColor systemRedColor];
+        self.capacityNote.textColor = [SlopNetBrand warnColor];
         return;
     }
     [self.delegate wizard:self installGuideModel:model];

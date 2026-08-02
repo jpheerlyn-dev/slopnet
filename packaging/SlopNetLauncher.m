@@ -545,7 +545,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     sidebar.orientation = NSUserInterfaceLayoutOrientationVertical;
     sidebar.alignment = NSLayoutAttributeLeading;
     sidebar.spacing = 7;
-    sidebar.edgeInsets = NSEdgeInsetsMake(14, 4, 10, 4);
+    // The window has no title bar strip, so the glass runs up behind the
+    // close/minimise/zoom buttons. The wordmark starts below them.
+    sidebar.edgeInsets = NSEdgeInsetsMake(30, 4, 10, 4);
     [sidebar setHuggingPriority:NSLayoutPriorityDefaultLow
                  forOrientation:NSLayoutConstraintOrientationVertical];
     // Every row fills the sidebar's width. Without this, rows keep their
@@ -732,7 +734,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [main addSubview:self.consoleHolder];
     [main addSubview:composer];
     [NSLayoutConstraint activateConstraints:@[
-        [self.tabStrip.topAnchor constraintEqualToAnchor:main.topAnchor constant:8],
+        // Clear of the title bar's drag region: a terminal tab up there could
+        // be seen but not clicked, because that strip still drags the window.
+        [self.tabStrip.topAnchor constraintEqualToAnchor:main.topAnchor constant:28],
         [self.tabStrip.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:8],
         [self.tabStrip.trailingAnchor constraintLessThanOrEqualToAnchor:main.trailingAnchor
                                                                constant:-8],

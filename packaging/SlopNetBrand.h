@@ -43,8 +43,13 @@
 /// YES when this process can use macOS Liquid Glass (NSGlassEffectView).
 + (BOOL)liquidGlassAvailable;
 
-/// Dark red-black shell for chrome. Does not change the console field.
+/// Dark red-black shell for chrome, with no system title bar strip: the
+/// content runs the full height of the window so the close/minimise/zoom
+/// buttons sit on SlopNet's own surface. Does not change the console field.
 + (void)applyTerminalChromeToWindow:(NSWindow *)window;
+
+/// How far down content must start to clear the title bar's drag region.
++ (CGFloat)titleBarInsetForWindow:(NSWindow *)window;
 
 /// Wrap chrome (sidebar, composer) in crimson-tinted Liquid Glass.
 /// Never pass the console or its holder — that broke the live terminal.

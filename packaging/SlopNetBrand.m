@@ -452,12 +452,32 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     return NO;
 }
 
-/// Dark shell for chrome only. Does not full-size the content view and never
-/// touches the console — that path already broke the live terminal once.
+/// Dark shell for the window, and no system title bar across the top.
+///
+/// The content view runs the full height of the window and the title bar is
+/// transparent with its title hidden, so the close/minimise/zoom buttons sit
+/// on SlopNet's own surface instead of in a grey system strip. Nothing here
+/// touches the console: this is the window, not its contents.
+///
+/// Callers must keep interactive controls out of the top ~28 points, which is
+/// still the window's drag region even when it is transparent.
 + (void)applyTerminalChromeToWindow:(NSWindow *)window {
     if (window == nil) return;
     window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     window.backgroundColor = [self chromeFieldColor];
+    window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+    window.titlebarAppearsTransparent = YES;
+    window.titleVisibility = NSWindowTitleHidden;
+}
+
+/// How far down a window's content must start to clear the title bar's drag
+/// region. Measured from the window rather than assumed, so it stays right if
+/// the system ever changes the height.
++ (CGFloat)titleBarInsetForWindow:(NSWindow *)window {
+    if (window == nil) return 28.0;
+    CGFloat height = NSHeight([window contentRectForFrameRect:window.frame]) -
+                     NSHeight(window.contentLayoutRect);
+    return height > 0 ? height : 28.0;
 }
 
 /// Glass around chrome (sidebar, composer). Never wrap SlopNetConsole or its
