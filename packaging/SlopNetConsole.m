@@ -576,6 +576,12 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
                      self.output.textContainerInset.height * 2;
     if (usable < lineHeight) usable = lineHeight;
     NSUInteger rows = (NSUInteger)floor(usable / lineHeight);
+    // Hold one row back for the newline a full-screen program writes after
+    // its last line. A real terminal scrolls at the bottom of the screen
+    // rather than making a new line; a text view makes the line. That single
+    // empty line is enough to push the top of btop out of sight, which is the
+    // last of the scrolling that survived fixing the row height.
+    if (rows > 1) rows -= 1;
     return MAX((NSUInteger)10, MIN(rows, (NSUInteger)200));
 }
 

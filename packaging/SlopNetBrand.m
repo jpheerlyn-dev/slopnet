@@ -397,6 +397,13 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     // navigation and want their words on the left, not centred.
     NSMutableParagraphStyle *paragraph = [[NSMutableParagraphStyle alloc] init];
     paragraph.alignment = self.alignment;
+    // A left-aligned row with no icon still needs its words off the edge.
+    // Rows that do have an icon get their margin from the icon canvas, so
+    // indenting here as well would double it.
+    if (self.alignment == NSTextAlignmentLeft && self.image == nil) {
+        paragraph.firstLineHeadIndent = 11.0;
+        paragraph.headIndent = 11.0;
+    }
     self.attributedTitle = [[NSAttributedString alloc]
         initWithString:self.title
             attributes:@{ NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11.5
@@ -758,8 +765,21 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
                             action:(SEL)action {
     NSButton *button = [self panelButtonWithTitle:title role:role
                                            target:target action:action];
-    NSImage *icon = [self symbolImageNamed:symbolName boxSize:18 pointSize:14];
-    if (icon == nil) return button;
+    // The symbol sits on a canvas with its own margins: a wide one on the
+    // left so the icon is not against the button edge, and a narrower one on
+    // the right for the gap before the words. Doing the spacing in the image
+    // means it holds whatever AppKit decides about image and title placement.
+    NSImage *square = [self symbolImageNamed:symbolName boxSize:18 pointSize:15];
+    if (square == nil) return button;
+    const CGFloat leading = 11.0, trailing = 9.0, box = 18.0;
+    NSImage *icon = [NSImage imageWithSize:NSMakeSize(leading + box + trailing, box)
+                                   flipped:NO
+                            drawingHandler:^BOOL(NSRect bounds) {
+        (void)bounds;
+        [square drawInRect:NSMakeRect(leading, 0, box, box)];
+        return YES;
+    }];
+    icon.template = YES;
     if ([button isKindOfClass:SlopNetPanelButton.class]) {
         ((SlopNetPanelButton *)button).symbolName = symbolName;
     }
