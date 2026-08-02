@@ -49,7 +49,10 @@ slopnet_prove_local_ssh() {
     "$slopnet_private_sha" "$slopnet_public_sha" "$slopnet_public_line")
   printf '%s\n' "$slopnet_expected_key" | cmp -s - "$slopnet_key_receipt" || return 1
   slopnet_derived=$(ssh-keygen -y -P '' -f "$slopnet_key_path" 2>/dev/null) || return 1
-  [ "$slopnet_public_line" = "$slopnet_derived slopnet-vps" ] || return 1
+  # Key material only — ssh-keygen prints the comment on some OpenSSH builds
+  # and not others. See the same note in slopnet-vps-onboard.sh.
+  [ "$(printf '%s' "$slopnet_public_line" | awk '{print $1" "$2}')" = \
+    "$(printf '%s' "$slopnet_derived" | awk '{print $1" "$2}')" ] || return 1
   slopnet_expected_hosts=$(printf \
     'kind=slopnet-known-hosts-v1\nknown_hosts_dev=%s\nknown_hosts_ino=%s' \
     "$(slopnet_dev "$slopnet_known_hosts")" "$(slopnet_ino "$slopnet_known_hosts")")

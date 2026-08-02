@@ -115,7 +115,14 @@ validate_key_pair() {
     "$private_sha256" "$public_sha256" "$public_line")
   printf '%s\n' "$expected_receipt" | cmp -s - "$key_receipt_path" || return 1
   derived=$(ssh-keygen -y -P '' -f "$key_path" 2>/dev/null) || return 1
-  [ "$public_line" = "$derived slopnet-vps" ] || return 1
+  # Compare the key material, not the whole line. ssh-keygen prints the
+  # comment when the private key carries one and leaves it off when it does
+  # not, so whole-line comparison fails on some machines and passes on others.
+  # slopnet-vps-onboard.sh was fixed for this; removal was not, so on OpenSSH
+  # 10 every uninstall decided SlopNet's own key was untrustworthy, refused to
+  # use it, fell back to a password and could not take the key off the server.
+  [ "$(printf '%s' "$public_line" | awk '{print $1" "$2}')" = \
+    "$(printf '%s' "$derived" | awk '{print $1" "$2}')" ] || return 1
   validated_public_line=$public_line
 }
 
