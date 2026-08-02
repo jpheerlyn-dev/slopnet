@@ -489,6 +489,21 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     content.translatesAutoresizingMaskIntoConstraints = NO;
     const CGFloat inset = 12.0;
 
+    // The padding lives in a plain view wrapped around the content, not in
+    // constraints against the glass. NSGlassEffectView pins whatever is handed
+    // to `contentView` to its own bounds, so constraints written against the
+    // glass were quietly doing nothing and the sidebar's rows ended up hard
+    // against the window edge.
+    NSView *padded = [[NSView alloc] initWithFrame:NSZeroRect];
+    padded.translatesAutoresizingMaskIntoConstraints = NO;
+    [padded addSubview:content];
+    [NSLayoutConstraint activateConstraints:@[
+        [content.topAnchor constraintEqualToAnchor:padded.topAnchor constant:inset],
+        [content.leadingAnchor constraintEqualToAnchor:padded.leadingAnchor constant:inset],
+        [content.trailingAnchor constraintEqualToAnchor:padded.trailingAnchor constant:-inset],
+        [content.bottomAnchor constraintEqualToAnchor:padded.bottomAnchor constant:-inset],
+    ]];
+
     if (@available(macOS 26.0, *)) {
         if ([self liquidGlassAvailable]) {
             NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:NSZeroRect];
@@ -496,15 +511,7 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
             glass.cornerRadius = radius;
             glass.tintColor = tint ?: [self chromeTintColor];
             glass.style = NSGlassEffectViewStyleRegular;
-            glass.contentView = content;
-            [NSLayoutConstraint activateConstraints:@[
-                [content.topAnchor constraintEqualToAnchor:glass.topAnchor constant:inset],
-                [content.leadingAnchor constraintEqualToAnchor:glass.leadingAnchor constant:inset],
-                [content.trailingAnchor constraintEqualToAnchor:glass.trailingAnchor
-                                                      constant:-inset],
-                [content.bottomAnchor constraintEqualToAnchor:glass.bottomAnchor
-                                                     constant:-inset],
-            ]];
+            glass.contentView = padded;
             // Let a split-view column stretch the panel; do not hug content
             // height so hard that the sidebar collapses.
             [glass setContentHuggingPriority:1
@@ -526,12 +533,13 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     frost.layer.masksToBounds = YES;
     frost.layer.borderWidth = 1.0;
     frost.layer.borderColor = [[self crimsonColor] colorWithAlphaComponent:0.45].CGColor;
-    [frost addSubview:content];
+    // `padded` already carries the inset, so this only has to fill the frost.
+    [frost addSubview:padded];
     [NSLayoutConstraint activateConstraints:@[
-        [content.topAnchor constraintEqualToAnchor:frost.topAnchor constant:inset],
-        [content.leadingAnchor constraintEqualToAnchor:frost.leadingAnchor constant:inset],
-        [content.trailingAnchor constraintEqualToAnchor:frost.trailingAnchor constant:-inset],
-        [content.bottomAnchor constraintEqualToAnchor:frost.bottomAnchor constant:-inset],
+        [padded.topAnchor constraintEqualToAnchor:frost.topAnchor],
+        [padded.leadingAnchor constraintEqualToAnchor:frost.leadingAnchor],
+        [padded.trailingAnchor constraintEqualToAnchor:frost.trailingAnchor],
+        [padded.bottomAnchor constraintEqualToAnchor:frost.bottomAnchor],
     ]];
     [frost setContentHuggingPriority:1
                       forOrientation:NSLayoutConstraintOrientationVertical];

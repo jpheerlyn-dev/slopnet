@@ -194,6 +194,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 @property(nonatomic, strong) NSStackView *promptBar;
 @property(nonatomic, strong) NSTextField *promptLabel;
 @property(nonatomic, strong) NSSecureTextField *secretField;
+/// The crimson-edged box the password field sits in. Show and hide this, not
+/// the field — hiding only the field would leave its border behind.
+@property(nonatomic, strong) NSView *secretBox;
 @property(nonatomic, strong) NSButton *secretSend;
 @property(nonatomic, strong) NSButton *approveButton;
 @property(nonatomic, strong) NSButton *declineButton;
@@ -415,10 +418,14 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     content.layer.backgroundColor = [SlopNetBrand chromeFieldColor].CGColor;
     [content addSubview:split];
     [NSLayoutConstraint activateConstraints:@[
-        [split.topAnchor constraintEqualToAnchor:content.topAnchor constant:8],
-        [split.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:8],
-        [split.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-8],
-        [split.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-8],
+        // Flush to the window on every side. An inset here left a margin of
+        // window field showing around three panels that each had a different
+        // corner radius, which is what made the edges look unfinished. The
+        // window's own rounded corners do the rounding now.
+        [split.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [split.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [split.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [split.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
     ]];
     [split setPosition:248 ofDividerAtIndex:0];
 
@@ -562,8 +569,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
     // Glass is chrome only. The terminal is built in buildMain and is never
     // passed through glassPanelWrapping.
+    // Square: the sidebar is a column of the window, not a card floating in
+    // it, so the only rounding on its outer edges is the window's own.
     NSView *glass = [SlopNetBrand glassPanelWrapping:sidebar
-                                        cornerRadius:20
+                                        cornerRadius:0
                                            tintColor:[SlopNetBrand chromeTintColor]];
     glass.translatesAutoresizingMaskIntoConstraints = NO;
     return glass;
@@ -665,7 +674,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.secretField.translatesAutoresizingMaskIntoConstraints = NO;
     self.secretField.target = self;
     self.secretField.action = @selector(secretEntered:);
-    [self.secretField.heightAnchor constraintEqualToConstant:24].active = YES;
+    // The same crimson-edged box the panels use. The box also clips, which
+    // stops the system password affordance drawing its badge outside the
+    // field and onto the sidebar next to it.
+    self.secretBox = [SlopNetBrand panelFieldBoxWrapping:self.secretField];
+    [self.secretBox.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
 
     self.secretSend = [self promptButton:@"Send password" action:@selector(secretEntered:)];
     self.approveButton = [self promptButton:@"Yes" action:@selector(approvePressed:)];
@@ -679,7 +692,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                                   action:@selector(skipThisSignIn:)];
 
     NSStackView *promptControls = [NSStackView stackViewWithViews:@[
-        self.secretField, self.secretSend, self.approveButton, self.declineButton,
+        self.secretBox, self.secretSend, self.approveButton, self.declineButton,
         self.continueButton, self.openPageButton, self.codeButton, self.skipButton]];
     promptControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     promptControls.alignment = NSLayoutAttributeCenterY;
@@ -702,7 +715,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [chatBar.widthAnchor constraintEqualToAnchor:composerInner.widthAnchor].active = YES;
     // Composer glass only — the console above stays an opaque black field.
     NSView *composer = [SlopNetBrand glassPanelWrapping:composerInner
-                                           cornerRadius:18
+                                           cornerRadius:0
                                               tintColor:[SlopNetBrand chromeTintColor]];
     composer.translatesAutoresizingMaskIntoConstraints = NO;
 
@@ -737,20 +750,21 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         // Clear of the title bar's drag region: a terminal tab up there could
         // be seen but not clicked, because that strip still drags the window.
         [self.tabStrip.topAnchor constraintEqualToAnchor:main.topAnchor constant:28],
-        [self.tabStrip.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:8],
+        [self.tabStrip.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:12],
         [self.tabStrip.trailingAnchor constraintLessThanOrEqualToAnchor:main.trailingAnchor
-                                                               constant:-8],
+                                                               constant:-12],
 
+        // Console and composer share one edge on each side. They used to be
+        // inset 8 and 4, so the bar below the terminal stuck out past it.
         [self.consoleHolder.topAnchor constraintEqualToAnchor:self.tabStrip.bottomAnchor
                                                      constant:6],
-        [self.consoleHolder.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:8],
-        [self.consoleHolder.trailingAnchor constraintEqualToAnchor:main.trailingAnchor
-                                                          constant:-8],
+        [self.consoleHolder.leadingAnchor constraintEqualToAnchor:main.leadingAnchor],
+        [self.consoleHolder.trailingAnchor constraintEqualToAnchor:main.trailingAnchor],
 
-        [composer.topAnchor constraintEqualToAnchor:self.consoleHolder.bottomAnchor constant:10],
-        [composer.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:4],
-        [composer.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-4],
-        [composer.bottomAnchor constraintEqualToAnchor:main.bottomAnchor constant:-4],
+        [composer.topAnchor constraintEqualToAnchor:self.consoleHolder.bottomAnchor],
+        [composer.leadingAnchor constraintEqualToAnchor:main.leadingAnchor],
+        [composer.trailingAnchor constraintEqualToAnchor:main.trailingAnchor],
+        [composer.bottomAnchor constraintEqualToAnchor:main.bottomAnchor],
     ]];
     return main;
 }
@@ -1710,7 +1724,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // is on screen is a real program waiting for a real keystroke.
     self.entryScroller.hidden = NO;
     self.sendButton.hidden = NO;
-    self.secretField.hidden = YES;
+    self.secretBox.hidden = YES;
     self.secretSend.hidden = YES;
     self.approveButton.hidden = YES;
     self.declineButton.hidden = YES;
@@ -2725,7 +2739,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.entryScroller.hidden = asking;
     self.sendButton.hidden = asking;
 
-    self.secretField.hidden = (prompt != SlopNetPromptPassword);
+    self.secretBox.hidden = (prompt != SlopNetPromptPassword);
     self.secretSend.hidden = (prompt != SlopNetPromptPassword);
     self.approveButton.hidden = (prompt != SlopNetPromptConfirm);
     self.declineButton.hidden = (prompt != SlopNetPromptConfirm);
@@ -2790,7 +2804,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // running while the browser page is open.
     self.entryScroller.hidden = NO;
     self.sendButton.hidden = NO;
-    self.secretField.hidden = YES;
+    self.secretBox.hidden = YES;
     self.secretSend.hidden = YES;
     self.approveButton.hidden = YES;
     self.declineButton.hidden = YES;
