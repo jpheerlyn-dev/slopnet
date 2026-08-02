@@ -280,15 +280,33 @@ run_model() {
 }
 
 echo "Downloading and proving the selected model as slopnet…"
-challenge=$(od -An -N12 -tx1 /dev/urandom | tr -d " \n")
-expected_answer=$(printf "%s" "$challenge" | rev)
-proof_prompt="Print only this token with its characters in reverse order: $challenge"
+# No apostrophes in here: this block lives inside a single-quoted payload.
+#
+# The proof asks the model to upper-case a short token. It used to ask for a
+# 24 character hex string reversed, which a 3B model cannot do: measured
+# against the shipped default on a real server it scored 0 of 3, while
+# upper-casing scored 3 of 3. The gate was therefore close to a coin flip and
+# was failing installs where nothing was actually wrong.
+#
+# It still proves what it needs to: the model loaded, read this prompt, and
+# generated from it. The answer cannot be satisfied by the prompt being echoed
+# back, because the token is guaranteed to carry a letter and the prompt shows
+# it in lower case.
+challenge=""
+while [ -z "$challenge" ]; do
+  challenge=$(od -An -N4 -tx1 /dev/urandom | tr -d " \n")
+  printf "%s" "$challenge" | grep -q "[a-f]" || challenge=""
+done
+expected_answer=$(printf "%s" "$challenge" | tr "a-f" "A-F")
+proof_prompt="Write this token in capital letters and nothing else: $challenge"
 if ! proof_output=$(run_model nice -n 10 "$llama" cli -hf "$model" -c "$helper_context" -b 512 -ub 256 --no-warmup -p "$proof_prompt" -st --no-display-prompt --no-perf --simple-io); then
   echo "The local model test failed. Llama.cpp and any partial cache were left in the protected runtime account for inspection; SlopNet did not enable the helper."
   exit 1
 fi
 printf "%s\n" "$proof_output"
-if ! printf "%s\n" "$proof_output" | grep -Fx -- "$expected_answer" >/dev/null; then
+# Contains, not whole-line: the chat front end wraps the answer in its own
+# framing, so an exact line match rejected correct answers.
+if ! printf "%s\n" "$proof_output" | grep -Fq -- "$expected_answer"; then
   echo "The local model did not answer its one-time harmless challenge. Llama.cpp and its cache were left for inspection; SlopNet did not enable the helper."
   exit 1
 fi

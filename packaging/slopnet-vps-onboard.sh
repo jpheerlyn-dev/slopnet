@@ -18,7 +18,7 @@ server_name="${4:-your server}"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.64"
+slopnet_release="v0.9.65"
 # Filled with the verified tag commit when build_app.sh copies this helper
 # into SlopNet.app. Keeping the source empty prevents a mutable tag name from
 # being the only authority for code that will run as root.
