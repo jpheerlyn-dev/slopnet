@@ -72,15 +72,24 @@ refuse_install() {
   exit 1
 }
 safe_marker() {
-  marker=$1
-  expected=$2
+  # No apostrophes in here: this block lives inside a single-quoted payload.
+  #
+  # These names must not collide with anything a caller holds. The arguments
+  # used to be taken as marker and expected, and sh has no local variables, so
+  # calling this clobbered the caller variable named expected -- which holds
+  # the release commit. The next line then recorded that wreckage in the commit
+  # field of the install receipt, so the check could never pass, and the local
+  # guide, project, build and coding-app flows all refused with "does not match
+  # its protected ownership receipt".
+  marker_path=$1
+  marker_want=$2
   [ -d /var/lib/slopnet ] && [ ! -L /var/lib/slopnet ] || return 1
   [ "$(stat -c %u /var/lib/slopnet)" = 0 ] || return 1
   [ -z "$(find /var/lib/slopnet -maxdepth 0 -perm /022 -print -quit)" ] || return 1
-  [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
-  [ "$(stat -c %u "$marker")" = 0 ] || return 1
-  [ -z "$(find "$marker" -maxdepth 0 -perm /022 -print -quit)" ] || return 1
-  [ "$(cat "$marker")" = "$expected" ] || return 1
+  [ -f "$marker_path" ] && [ ! -L "$marker_path" ] || return 1
+  [ "$(stat -c %u "$marker_path")" = 0 ] || return 1
+  [ -z "$(find "$marker_path" -maxdepth 0 -perm /022 -print -quit)" ] || return 1
+  [ "$(cat "$marker_path")" = "$marker_want" ] || return 1
 }
 runtime_receipt() {
   uid=$(id -u slopnet 2>/dev/null) || return 1
