@@ -43,13 +43,11 @@
 /// YES when this process can use macOS Liquid Glass (NSGlassEffectView).
 + (BOOL)liquidGlassAvailable;
 
-/// Dark, full-bleed terminal chrome: transparent titlebar, dark appearance,
-/// cold void field. Safe to call once when the window is created.
+/// Dark red-black shell for chrome. Does not change the console field.
 + (void)applyTerminalChromeToWindow:(NSWindow *)window;
 
-/// Wrap `content` in real Liquid Glass when available, otherwise a dark
-/// frosted panel that still reads as glass. The returned view owns layout of
-/// `content` (edges pinned with a small inset).
+/// Wrap chrome (sidebar, composer) in crimson-tinted Liquid Glass.
+/// Never pass the console or its holder — that broke the live terminal.
 + (NSView *)glassPanelWrapping:(NSView *)content
                   cornerRadius:(CGFloat)radius
                      tintColor:(NSColor *)tint;

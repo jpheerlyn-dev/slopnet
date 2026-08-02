@@ -176,13 +176,14 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
 + (NSColor *)crimsonColor { return SlopNetColorFromHex(0xFF003C); }
 + (NSColor *)inkColor     { return SlopNetColorFromHex(0xE8E8E8); }
 + (NSColor *)ghostColor   { return SlopNetColorFromHex(0x666666); }
-// Not pure black: glass needs something behind it to refract. A cold lift
-// keeps the void reading as terminal while the liquid material can shimmer.
+// Host surface behind chrome glass — near-black with a red lift so crimson
+// glass has something to refract. Never used as the console cell field.
 + (NSColor *)chromeFieldColor {
-    return [NSColor colorWithSRGBRed:0.04 green:0.045 blue:0.07 alpha:1.0];
+    return [NSColor colorWithSRGBRed:0.06 green:0.02 blue:0.03 alpha:1.0];
 }
+// Matrix-adjacent shell: StormCode crimson through the liquid material.
 + (NSColor *)chromeTintColor {
-    return [[self crimsonColor] colorWithAlphaComponent:0.28];
+    return [[self crimsonColor] colorWithAlphaComponent:0.42];
 }
 + (NSColor *)phosphorColor { return SlopNetColorFromHex(0x00AB23); }
 
@@ -195,24 +196,22 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     return NO;
 }
 
+/// Dark shell for chrome only. Does not full-size the content view and never
+/// touches the console — that path already broke the live terminal once.
 + (void)applyTerminalChromeToWindow:(NSWindow *)window {
     if (window == nil) return;
-    // Dark always: the console field is jet black, and glass only looks like
-    // glass when the host surface is dark enough to show depth.
     window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     window.backgroundColor = [self chromeFieldColor];
-    window.titlebarAppearsTransparent = YES;
-    window.titleVisibility = NSWindowTitleHidden;
-    window.styleMask |= NSWindowStyleMaskFullSizeContentView;
-    // Traffic lights sit over the glass; keep them readable on the void.
-    window.toolbarStyle = NSWindowToolbarStyleUnified;
 }
 
+/// Glass around chrome (sidebar, composer). Never wrap SlopNetConsole or its
+/// holder — the PTY field must stay an opaque black rectangle.
 + (NSView *)glassPanelWrapping:(NSView *)content
                   cornerRadius:(CGFloat)radius
                      tintColor:(NSColor *)tint {
     if (content == nil) return [[NSView alloc] initWithFrame:NSZeroRect];
     content.translatesAutoresizingMaskIntoConstraints = NO;
+    const CGFloat inset = 12.0;
 
     if (@available(macOS 26.0, *)) {
         if ([self liquidGlassAvailable]) {
@@ -222,20 +221,25 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
             glass.tintColor = tint ?: [self chromeTintColor];
             glass.style = NSGlassEffectViewStyleRegular;
             glass.contentView = content;
-            // contentView is placed in the glass; pin it so the panel sizes
-            // from its contents the same way a stack would.
             [NSLayoutConstraint activateConstraints:@[
-                [content.topAnchor constraintEqualToAnchor:glass.topAnchor constant:10],
-                [content.leadingAnchor constraintEqualToAnchor:glass.leadingAnchor constant:10],
-                [content.trailingAnchor constraintEqualToAnchor:glass.trailingAnchor constant:-10],
-                [content.bottomAnchor constraintEqualToAnchor:glass.bottomAnchor constant:-10],
+                [content.topAnchor constraintEqualToAnchor:glass.topAnchor constant:inset],
+                [content.leadingAnchor constraintEqualToAnchor:glass.leadingAnchor constant:inset],
+                [content.trailingAnchor constraintEqualToAnchor:glass.trailingAnchor
+                                                      constant:-inset],
+                [content.bottomAnchor constraintEqualToAnchor:glass.bottomAnchor
+                                                     constant:-inset],
             ]];
+            // Let a split-view column stretch the panel; do not hug content
+            // height so hard that the sidebar collapses.
+            [glass setContentHuggingPriority:1
+                              forOrientation:NSLayoutConstraintOrientationVertical];
+            [glass setContentCompressionResistancePriority:1
+                                            forOrientation:NSLayoutConstraintOrientationVertical];
             return glass;
         }
     }
 
-    // Pre-Liquid-Glass: dark frosted material + hairline, still reads as a
-    // panel rather than a flat grey box.
+    // Fallback when Liquid Glass is not available: dark frost + crimson edge.
     NSVisualEffectView *frost = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
     frost.translatesAutoresizingMaskIntoConstraints = NO;
     frost.material = NSVisualEffectMaterialHUDWindow;
@@ -245,14 +249,18 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     frost.layer.cornerRadius = radius;
     frost.layer.masksToBounds = YES;
     frost.layer.borderWidth = 1.0;
-    frost.layer.borderColor = [[self crimsonColor] colorWithAlphaComponent:0.35].CGColor;
+    frost.layer.borderColor = [[self crimsonColor] colorWithAlphaComponent:0.45].CGColor;
     [frost addSubview:content];
     [NSLayoutConstraint activateConstraints:@[
-        [content.topAnchor constraintEqualToAnchor:frost.topAnchor constant:10],
-        [content.leadingAnchor constraintEqualToAnchor:frost.leadingAnchor constant:10],
-        [content.trailingAnchor constraintEqualToAnchor:frost.trailingAnchor constant:-10],
-        [content.bottomAnchor constraintEqualToAnchor:frost.bottomAnchor constant:-10],
+        [content.topAnchor constraintEqualToAnchor:frost.topAnchor constant:inset],
+        [content.leadingAnchor constraintEqualToAnchor:frost.leadingAnchor constant:inset],
+        [content.trailingAnchor constraintEqualToAnchor:frost.trailingAnchor constant:-inset],
+        [content.bottomAnchor constraintEqualToAnchor:frost.bottomAnchor constant:-inset],
     ]];
+    [frost setContentHuggingPriority:1
+                      forOrientation:NSLayoutConstraintOrientationVertical];
+    [frost setContentCompressionResistancePriority:1
+                                    forOrientation:NSLayoutConstraintOrientationVertical];
     return frost;
 }
 
@@ -260,16 +268,18 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     if (button == nil) return;
     if (@available(macOS 26.0, *)) {
         button.bezelStyle = NSBezelStyleGlass;
+        button.bezelColor = [self chromeTintColor];
     } else {
         button.bezelStyle = NSBezelStyleRounded;
     }
     button.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightMedium];
+    button.contentTintColor = [self inkColor];
 }
 
 + (void)styleChromeCaption:(NSTextField *)label {
     if (label == nil) return;
     label.font = [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightSemibold];
-    label.textColor = [[self crimsonColor] colorWithAlphaComponent:0.75];
+    label.textColor = [[self crimsonColor] colorWithAlphaComponent:0.85];
 }
 
 + (NSColor *)backgroundColorForProvider:(NSString *)providerId {

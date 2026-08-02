@@ -270,10 +270,15 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 - (NSTextField *)label:(NSString *)text size:(CGFloat)size grey:(BOOL)grey {
     NSTextField *label = [NSTextField labelWithString:text];
-    label.font = [NSFont systemFontOfSize:size];
+    // Chrome is monospaced so the shell feels like one terminal product;
+    // the console itself keeps its own font.
+    label.font = [NSFont monospacedSystemFontOfSize:size
+                                             weight:size >= 18 ? NSFontWeightBold
+                                                               : NSFontWeightRegular];
     label.lineBreakMode = NSLineBreakByWordWrapping;
     label.maximumNumberOfLines = 5;
-    if (grey) label.textColor = [NSColor secondaryLabelColor];
+    if (grey) label.textColor = [SlopNetBrand ghostColor];
+    else label.textColor = [SlopNetBrand inkColor];
     return label;
 }
 
@@ -284,20 +289,17 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     button.title = title;
     button.target = self;
     button.action = action;
-    button.bezelStyle = NSBezelStyleRecessed;
-    button.bordered = NO;
+    [SlopNetBrand styleChromeButton:button];
     button.alignment = NSTextAlignmentLeft;
-    button.font = [NSFont systemFontOfSize:12.5];
-    button.contentTintColor = [NSColor labelColor];
     button.translatesAutoresizingMaskIntoConstraints = NO;
-    [button.heightAnchor constraintEqualToConstant:28].active = YES;
+    [button.heightAnchor constraintEqualToConstant:30].active = YES;
     return button;
 }
 
 - (NSButton *)promptButton:(NSString *)title action:(SEL)action {
     NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
     button.title = title;
-    button.bezelStyle = NSBezelStyleRounded;
+    [SlopNetBrand styleChromeButton:button];
     button.target = self;
     button.action = action;
     button.translatesAutoresizingMaskIntoConstraints = NO;
@@ -396,11 +398,9 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                       defer:NO];
     self.window.title = @"SlopNet";
     self.window.minSize = NSMakeSize(820, 520);
-    // Dark shell only — no full-size content view, no glass host around the
-    // split. Wrapping the live terminal in NSGlassEffectView / ContainerView
-    // broke layout and drawing; the console stays a plain opaque field.
-    self.window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    self.window.backgroundColor = [SlopNetBrand chromeFieldColor];
+    // Red-black shell. Glass is only on the sidebar and composer — never on
+    // the console, and never as a container around the whole split.
+    [SlopNetBrand applyTerminalChromeToWindow:self.window];
     [self.window center];
 
     NSSplitView *split = [[NSSplitView alloc] initWithFrame:NSZeroRect];
@@ -411,14 +411,16 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [split addArrangedSubview:[self buildMain]];
 
     NSView *content = self.window.contentView;
+    content.wantsLayer = YES;
+    content.layer.backgroundColor = [SlopNetBrand chromeFieldColor].CGColor;
     [content addSubview:split];
     [NSLayoutConstraint activateConstraints:@[
-        [split.topAnchor constraintEqualToAnchor:content.topAnchor],
-        [split.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
-        [split.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
-        [split.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+        [split.topAnchor constraintEqualToAnchor:content.topAnchor constant:8],
+        [split.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:8],
+        [split.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-8],
+        [split.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-8],
     ]];
-    [split setPosition:236 ofDividerAtIndex:0];
+    [split setPosition:248 ofDividerAtIndex:0];
 
     [self recall];
     [self refreshState];
@@ -483,10 +485,12 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
 
     NSTextField *title = [self label:@"SlopNet" size:20 grey:NO];
-    title.font = [NSFont boldSystemFontOfSize:20];
+    title.font = [NSFont monospacedSystemFontOfSize:20 weight:NSFontWeightBold];
+    title.textColor = [SlopNetBrand crimsonColor];
 
     self.statusDot = [self label:@"●" size:13 grey:NO];
-    self.statusText = [self label:@"Checking…" size:12 grey:YES];
+    self.statusDot.textColor = [SlopNetBrand phosphorColor];
+    self.statusText = [self label:@"Checking…" size:11 grey:YES];
     NSStackView *status = [NSStackView stackViewWithViews:@[self.statusDot, self.statusText]];
     status.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     status.alignment = NSLayoutAttributeCenterY;
@@ -498,6 +502,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
                                        action:@selector(newConversation:)];
 
     NSTextField *historyTitle = [self label:@"RECENT REQUESTS" size:10 grey:YES];
+    [SlopNetBrand styleChromeCaption:historyTitle];
     self.historyStack = [NSStackView stackViewWithViews:@[]];
     self.historyStack.orientation = NSUserInterfaceLayoutOrientationVertical;
     self.historyStack.alignment = NSLayoutAttributeLeading;
@@ -520,6 +525,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     NSButton *wizardButton = [self sidebarButton:@"◷   Setup guide"
                                          action:@selector(openWizard:)];
 
+    NSTextField *versionLabel =
+        [self label:[NSString stringWithFormat:@"v%@", version] size:10 grey:YES];
+    [SlopNetBrand styleChromeCaption:versionLabel];
+
     NSStackView *sidebar = [NSStackView stackViewWithViews:@[
         title, status,
         [self separator],
@@ -532,11 +541,11 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         toolsButton,
         providersButton,
         self.settingsToggle,
-        [self label:[NSString stringWithFormat:@"v%@", version] size:10 grey:YES]]];
+        versionLabel]];
     sidebar.orientation = NSUserInterfaceLayoutOrientationVertical;
     sidebar.alignment = NSLayoutAttributeLeading;
-    sidebar.spacing = 6;
-    sidebar.edgeInsets = NSEdgeInsetsMake(18, 12, 14, 12);
+    sidebar.spacing = 7;
+    sidebar.edgeInsets = NSEdgeInsetsMake(14, 4, 10, 4);
     [sidebar setHuggingPriority:NSLayoutPriorityDefaultLow
                  forOrientation:NSLayoutConstraintOrientationVertical];
     // Every row fills the sidebar's width. Without this, rows keep their
@@ -544,11 +553,18 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // stubs — however the divider is dragged.
     for (NSView *rowView in sidebar.arrangedSubviews) {
         [rowView.widthAnchor constraintEqualToAnchor:sidebar.widthAnchor
-                                           constant:-24].active = YES;
+                                           constant:-8].active = YES;
     }
     [self.historyStack.widthAnchor constraintEqualToAnchor:sidebar.widthAnchor
-                                                 constant:-24].active = YES;
-    return sidebar;
+                                                 constant:-8].active = YES;
+
+    // Glass is chrome only. The terminal is built in buildMain and is never
+    // passed through glassPanelWrapping.
+    NSView *glass = [SlopNetBrand glassPanelWrapping:sidebar
+                                        cornerRadius:20
+                                           tintColor:[SlopNetBrand chromeTintColor]];
+    glass.translatesAutoresizingMaskIntoConstraints = NO;
+    return glass;
 }
 
 - (NSView *)buildMain {
@@ -582,6 +598,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.entry.richText = NO;
     self.entry.allowsUndo = YES;
     self.entry.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
+    self.entry.textColor = [SlopNetBrand inkColor];
+    self.entry.backgroundColor = [SlopNetBrand voidColor];
+    self.entry.drawsBackground = YES;
+    self.entry.insertionPointColor = [SlopNetBrand crimsonColor];
     self.entry.textContainerInset = NSMakeSize(8, 8);
     self.entry.prompt = @"Describe what you want built… Return sends · Shift-Return adds a line";
     self.entry.automaticQuoteSubstitutionEnabled = NO;
@@ -596,9 +616,17 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.entryScroller = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     self.entryScroller.hasVerticalScroller = NO;
     self.entryScroller.autohidesScrollers = YES;
-    self.entryScroller.borderType = NSBezelBorder;
+    self.entryScroller.borderType = NSNoBorder;
+    self.entryScroller.drawsBackground = YES;
+    self.entryScroller.backgroundColor = [SlopNetBrand voidColor];
     self.entryScroller.documentView = self.entry;
     self.entryScroller.translatesAutoresizingMaskIntoConstraints = NO;
+    self.entryScroller.wantsLayer = YES;
+    self.entryScroller.layer.cornerRadius = 10;
+    self.entryScroller.layer.masksToBounds = YES;
+    self.entryScroller.layer.borderWidth = 1.0;
+    self.entryScroller.layer.borderColor =
+        [[SlopNetBrand crimsonColor] colorWithAlphaComponent:0.5].CGColor;
     self.entryHeight = [self.entryScroller.heightAnchor constraintEqualToConstant:56];
     self.entryHeight.active = YES;
     [self.entryScroller setContentHuggingPriority:NSLayoutPriorityDefaultLow
@@ -609,10 +637,10 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // one you had. Send always means: give this to SlopNet.
     self.sendButton = [[NSButton alloc] initWithFrame:NSZeroRect];
     self.sendButton.title = @"Send";
-    self.sendButton.bezelStyle = NSBezelStyleRounded;
+    [SlopNetBrand styleChromeButton:self.sendButton];
     self.sendButton.target = self;
     self.sendButton.action = @selector(sendPressed:);
-    [self.sendButton.widthAnchor constraintGreaterThanOrEqualToConstant:76].active = YES;
+    [self.sendButton.widthAnchor constraintGreaterThanOrEqualToConstant:80].active = YES;
 
     NSStackView *chatBar = [NSStackView stackViewWithViews:@[
         self.entryScroller, self.sendButton]];
@@ -661,13 +689,18 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.promptBar.hidden = YES;
     [promptControls.widthAnchor constraintEqualToAnchor:self.promptBar.widthAnchor].active = YES;
 
-    NSStackView *composer = [NSStackView stackViewWithViews:@[self.promptBar,
-                                                             chatBar]];
-    composer.orientation = NSUserInterfaceLayoutOrientationVertical;
-    composer.alignment = NSLayoutAttributeLeading;
-    composer.spacing = 4;
+    NSStackView *composerInner = [NSStackView stackViewWithViews:@[self.promptBar,
+                                                                   chatBar]];
+    composerInner.orientation = NSUserInterfaceLayoutOrientationVertical;
+    composerInner.alignment = NSLayoutAttributeLeading;
+    composerInner.spacing = 6;
+    composerInner.translatesAutoresizingMaskIntoConstraints = NO;
+    [chatBar.widthAnchor constraintEqualToAnchor:composerInner.widthAnchor].active = YES;
+    // Composer glass only — the console above stays an opaque black field.
+    NSView *composer = [SlopNetBrand glassPanelWrapping:composerInner
+                                           cornerRadius:18
+                                              tintColor:[SlopNetBrand chromeTintColor]];
     composer.translatesAutoresizingMaskIntoConstraints = NO;
-    [chatBar.widthAnchor constraintEqualToAnchor:composer.widthAnchor].active = YES;
 
     // Plain constraints rather than a stack here, and a holder the terminals
     // share so a tool can open beside Granite instead of taking the window.
@@ -681,6 +714,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     self.tabStrip.alignment = NSLayoutAttributeCenterY;
     self.tabStrip.translatesAutoresizingMaskIntoConstraints = NO;
 
+    // The live terminal. Opaque, full area, never glass-wrapped.
     self.consoleHolder = [[NSView alloc] initWithFrame:NSZeroRect];
     self.consoleHolder.translatesAutoresizingMaskIntoConstraints = NO;
     [self.consoleHolder addSubview:self.console];
@@ -696,21 +730,21 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     [main addSubview:self.consoleHolder];
     [main addSubview:composer];
     [NSLayoutConstraint activateConstraints:@[
-        [self.tabStrip.topAnchor constraintEqualToAnchor:main.topAnchor constant:10],
-        [self.tabStrip.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
+        [self.tabStrip.topAnchor constraintEqualToAnchor:main.topAnchor constant:8],
+        [self.tabStrip.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:8],
         [self.tabStrip.trailingAnchor constraintLessThanOrEqualToAnchor:main.trailingAnchor
-                                                               constant:-16],
+                                                               constant:-8],
 
         [self.consoleHolder.topAnchor constraintEqualToAnchor:self.tabStrip.bottomAnchor
                                                      constant:6],
-        [self.consoleHolder.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
+        [self.consoleHolder.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:8],
         [self.consoleHolder.trailingAnchor constraintEqualToAnchor:main.trailingAnchor
-                                                          constant:-16],
+                                                          constant:-8],
 
         [composer.topAnchor constraintEqualToAnchor:self.consoleHolder.bottomAnchor constant:10],
-        [composer.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:16],
-        [composer.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-16],
-        [composer.bottomAnchor constraintEqualToAnchor:main.bottomAnchor constant:-16],
+        [composer.leadingAnchor constraintEqualToAnchor:main.leadingAnchor constant:4],
+        [composer.trailingAnchor constraintEqualToAnchor:main.trailingAnchor constant:-4],
+        [composer.bottomAnchor constraintEqualToAnchor:main.bottomAnchor constant:-4],
     ]];
     return main;
 }
@@ -749,12 +783,16 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         NSButton *tab = [NSButton buttonWithTitle:label target:self
                                            action:@selector(tabPressed:)];
         tab.tag = (NSInteger)i;
-        tab.bezelStyle = NSBezelStyleRounded;
+        [SlopNetBrand styleChromeButton:tab];
         tab.controlSize = NSControlSizeSmall;
         tab.state = (i == self.activeTab) ? NSControlStateValueOn : NSControlStateValueOff;
-        tab.font = [NSFont systemFontOfSize:11
-                                     weight:(i == self.activeTab) ? NSFontWeightSemibold
-                                                                  : NSFontWeightRegular];
+        tab.font = [NSFont monospacedSystemFontOfSize:11
+                                               weight:(i == self.activeTab)
+                                                   ? NSFontWeightSemibold
+                                                   : NSFontWeightRegular];
+        if (i == self.activeTab) {
+            tab.contentTintColor = [SlopNetBrand crimsonColor];
+        }
         [self.tabStrip addView:tab inGravity:NSStackViewGravityLeading];
     }
     self.tabStrip.hidden = (self.tabTitles.count < 2);
@@ -866,18 +904,21 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     BOOL ready = [self isReady];
     BOOL guide = [self guideReady];
     if (ready && guide) {
-        self.statusDot.textColor = [NSColor systemGreenColor];
+        self.statusDot.textColor = [SlopNetBrand phosphorColor];
         // The name they gave it, never the address. An IP on screen is a
         // machine somebody owns, readable in every screenshot of this window.
         NSString *named = [NSUserDefaults.standardUserDefaults
             stringForKey:@"SlopNetServerName"] ?: @"My server";
         self.statusText.stringValue = [NSString stringWithFormat:@"Ready — %@", named];
+        self.statusText.textColor = [SlopNetBrand inkColor];
     } else if (ready) {
         self.statusDot.textColor = [NSColor systemOrangeColor];
         self.statusText.stringValue = @"Server ready — guide not installed";
+        self.statusText.textColor = [SlopNetBrand inkColor];
     } else {
-        self.statusDot.textColor = [NSColor systemGrayColor];
+        self.statusDot.textColor = [SlopNetBrand ghostColor];
         self.statusText.stringValue = @"No server yet";
+        self.statusText.textColor = [SlopNetBrand ghostColor];
     }
     // Granite is always visible, but a setup, install, plan or build is not a
     // disposable terminal tab. The route home is live while an interactive
