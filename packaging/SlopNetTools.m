@@ -30,6 +30,9 @@
                       defer:NO];
     window.title = @"Tools";
     window.minSize = NSMakeSize(480, 320);
+    [SlopNetBrand applyTerminalChromeToWindow:window];
+    // Sheets keep a visible title; the main window hides it under glass.
+    window.titleVisibility = NSWindowTitleVisible;
     self = [super initWithWindow:window];
     if (!self) return nil;
     _host = [host copy] ?: @"";

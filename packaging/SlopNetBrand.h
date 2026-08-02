@@ -31,6 +31,34 @@
 + (NSColor *)inkColor;
 /// #666666 — secondary detail (app.py's SHELL_GHOST).
 + (NSColor *)ghostColor;
+/// Near-black with a cold lift — the liquid-glass host surface behind panels.
++ (NSColor *)chromeFieldColor;
+/// Soft crimson used to tint glass toward StormCode without flooding it.
++ (NSColor *)chromeTintColor;
+/// Phosphor green for live status, matching Granite's tint on black.
++ (NSColor *)phosphorColor;
+
+#pragma mark - window chrome (retro terminal × liquid glass)
+
+/// YES when this process can use macOS Liquid Glass (NSGlassEffectView).
++ (BOOL)liquidGlassAvailable;
+
+/// Dark, full-bleed terminal chrome: transparent titlebar, dark appearance,
+/// cold void field. Safe to call once when the window is created.
++ (void)applyTerminalChromeToWindow:(NSWindow *)window;
+
+/// Wrap `content` in real Liquid Glass when available, otherwise a dark
+/// frosted panel that still reads as glass. The returned view owns layout of
+/// `content` (edges pinned with a small inset).
++ (NSView *)glassPanelWrapping:(NSView *)content
+                  cornerRadius:(CGFloat)radius
+                     tintColor:(NSColor *)tint;
+
+/// Glass bezel on a button when the system has one; rounded push otherwise.
++ (void)styleChromeButton:(NSButton *)button;
+
+/// Monospaced label colour for section rails ("RECENT REQUESTS", version…).
++ (void)styleChromeCaption:(NSTextField *)label;
 
 /// Panel background for a provider (BRAND bg); the void colour when unknown.
 + (NSColor *)backgroundColorForProvider:(NSString *)providerId;

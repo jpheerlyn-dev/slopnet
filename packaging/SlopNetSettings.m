@@ -28,6 +28,8 @@
                       defer:NO];
     window.title = @"Settings";
     window.minSize = NSMakeSize(520, 360);
+    [SlopNetBrand applyTerminalChromeToWindow:window];
+    window.titleVisibility = NSWindowTitleVisible;
     self = [super initWithWindow:window];
     if (!self) return nil;
     _connected = connected;
