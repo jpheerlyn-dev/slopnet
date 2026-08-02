@@ -506,17 +506,11 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
     _output.textContainer.widthTracksTextView = YES;
     [self addSubview:_scroller];
 
-    // Soft inner frame: the outer liquid-glass panel carries the chrome;
-    // this keeps the CRT field reading as a deep screen rather than a
-    // hard-edged box.
+    // A crimson hairline around the field: the same frame the StormCode
+    // panels draw, so the console reads as one bordered surface.
     _scroller.wantsLayer = YES;
-    _scroller.layer.cornerRadius = 10;
-    _scroller.layer.masksToBounds = YES;
     _scroller.layer.borderWidth = 1.0;
-    _scroller.layer.borderColor =
-        [[SlopNetBrand crimsonColor] colorWithAlphaComponent:0.55].CGColor;
-    _output.wantsLayer = YES;
-    _output.layer.cornerRadius = 10;
+    _scroller.layer.borderColor = [SlopNetBrand crimsonColor].CGColor;
 
     _status = [NSTextField labelWithString:@"Nothing running."];
     _status.font = [NSFont systemFontOfSize:11];

@@ -3,7 +3,6 @@
 // label over the editor (which would steal clicks and accessibility focus).
 
 #import "SlopNetEntryView.h"
-#import "SlopNetBrand.h"
 #import "SlopNetConsole.h"
 
 @implementation SlopNetEntryView
@@ -15,10 +14,8 @@
     [super drawRect:dirtyRect];
     if (self.string.length == 0 && self.prompt.length > 0) {
         NSDictionary *attributes = @{
-            NSFontAttributeName: self.font
-                ?: [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular],
-            NSForegroundColorAttributeName:
-                [[SlopNetBrand ghostColor] colorWithAlphaComponent:0.85],
+            NSFontAttributeName: self.font ?: [NSFont systemFontOfSize:12],
+            NSForegroundColorAttributeName: [NSColor placeholderTextColor],
         };
         // Line-fragment padding sits inside the container on top of the inset,
         // and typed text begins after both. Drawing the placeholder at the
