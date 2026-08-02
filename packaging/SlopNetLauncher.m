@@ -765,7 +765,52 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // because a tool that cannot be typed at is the thing that wasted a day.
     self.entry.console = self.consoles[index];
     [self rebuildTabStrip];
+    [self syncComposerToActiveTab];
     [self.window makeFirstResponder:self.entry];
+}
+
+/// Setup, install, chat, plan and build own the Granite tab. Interactive
+/// tools each have their own tab and must not block each other.
+- (BOOL)exclusiveWorkRunning {
+    return self.setupRunning || self.chatting || self.planningRunning ||
+           self.approvedBuildRunning || self.uninstalling ||
+           self.localHelperRunning || self.movingDirectory ||
+           self.signingIn != nil;
+}
+
+- (BOOL)anyToolConsoleRunning {
+    for (NSUInteger i = 1; i < self.consoles.count; i++) {
+        if (self.consoles[i].running) return YES;
+    }
+    return NO;
+}
+
+/// Send / Stop / Back to Granite follow the tab on top, not a global latch
+/// left over from whichever tool was opened last.
+- (void)syncComposerToActiveTab {
+    if (self.activeTab == 0 || self.consoles.count == 0) {
+        self.toolRunning = NO;
+        if ([self exclusiveWorkRunning] ||
+            (self.consoles.count > 0 && self.consoles[0].running)) {
+            if (!self.busy) [self setBusy:YES];
+            else [self showSendOrStop:YES];
+        } else {
+            // Background tool tabs may still be running; Granite is free.
+            if (self.busy) [self setBusy:NO];
+            else [self showSendOrStop:NO];
+        }
+        return;
+    }
+    BOOL running = self.consoles[self.activeTab].running;
+    self.toolRunning = running;
+    if (running) {
+        if (!self.busy) [self setBusy:YES];
+        else [self showSendOrStop:YES];
+    } else if (![self exclusiveWorkRunning] &&
+               !(self.consoles.count > 0 && self.consoles[0].running)) {
+        if (self.busy) [self setBusy:NO];
+        else [self showSendOrStop:NO];
+    }
 }
 
 - (void)tabPressed:(NSButton *)sender {
@@ -920,12 +965,24 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 - (void)returnToGranite:(id)sender {
     // A permanent navigation row must not become an accidental second Stop
     // button for a server install, plan, build or guide response.
-    if (self.busy && !self.toolRunning && self.signingIn == nil) return;
+    if ([self exclusiveWorkRunning] && self.signingIn == nil) return;
+    if (self.busy && !self.toolRunning && self.signingIn == nil &&
+        self.activeTab == 0) return;
 
-    if (!self.console.running) {
+    // Already on Granite with nothing to stop: just restore the composer.
+    if (self.activeTab == 0 && !self.console.running) {
         self.toolRunning = NO;
         self.returningToGranite = NO;
-        [self setBusy:NO];
+        [self syncComposerToActiveTab];
+        [self showTypingBar];
+        return;
+    }
+
+    // On a tool tab that has already ended: switch home without a fake failure.
+    if (self.activeTab > 0 && !self.console.running) {
+        self.toolRunning = NO;
+        self.returningToGranite = NO;
+        [self showTab:0];
         [self showTypingBar];
         return;
     }
@@ -1949,9 +2006,13 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // root's working directory, which this account cannot read, so anything
     // that puts itself into the background dies changing directory. Both were
     // found by running the real thing rather than by reading about it.
+    // TERM and COLORTERM go with the program, not only the local PTY.
+    // Superfile and friends read the far-side environment; without these
+    // they start in a degraded mode that looks broken in this console.
     NSString *runuser =
         @"/usr/sbin/runuser -u slopnet -- /usr/bin/env HOME=/home/slopnet "
         @"XDG_RUNTIME_DIR=/home/slopnet/.run "
+        @"TERM=xterm-256color COLORTERM=truecolor "
         @"PATH=/opt/slopnet:/home/slopnet/.local/bin:"
         @"/home/slopnet/.kimi-code/bin:"
         @"/home/slopnet/.local/node_modules/.bin:/usr/local/bin:/usr/bin:/bin "
@@ -2046,7 +2107,19 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
 - (BOOL)startServerCommand:(NSString *)command title:(NSString *)title
                interactive:(BOOL)interactive {
-    if (self.busy || ![self connectionValid]) return NO;
+    if (![self connectionValid]) return NO;
+    // Several tools may run at once, each in its own tab. Only exclusive
+    // Granite-side work (setup, chat, plan, build, install on tab 0) blocks
+    // a new start. The old global busy latch meant a second Open did nothing,
+    // which looked like Superfile or the next tool was broken.
+    if ([self exclusiveWorkRunning]) return NO;
+    if (interactive) {
+        if (self.consoles.count > 0 && self.consoles[0].running && !self.toolRunning &&
+            self.activeTab == 0) return NO;
+    } else {
+        if (self.consoles.count > 0 && self.consoles[0].running) return NO;
+        if (self.busy && !self.toolRunning && ![self anyToolConsoleRunning]) return NO;
+    }
     // A tool is unrelated to an old browser sign-in. Clear that specialised
     // bar before showing the terminal, so "Setting up Antigravity" and Skip
     // cannot survive underneath Zellij or another command.
@@ -2065,7 +2138,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     } else {
         // A typed command, an install, a check: these belong with Granite,
         // not inside whatever tool happens to be open. Without this they ran
-        // in the tool's tab, which is not where anybody would look for them.
+        // in the tool's tab, which is not where anybody would look for it.
         [self showTab:0];
     }
     self.toolRunning = interactive;
@@ -2834,19 +2907,38 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         }
     }
     BOOL returningToGranite = self.returningToGranite;
-    BOOL wasTool = self.toolRunning;
     self.returningToGranite = NO;
-    self.toolRunning = NO;
-    [self setBusy:NO];
+    NSUInteger finishedIndex = [self.consoles indexOfObjectIdenticalTo:console];
+    BOOL finishedToolTab = finishedIndex != NSNotFound && finishedIndex > 0;
     if (status != 0 && !returningToGranite) {
-        [self.console note:@"Nothing was left half-done. Read the last few lines above, "
-                           @"fix what they mention, and try again."];
+        // Note on the console that finished, not whichever tab is on top.
+        [console note:@"Nothing was left half-done. Read the last few lines above, "
+                      @"fix what they mention, and try again."];
     }
     self.signInPage = nil;
     self.signInCode = nil;
     self.openPageButton.hidden = YES;
     self.codeButton.hidden = YES;
-    if (returningToGranite || wasTool) [self showTypingBar];
+    if (returningToGranite) {
+        // Leave only the tool that was stopped; others keep running.
+        if (finishedToolTab && finishedIndex < self.consoles.count) {
+            [console removeFromSuperview];
+            [self.consoles removeObjectAtIndex:finishedIndex];
+            [self.tabTitles removeObjectAtIndex:finishedIndex];
+        }
+        [self showTab:0];
+        [self showTypingBar];
+    } else if (finishedToolTab) {
+        // A tool ended on its own. Composer follows the tab still on top.
+        [self syncComposerToActiveTab];
+        if (self.activeTab == finishedIndex || !self.console.running) {
+            [self showTypingBar];
+        }
+    } else {
+        self.toolRunning = NO;
+        [self setBusy:NO];
+        [self showTypingBar];
+    }
 
     // The guide has answered. If what they asked for sounded like something
     // to have made, offer now — after the reply, not on top of it.

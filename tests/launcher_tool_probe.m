@@ -62,6 +62,7 @@ static NSString *firstDecodedPayload(NSString *command) {
         title:(NSString *)title;
 - (void)tools:(SlopNetTools *)tools signInToProvider:(NSString *)provider;
 - (void)signInToProvider:(NSString *)provider;
+- (void)showTab:(NSUInteger)index;
 - (NSString *)helper:(NSString *)name;
 @end
 
@@ -251,7 +252,8 @@ int main(void) {
         // sheet and a full-screen tool answers nothing.
         check(appWindow.firstResponder == entry,
               "starting a tool puts the keyboard on the box that forwards keys");
-        NSString *guard = firstDecodedPayload(console.launchedArguments.lastObject);
+        NSString *remote = console.launchedArguments.lastObject;
+        NSString *guard = firstDecodedPayload(remote);
         NSString *releasePayload = [[@"v0.9.45" dataUsingEncoding:NSUTF8StringEncoding]
             base64EncodedStringWithOptions:0];
         check([guard containsString:@"/var/lib/slopnet/release-v1"] &&
@@ -259,16 +261,49 @@ int main(void) {
               [guard containsString:@"runtime-account-v2"] &&
               [guard containsString:@"install-v2"] &&
               [guard containsString:@"home_dev="] &&
-              [guard containsString:@"getent passwd slopnet"],
+              [guard containsString:@"getent passwd slopnet"] &&
+              [remote containsString:@"TERM=xterm-256color"] &&
+              [remote containsString:@"COLORTERM=truecolor"],
               "Tools validate the managed account and exact release before running");
 
+        // A second tool must open while the first is still running. The old
+        // busy latch refused it, which made Superfile look broken after
+        // anything else was open.
+        __block FakeConsole *secondTool = nil;
+        app.makeConsole = ^SlopNetConsole *{
+            secondTool = [[FakeConsole alloc] initWithFrame:NSZeroRect];
+            secondTool.fakeRunning = YES;
+            return secondTool;
+        };
+        NSUInteger afterFirst = [[app valueForKey:@"tabTitles"] count];
+        BOOL secondOk = [app tools:nil openOnServer:@"spf" title:@"Superfile"];
+        check(secondOk && secondTool != nil &&
+              [[app valueForKey:@"tabTitles"] count] == afterFirst + 1 &&
+              app.console == secondTool && console.fakeRunning,
+              "a second tool opens in its own tab while the first still runs");
+
         [app returnToGranite:nil];
-        check(console.stopped, "Back to Granite stops the terminal owner");
+        check(secondTool.stopped, "Back to Granite stops the tool on top");
+        secondTool.fakeRunning = NO;
+        [app console:secondTool finishedWithStatus:-1];
+        // First tool is still running in the background; Granite is free.
+        check(console.fakeRunning &&
+              [send.title isEqualToString:@"Send"] &&
+              send.action == @selector(sendPressed:),
+              "closing one tool leaves others running and returns Granite's composer");
+
+        // Stop the first tool from its tab so nothing is left running.
+        NSArray *titles = [app valueForKey:@"tabTitles"];
+        NSUInteger firstToolIndex = [titles indexOfObject:@"Zellij"];
+        check(firstToolIndex != NSNotFound, "the first tool tab is still listed");
+        [app showTab:firstToolIndex];
+        check(app.console == console, "switching tabs brings the first tool back");
+        [app returnToGranite:nil];
         console.fakeRunning = NO;
         [app console:console finishedWithStatus:-1];
         check([send.title isEqualToString:@"Send"] &&
               send.action == @selector(sendPressed:),
-              "after the tool closes the ordinary Granite composer returns");
+              "after the last tool closes the ordinary Granite composer returns");
         BOOL falseFailure = NO;
         for (NSString *note in console.notes) {
             if ([note containsString:@"Nothing was left half-done"]) falseFailure = YES;
@@ -379,6 +414,21 @@ int main(void) {
         [tools rebuildLibrary];
         [tools rebuildInstalled];
 
+        // Installed is the first tab — open what you have before browsing more.
+        NSTabView *tabs = nil;
+        NSMutableArray<NSView *> *stack =
+            [NSMutableArray arrayWithObject:tools.window.contentView];
+        while (stack.count > 0) {
+            NSView *view = stack.lastObject;
+            [stack removeLastObject];
+            if ([view isKindOfClass:NSTabView.class]) { tabs = (NSTabView *)view; break; }
+            [stack addObjectsFromArray:view.subviews];
+        }
+        check(tabs != nil && tabs.numberOfTabViewItems >= 2 &&
+              [[[tabs tabViewItemAtIndex:0] label] isEqualToString:@"Installed"] &&
+              [[[tabs tabViewItemAtIndex:1] label] isEqualToString:@"Library"],
+              "Installed appears before Library");
+
         // Antigravity is preinstalled: the Library must not read as unfinished.
         NSDictionary *actions = [tools valueForKey:@"libraryAction"];
         NSButton *agy = actions[@"antigravity"];
@@ -405,16 +455,17 @@ int main(void) {
         // Settings is connection and model only — no way to launch a tool.
         SlopNetSettings *settings = [[SlopNetSettings alloc]
             initWithHost:@"server.example.invalid" port:@"22" user:@"root" connected:YES];
-        NSMutableArray<NSView *> *stack = [NSMutableArray arrayWithObject:settings.window.contentView];
+        NSMutableArray<NSView *> *settingsStack =
+            [NSMutableArray arrayWithObject:settings.window.contentView];
         BOOL settingsHasOpen = NO;
-        while (stack.count > 0) {
-            NSView *view = stack.lastObject;
-            [stack removeLastObject];
+        while (settingsStack.count > 0) {
+            NSView *view = settingsStack.lastObject;
+            [settingsStack removeLastObject];
             if ([view isKindOfClass:NSButton.class] &&
                 [((NSButton *)view).title isEqualToString:@"Open"]) {
                 settingsHasOpen = YES;
             }
-            [stack addObjectsFromArray:view.subviews];
+            [settingsStack addObjectsFromArray:view.subviews];
         }
         check(!settingsHasOpen, "Settings has no Open button for tools");
 

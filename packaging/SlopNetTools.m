@@ -134,18 +134,19 @@
     installedPage.edgeInsets = NSEdgeInsetsMake(14, 16, 14, 16);
     installedPage.translatesAutoresizingMaskIntoConstraints = NO;
 
-    NSTabViewItem *libraryItem = [[NSTabViewItem alloc] initWithIdentifier:@"library"];
-    libraryItem.label = @"Library";
-    libraryItem.view = libraryPage;
-
+    // Installed first: open what you already have. Library is for adding more.
     NSTabViewItem *installedItem = [[NSTabViewItem alloc] initWithIdentifier:@"installed"];
     installedItem.label = @"Installed";
     installedItem.view = installedPage;
 
+    NSTabViewItem *libraryItem = [[NSTabViewItem alloc] initWithIdentifier:@"library"];
+    libraryItem.label = @"Library";
+    libraryItem.view = libraryPage;
+
     NSTabView *tabs = [[NSTabView alloc] initWithFrame:NSZeroRect];
     tabs.translatesAutoresizingMaskIntoConstraints = NO;
-    [tabs addTabViewItem:libraryItem];
     [tabs addTabViewItem:installedItem];
+    [tabs addTabViewItem:libraryItem];
 
     NSButton *done = [self button:@"Done" action:@selector(closePressed:)];
     done.keyEquivalent = @"\r";
