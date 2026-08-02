@@ -18,7 +18,7 @@ server_name="${4:-your server}"
 # The exact SlopNet release this installer puts on a server. Setup runs
 # that code as root, so it is pinned rather than following whatever the
 # default branch holds today. Bump it when a release is cut and proved.
-slopnet_release="v0.9.62"
+slopnet_release="v0.9.63"
 # Filled with the verified tag commit when build_app.sh copies this helper
 # into SlopNet.app. Keeping the source empty prevents a mutable tag name from
 # being the only authority for code that will run as root.
@@ -469,7 +469,11 @@ upgrade_from_v1() {
   # root, which is what the v2 receipts record and every later check requires.
   usermod -s /usr/sbin/nologin slopnet || return 1
   chown -R 0:0 /opt/slopnet || return 1
-  chmod go-w /opt/slopnet || return 1
+  # Same as the fresh install: readable and traversable by the runtime
+  # account, writable only by root. An upgrade from an install that predates
+  # this would otherwise leave /opt/slopnet at 700 and unusable.
+  chmod -R a+rX /opt/slopnet || return 1
+  chmod -R go-w /opt/slopnet || return 1
   # Record the account in the current format straight away. Clearing the old
   # receipts without writing the new one leaves the account unmarked, which the
   # very next check refuses — the upgrade has to finish what it started.
@@ -604,6 +608,14 @@ fi
   refuse "The released tag no longer resolves to the commit verified in this Mac app."
 git -C "$fresh/repo" diff --quiet --exit-code
 chown -R root:root "$fresh/repo"
+# Readable by everyone, writable only by root — the promise this screen makes.
+# Note for anyone editing here: this whole block is inside a single-quoted
+# payload string, so no apostrophes.
+# The payload runs under umask 077, so the clone lands 600/700, and go-w
+# cannot help: it only ever takes write away, it never grants read. Without
+# a+rX the runtime account cannot traverse /opt/slopnet at all, and the first
+# thing it is asked to run dies with a permission denied error.
+chmod -R a+rX "$fresh/repo"
 chmod -R go-w "$fresh/repo"
 
 install -d -m 0755 -o root -g root "$managed"
