@@ -14,6 +14,10 @@
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSButton *> *libraryAction;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSTextField *> *installedStatus;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSButton *> *installedOpen;
+@property(nonatomic, strong) NSView *installedPage;
+@property(nonatomic, strong) NSView *libraryPage;
+@property(nonatomic, strong) NSButton *installedTab;
+@property(nonatomic, strong) NSButton *libraryTab;
 @end
 
 @implementation SlopNetTools
@@ -23,14 +27,14 @@
                         user:(NSString *)user
                    connected:(BOOL)connected {
     NSWindow *window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, 640, 520)
+        initWithContentRect:NSMakeRect(0, 0, 820, 560)
                   styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                              NSWindowStyleMaskResizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     window.title = @"Tools";
     window.minSize = NSMakeSize(480, 320);
-    window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    [SlopNetBrand applyPanelChromeToWindow:window];
     self = [super initWithWindow:window];
     if (!self) return nil;
     _host = [host copy] ?: @"";
@@ -68,10 +72,14 @@
 
 - (NSTextField *)label:(NSString *)text size:(CGFloat)size grey:(BOOL)grey bold:(BOOL)bold {
     NSTextField *label = [NSTextField labelWithString:text];
-    label.font = bold ? [NSFont boldSystemFontOfSize:size] : [NSFont systemFontOfSize:size];
+    label.font = [NSFont monospacedSystemFontOfSize:size
+                                             weight:bold ? NSFontWeightBold
+                                                         : NSFontWeightRegular];
     label.lineBreakMode = NSLineBreakByWordWrapping;
     label.translatesAutoresizingMaskIntoConstraints = NO;
-    if (grey) label.textColor = [NSColor secondaryLabelColor];
+    if (grey) [SlopNetBrand stylePanelHelp:label];
+    else [SlopNetBrand stylePanelLabel:label size:size];
+    if (bold) label.font = [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightBold];
     return label;
 }
 
@@ -82,14 +90,50 @@
     return label;
 }
 
+/// A column heading over the tool rows: crimson, letterspaced, upper case.
+- (NSTextField *)columnHeading:(NSString *)text {
+    NSTextField *label = [NSTextField labelWithString:text];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    [SlopNetBrand stylePanelColumnHeading:label];
+    return label;
+}
+
+/// A tool's name with its provider's colour badge in front of it, so the list
+/// reads the way the console does rather than as a plain table of strings.
+///
+/// The badge column is always the same width, badge or no badge — otherwise
+/// the tools nobody has a logo for start their names further left and the
+/// column stops being a column.
+- (NSView *)toolName:(NSString *)name provider:(NSString *)provider {
+    NSTextField *label = [self label:name size:12 grey:NO bold:NO];
+    // A long parenthetical must not be allowed to drag the whole window wider
+    // than the screen; it gives way before the layout does.
+    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    [label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                    forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSAttributedString *mark = [SlopNetBrand markAttributedForProvider:provider size:13];
+
+    NSTextField *badge = mark ? [NSTextField labelWithAttributedString:mark]
+                              : [NSTextField labelWithString:@""];
+    badge.translatesAutoresizingMaskIntoConstraints = NO;
+    [badge.widthAnchor constraintEqualToConstant:22].active = YES;
+    [badge setContentHuggingPriority:NSLayoutPriorityRequired
+                      forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+    NSStackView *row = [NSStackView stackViewWithViews:@[badge, label]];
+    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    row.alignment = NSLayoutAttributeCenterY;
+    row.spacing = 7;
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    return row;
+}
+
 - (NSButton *)button:(NSString *)title action:(SEL)action {
-    NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
-    button.title = title;
-    button.bezelStyle = NSBezelStyleRounded;
-    button.target = self;
-    button.action = action;
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    return button;
+    return [self button:title action:action role:SlopNetButtonRoleNormal];
+}
+
+- (NSButton *)button:(NSString *)title action:(SEL)action role:(SlopNetButtonRole)role {
+    return [SlopNetBrand panelButtonWithTitle:title role:role target:self action:action];
 }
 
 #pragma mark - layout
@@ -112,7 +156,9 @@
                              action:@selector(refreshPressed:)];
     recheck.enabled = self.connected;
 
+    NSView *libraryHeader = [SlopNetBrand sectionHeaderWithTitle:@"Library"];
     NSStackView *libraryPage = [NSStackView stackViewWithViews:@[
+        libraryHeader,
         [self helpText:@"Tools SlopNet can put on your server. Installing runs in "
                        @"the main window so you can watch exactly what happens."],
         recheck,
@@ -121,10 +167,12 @@
     libraryPage.orientation = NSUserInterfaceLayoutOrientationVertical;
     libraryPage.alignment = NSLayoutAttributeLeading;
     libraryPage.spacing = 12;
-    libraryPage.edgeInsets = NSEdgeInsetsMake(14, 16, 14, 16);
+    libraryPage.edgeInsets = NSEdgeInsetsMake(18, 18, 16, 18);
     libraryPage.translatesAutoresizingMaskIntoConstraints = NO;
 
+    NSView *installedHeader = [SlopNetBrand sectionHeaderWithTitle:@"Installed"];
     NSStackView *installedPage = [NSStackView stackViewWithViews:@[
+        installedHeader,
         [self helpText:@"Open a tool in its own terminal tab. Granite stays one "
                        @"click away."],
         self.installedGrid,
@@ -132,43 +180,86 @@
     installedPage.orientation = NSUserInterfaceLayoutOrientationVertical;
     installedPage.alignment = NSLayoutAttributeLeading;
     installedPage.spacing = 12;
-    installedPage.edgeInsets = NSEdgeInsetsMake(14, 16, 14, 16);
+    installedPage.edgeInsets = NSEdgeInsetsMake(18, 18, 16, 18);
     installedPage.translatesAutoresizingMaskIntoConstraints = NO;
 
+    // The section rules run the full width of their page; the rows do not.
+    for (NSView *header in @[libraryHeader, installedHeader]) {
+        NSStackView *page = (header == libraryHeader) ? libraryPage : installedPage;
+        [header.widthAnchor constraintEqualToAnchor:page.widthAnchor
+                                           constant:-(page.edgeInsets.left +
+                                                      page.edgeInsets.right)].active = YES;
+    }
+
     // Installed first: open what you already have. Library is for adding more.
-    NSTabViewItem *installedItem = [[NSTabViewItem alloc] initWithIdentifier:@"installed"];
-    installedItem.label = @"Installed";
-    installedItem.view = installedPage;
+    //
+    // The two pages are switched by a pair of terminal buttons rather than an
+    // NSTabView. The stock tab strip draws a bright system-blue pill, which is
+    // the one thing on this panel that still looked like a preferences window.
+    self.installedPage = installedPage;
+    self.libraryPage = libraryPage;
 
-    NSTabViewItem *libraryItem = [[NSTabViewItem alloc] initWithIdentifier:@"library"];
-    libraryItem.label = @"Library";
-    libraryItem.view = libraryPage;
+    NSView *pages = [[NSView alloc] initWithFrame:NSZeroRect];
+    pages.translatesAutoresizingMaskIntoConstraints = NO;
+    for (NSView *one in @[installedPage, libraryPage]) {
+        [pages addSubview:one];
+        [NSLayoutConstraint activateConstraints:@[
+            [one.topAnchor constraintEqualToAnchor:pages.topAnchor],
+            [one.leadingAnchor constraintEqualToAnchor:pages.leadingAnchor],
+            [one.trailingAnchor constraintEqualToAnchor:pages.trailingAnchor],
+            [one.bottomAnchor constraintLessThanOrEqualToAnchor:pages.bottomAnchor],
+        ]];
+    }
 
-    NSTabView *tabs = [[NSTabView alloc] initWithFrame:NSZeroRect];
+    self.installedTab = [self button:@"Installed" action:@selector(showInstalled:)];
+    self.libraryTab = [self button:@"Library" action:@selector(showLibrary:)];
+    [self.installedTab.widthAnchor constraintEqualToConstant:110].active = YES;
+    [self.libraryTab.widthAnchor constraintEqualToConstant:110].active = YES;
+    NSStackView *tabBar = [NSStackView stackViewWithViews:@[self.installedTab, self.libraryTab]];
+    tabBar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    tabBar.spacing = 8;
+    tabBar.translatesAutoresizingMaskIntoConstraints = NO;
+
+    NSStackView *tabs = [NSStackView stackViewWithViews:@[tabBar, pages]];
+    tabs.orientation = NSUserInterfaceLayoutOrientationVertical;
+    tabs.alignment = NSLayoutAttributeLeading;
+    tabs.spacing = 10;
     tabs.translatesAutoresizingMaskIntoConstraints = NO;
-    [tabs addTabViewItem:installedItem];
-    [tabs addTabViewItem:libraryItem];
+    [pages.widthAnchor constraintEqualToAnchor:tabs.widthAnchor].active = YES;
+    [self selectTab:@"installed"];
 
     NSButton *done = [self button:@"Done" action:@selector(closePressed:)];
     done.keyEquivalent = @"\r";
-    [done.widthAnchor constraintGreaterThanOrEqualToConstant:90].active = YES;
+    [done.widthAnchor constraintGreaterThanOrEqualToConstant:110].active = YES;
 
     NSStackView *page = [NSStackView stackViewWithViews:@[tabs, done]];
     page.orientation = NSUserInterfaceLayoutOrientationVertical;
     page.alignment = NSLayoutAttributeLeading;
     page.spacing = 12;
-    page.edgeInsets = NSEdgeInsetsMake(16, 18, 16, 18);
+    page.edgeInsets = NSEdgeInsetsMake(30, 20, 20, 20);
     page.translatesAutoresizingMaskIntoConstraints = NO;
 
     NSView *content = self.window.contentView;
+    // The void field goes behind everything, as in Settings.
+    NSView *backdrop = [SlopNetBrand panelBackdrop];
+    [content addSubview:backdrop];
+    [NSLayoutConstraint activateConstraints:@[
+        [backdrop.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [backdrop.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [backdrop.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [backdrop.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+    ]];
     [content addSubview:page];
     [NSLayoutConstraint activateConstraints:@[
         [page.topAnchor constraintEqualToAnchor:content.topAnchor],
         [page.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
         [page.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
         [page.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
-        [tabs.widthAnchor constraintEqualToAnchor:page.widthAnchor constant:-36],
+        [tabs.widthAnchor constraintEqualToAnchor:page.widthAnchor constant:-40],
         [tabs.heightAnchor constraintGreaterThanOrEqualToConstant:360],
+        // Without an upper bound the widest row decides how wide the window
+        // opens, and the tool list has some long names in it.
+        [page.widthAnchor constraintLessThanOrEqualToConstant:820],
     ]];
 }
 
@@ -186,22 +277,22 @@
     }
 
     NSGridRow *header = [self.libraryGrid addRowWithViews:@[
-        [self label:@"TOOL" size:10 grey:YES bold:NO],
-        [self label:@"ON YOUR SERVER" size:10 grey:YES bold:NO],
-        [self label:@"" size:10 grey:YES bold:NO],
-        [self label:@"SUBSCRIPTION" size:10 grey:YES bold:NO]]];
-    header.bottomPadding = 3;
+        [self columnHeading:@"Tool"],
+        [self columnHeading:@"On your server"],
+        [self columnHeading:@""],
+        [self columnHeading:@"Subscription"]]];
+    header.bottomPadding = 6;
 
     for (NSDictionary *tool in self.tools) {
         NSString *toolID = tool[@"id"] ?: @"";
-        NSTextField *name = [self label:tool[@"name"] ?: toolID size:12 grey:NO bold:NO];
+        NSString *provider = [SlopNetBrand providerForTool:toolID];
+        NSView *name = [self toolName:tool[@"name"] ?: toolID provider:provider];
 
         NSTextField *status = [self label:self.connected ? @"unknown" : @"connect first"
                                      size:11 grey:YES bold:NO];
         self.libraryStatus[toolID] = status;
 
         NSString *install = tool[@"install"] ?: @"";
-        NSString *provider = [SlopNetBrand providerForTool:toolID];
         BOOL signsIn = [SlopNetTools signInSupportedForProvider:provider];
         BOOL preinstalled = [self isPreinstalled:tool];
         BOOL canPrepare = install.length > 0 || signsIn;
@@ -215,7 +306,10 @@
         } else {
             actionTitle = @"No command yet";
         }
-        NSButton *action = [self button:actionTitle action:@selector(installPressed:)];
+        NSButton *action = [self button:actionTitle
+                                 action:@selector(installPressed:)
+                                   role:canPrepare ? SlopNetButtonRolePrimary
+                                                   : SlopNetButtonRoleNormal];
         action.identifier = toolID;
         action.enabled = canPrepare && self.connected;
         if (preinstalled && !canPrepare) {
@@ -229,6 +323,9 @@
 
         NSTextField *subscription = [self label:tool[@"subscription"] ?: @""
                                            size:10 grey:YES bold:NO];
+        subscription.lineBreakMode = NSLineBreakByTruncatingTail;
+        [subscription setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+                                               forOrientation:NSLayoutConstraintOrientationHorizontal];
         [self.libraryGrid addRowWithViews:@[name, status, action, subscription]];
     }
 }
@@ -254,19 +351,22 @@
     }
 
     NSGridRow *header = [self.installedGrid addRowWithViews:@[
-        [self label:@"TOOL" size:10 grey:YES bold:NO],
-        [self label:@"ON YOUR SERVER" size:10 grey:YES bold:NO],
-        [self label:@"" size:10 grey:YES bold:NO]]];
-    header.bottomPadding = 3;
+        [self columnHeading:@"Tool"],
+        [self columnHeading:@"On your server"],
+        [self columnHeading:@""]]];
+    header.bottomPadding = 6;
 
     for (NSDictionary *tool in launchable) {
         NSString *toolID = tool[@"id"] ?: @"";
-        NSTextField *name = [self label:tool[@"name"] ?: toolID size:12 grey:NO bold:NO];
+        NSView *name = [self toolName:tool[@"name"] ?: toolID
+                             provider:[SlopNetBrand providerForTool:toolID]];
         NSTextField *status = [self label:self.connected ? @"unknown" : @"connect first"
                                      size:11 grey:YES bold:NO];
         self.installedStatus[toolID] = status;
 
-        NSButton *open = [self button:@"Open" action:@selector(openPressed:)];
+        NSButton *open = [self button:@"Open"
+                               action:@selector(openPressed:)
+                                 role:SlopNetButtonRolePrimary];
         open.identifier = toolID;
         open.enabled = self.connected;
         self.installedOpen[toolID] = open;
@@ -286,7 +386,26 @@
     [self.window.sheetParent endSheet:self.window];
 }
 
-- (void)refreshPressed:(id)sender { [self refreshToolStatus]; }
+- (void)refreshPressed:(id)sender { (void)sender; [self refreshToolStatus]; }
+
+#pragma mark - the two pages
+
+/// The chosen page is shown and its button carries the primary role, so which
+/// one you are looking at is legible without a system-blue pill.
+- (void)selectTab:(NSString *)which {
+    BOOL installed = [which isEqualToString:@"installed"];
+    self.installedPage.hidden = !installed;
+    self.libraryPage.hidden = installed;
+    [SlopNetBrand setPanelButton:self.installedTab
+                            role:installed ? SlopNetButtonRolePrimary
+                                           : SlopNetButtonRoleNormal];
+    [SlopNetBrand setPanelButton:self.libraryTab
+                            role:installed ? SlopNetButtonRoleNormal
+                                           : SlopNetButtonRolePrimary];
+}
+
+- (void)showInstalled:(id)sender { (void)sender; [self selectTab:@"installed"]; }
+- (void)showLibrary:(id)sender { (void)sender; [self selectTab:@"library"]; }
 
 + (BOOL)signInSupportedForProvider:(NSString *)provider {
     static NSSet *supported;
@@ -335,8 +454,7 @@
 
 - (void)applyStatus:(NSString *)toolID present:(BOOL)present {
     NSString *text = present ? @"●  installed" : @"not installed";
-    NSColor *colour = present ? [NSColor systemGreenColor]
-                              : [NSColor secondaryLabelColor];
+    NSColor *colour = present ? [SlopNetBrand okColor] : [SlopNetBrand quietColor];
     NSTextField *library = self.libraryStatus[toolID];
     if (library) {
         library.stringValue = text;

@@ -285,25 +285,25 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 // Sidebar rows look and behave like navigation: the whole row is the click
 // target, not just the words.
 - (NSButton *)sidebarButton:(NSString *)title action:(SEL)action {
-    NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
-    button.title = title;
-    button.target = self;
-    button.action = action;
-    [SlopNetBrand styleChromeButton:button];
+    // The same control Settings and Tools use, so the whole app has one
+    // button. The glass bezel that used to be here drew crimson-on-crimson
+    // and the words were all but invisible.
+    NSButton *button = [SlopNetBrand panelButtonWithTitle:title
+                                                     role:SlopNetButtonRoleNormal
+                                                   target:self
+                                                   action:action];
     button.alignment = NSTextAlignmentLeft;
-    button.translatesAutoresizingMaskIntoConstraints = NO;
+    [SlopNetBrand setPanelButton:button role:SlopNetButtonRoleNormal];  // redraw the title
     [button.heightAnchor constraintEqualToConstant:30].active = YES;
     return button;
 }
 
 - (NSButton *)promptButton:(NSString *)title action:(SEL)action {
-    NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
-    button.title = title;
-    [SlopNetBrand styleChromeButton:button];
-    button.target = self;
-    button.action = action;
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    [button.widthAnchor constraintGreaterThanOrEqualToConstant:76].active = YES;
+    NSButton *button = [SlopNetBrand panelButtonWithTitle:title
+                                                     role:SlopNetButtonRoleNormal
+                                                   target:self
+                                                   action:action];
+    [button.widthAnchor constraintGreaterThanOrEqualToConstant:88].active = YES;
     return button;
 }
 
@@ -635,18 +635,20 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     // Set up / Ask / Set up guide / Start approved build depending on hidden
     // state — seven identities for one control, and no way to predict which
     // one you had. Send always means: give this to SlopNet.
-    self.sendButton = [[NSButton alloc] initWithFrame:NSZeroRect];
-    self.sendButton.title = @"Send";
-    [SlopNetBrand styleChromeButton:self.sendButton];
-    self.sendButton.target = self;
-    self.sendButton.action = @selector(sendPressed:);
-    [self.sendButton.widthAnchor constraintGreaterThanOrEqualToConstant:80].active = YES;
+    // Send is the one thing this bar is for, so it carries the primary role.
+    self.sendButton = [SlopNetBrand panelButtonWithTitle:@"Send"
+                                                    role:SlopNetButtonRolePrimary
+                                                  target:self
+                                                  action:@selector(sendPressed:)];
+    [self.sendButton.widthAnchor constraintEqualToConstant:88].active = YES;
+    // Match the typing box rather than floating at the top of it.
+    [self.sendButton.heightAnchor constraintEqualToConstant:34].active = YES;
 
     NSStackView *chatBar = [NSStackView stackViewWithViews:@[
         self.entryScroller, self.sendButton]];
     chatBar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    chatBar.alignment = NSLayoutAttributeTop;
-    chatBar.spacing = 8;
+    chatBar.alignment = NSLayoutAttributeCenterY;
+    chatBar.spacing = 10;
     chatBar.translatesAutoresizingMaskIntoConstraints = NO;
 
     // Which guide is answering sits above the box, out of the way of the
@@ -780,19 +782,16 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
         // Granite is first and has no close control: it is the way back from
         // anything else, so it must not be possible to shut it.
         NSString *label = (i == 0) ? title : [NSString stringWithFormat:@"%@  ✕", title];
-        NSButton *tab = [NSButton buttonWithTitle:label target:self
-                                           action:@selector(tabPressed:)];
+        // The tab you are looking at carries the primary role, the same way
+        // the Installed/Library switch in Tools does.
+        NSButton *tab = [SlopNetBrand panelButtonWithTitle:label
+                                                      role:(i == self.activeTab)
+                                                          ? SlopNetButtonRolePrimary
+                                                          : SlopNetButtonRoleNormal
+                                                    target:self
+                                                    action:@selector(tabPressed:)];
         tab.tag = (NSInteger)i;
-        [SlopNetBrand styleChromeButton:tab];
-        tab.controlSize = NSControlSizeSmall;
         tab.state = (i == self.activeTab) ? NSControlStateValueOn : NSControlStateValueOff;
-        tab.font = [NSFont monospacedSystemFontOfSize:11
-                                               weight:(i == self.activeTab)
-                                                   ? NSFontWeightSemibold
-                                                   : NSFontWeightRegular];
-        if (i == self.activeTab) {
-            tab.contentTintColor = [SlopNetBrand crimsonColor];
-        }
         [self.tabStrip addView:tab inGravity:NSStackViewGravityLeading];
     }
     self.tabStrip.hidden = (self.tabTitles.count < 2);

@@ -7,7 +7,7 @@ Recorded because a spoken brief is lost by the next session, and because two
 points below conflict with earlier decisions that were just as explicit. Those
 conflicts are flagged, not resolved: resolving them is the operator's call.
 
-## 1. The illusion stops at the console
+## 1. The illusion stops at the console — DONE for Settings and Tools
 
 The PTY has the StormCode palette. The wizard and Settings do not — they are
 default AppKit, so they read as an office app bolted to a terminal.
@@ -16,9 +16,27 @@ Wanted: one dark, high-contrast theme across the whole app.
 `NSWindowStyleMaskFullSizeContentView` and a dark appearance to lose the
 standard title bars; monospaced type and terminal-shaped fields in the wizard.
 
-Current state: no `NSAppearance` and no `FullSizeContentView` anywhere in
-`packaging/*.m`. The console draws its own colours; every other surface takes
-the system default. So this is unstarted, not half-done.
+Done 2026-08-02 for Settings, Tools and the main window's chrome.
+`SlopNetBrand` now carries the panel vocabulary — `panelBackdrop`,
+`sectionHeaderWithTitle:`, `panelFieldBoxWrapping:`, `panelButtonWithTitle:`
+and the `ok`/`warn`/`quiet` status colours — and those three surfaces use it.
+The sidebar rows, the terminal tab strip and Send are the same button as the
+ones in Settings, so there is one control to change, not five.
+
+**`SlopNetWizard.m` is still stock AppKit** and is the remaining piece of this
+item. It wants the same treatment and no new vocabulary: swap its labels,
+fields and buttons onto the `SlopNetBrand` panel calls.
+
+Two traps found doing this, worth knowing before touching any of it:
+
+- Liquid Glass *lightens* the colour it is tinted with. Crimson at 0.42 alpha
+  came out flat pink. Surface reds want to be dark and low-alpha; #FF003C is a
+  light emitting on black, not a fill.
+- A custom `drawRect:` on a plain `NSView` in these panels is never called.
+  The view then shows its uninitialised backing store, which looks like a
+  solid sheet of arbitrary colour laid over the whole window. Draw decoration
+  from layers instead — that is why `SlopNetBackdropView` is built from
+  `CAGradientLayer` / `CAReplicatorLayer` / `CAShapeLayer`.
 
 ## 2. Context switching during setup
 

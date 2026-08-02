@@ -1,5 +1,19 @@
 ## Open
 
+- [2026-08-02, opus 5] The Dock icon hue/chroma animation still exists in
+  history and is recoverable whole from commit 426d8ad — a CoreImage
+  `CIHueAdjust` plus `CIColorControls` saturation breath on
+  `NSApp.applicationIconImage`, on an 8 fps timer, with a one-shot flood-fill
+  that punches the logo's white paper background to transparent. It was
+  removed on 2026-07-30 because you said it looked hacky: wrong size, wrong
+  corners, and the system 3D lighting gone. That is inherent to the approach —
+  replacing `applicationIconImage` replaces the whole tile, so Apple's icon
+  mask, bevel and shadow go with it, and they have to be redrawn by hand at
+  the exact Dock grid (the art sits in a rounded rect inset inside the 1024
+  canvas, not filling it). Bringing it back means drawing each tinted frame
+  into that mask ourselves. Worth doing, but it is a real piece of work rather
+  than a revert, so it is not started. Say the word and it goes on the list.
+
 - [2026-07-30, claude] SlopNet.app is ad-hoc signed, so a downloaded copy is refused by Gatekeeper until the person Control-clicks and chooses Open. macOS calls this "damaged" or "unidentified developer", which reads as a broken download. The disc image explains it, but the only real fix is an Apple Developer ID (about £79/$99 a year) plus notarisation in the build. That is a spending decision, so it is yours: pay and I wire notarisation into build_dmg.sh, or we ship with the Control-click note.
 
 - [2026-07-29, Codex] The v0.9 Mac app cleanly separates local Granite chat, paid planning, and an explicit approved-build control, but a newly named VPS project still has no proven project-specific checks/runtime. Its plan is saved as a clean Git base; the approved-build helper refuses before any agent starts when that runtime is absent. Do not claim end-to-end multi-agent building from the Mac app until a small project template/runtime has passed a real VPS plan-and-run proof.

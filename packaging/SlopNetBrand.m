@@ -1,5 +1,6 @@
 #import "SlopNetBrand.h"
 #import <CoreText/CoreText.h>
+#import <QuartzCore/QuartzCore.h>
 
 // The bundled colour face. Built by packaging/terminal-visuals/scripts
 // (build_iconfont.py → patch_font.py → build_colorfont.py): Menlo plus a
@@ -154,6 +155,254 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
                             withString:unit startingAtIndex:0];
 }
 
+#pragma mark - panel chrome parts
+//
+// Three small views and one button. They exist so Settings and Tools can look
+// like the console without either of them hand-rolling a theme, and so there
+// is exactly one place to change when the look moves again.
+
+/// A plain filled rectangle. NSBox's separator cannot be coloured, which is
+/// why the rules in these panels are their own view.
+///
+/// The fill is a layer colour rather than a `drawRect:`. Custom `drawRect:`
+/// views in this hierarchy were not being asked to draw at all, and an
+/// undrawn view shows its uninitialised backing store — a flat red sheet over
+/// the whole panel. A layer fill always renders.
+@interface SlopNetRuleView : NSView
+@property(nonatomic, strong) NSColor *fill;
+@end
+
+@implementation SlopNetRuleView
+- (void)setFill:(NSColor *)fill {
+    _fill = fill;
+    self.wantsLayer = YES;
+    self.layer.backgroundColor = (fill ?: NSColor.grayColor).CGColor;
+}
+@end
+
+/// The void field a panel sits on: black, a crimson bloom bleeding down from
+/// the top edge, CRT scanlines, and a targeting bracket in each corner. All
+/// of it is faint on purpose — it should read at a glance and disappear when
+/// you are actually reading the words.
+///
+/// Built entirely from layers, deliberately. A custom `drawRect:` in this
+/// hierarchy was never called, and a view that is never drawn shows its
+/// uninitialised backing store — which is how a panel ends up as a flat red
+/// sheet with the controls faintly visible underneath. Layers always render.
+@interface SlopNetBackdropView : NSView
+@property(nonatomic, strong) CAGradientLayer *bloom;
+@property(nonatomic, strong) CAReplicatorLayer *scanlines;
+@property(nonatomic, strong) CALayer *scanline;
+@property(nonatomic, strong) CAShapeLayer *brackets;
+@end
+
+@implementation SlopNetBackdropView
+
+- (instancetype)initWithFrame:(NSRect)frame {
+    self = [super initWithFrame:frame];
+    if (self == nil) return nil;
+    self.wantsLayer = YES;
+    [self buildLayers];
+    return self;
+}
+
+/// AppKit can hand a view a fresh backing layer when it joins a layer-backed
+/// hierarchy, throwing away anything configured on the old one. Everything is
+/// therefore (re)applied from `updateLayer`, which runs on every display pass.
+- (BOOL)wantsUpdateLayer { return YES; }
+
+- (void)updateLayer {
+    [self buildLayers];
+    self.layer.backgroundColor = [SlopNetBrand voidColor].CGColor;
+    [self layout];
+}
+
+- (void)buildLayers {
+    if (self.layer == nil || self.bloom.superlayer == self.layer) return;
+
+    NSColor *crimson = [SlopNetBrand crimsonColor];
+
+    // Crimson bloom bleeding down from the top, as if the panel is lit by the
+    // console next to it.
+    _bloom = [CAGradientLayer layer];
+    _bloom.colors = @[(__bridge id)[crimson colorWithAlphaComponent:0.16].CGColor,
+                      (__bridge id)[crimson colorWithAlphaComponent:0.0].CGColor];
+    // Unit coordinates on a macOS layer put (0,0) at the bottom left, so the
+    // bright end of the bloom is y=1.
+    _bloom.startPoint = CGPointMake(0.5, 1.0);
+    _bloom.endPoint = CGPointMake(0.5, 0.0);
+    [self.layer addSublayer:_bloom];
+
+    // Scanlines: one point lit, two dark. Enough to say CRT, not enough to
+    // fight the type sitting on top of them.
+    _scanline = [CALayer layer];
+    _scanline.backgroundColor =
+        [NSColor colorWithSRGBRed:1 green:1 blue:1 alpha:0.022].CGColor;
+    _scanlines = [CAReplicatorLayer layer];
+    _scanlines.instanceTransform = CATransform3DMakeTranslation(0, 3, 0);
+    [_scanlines addSublayer:_scanline];
+    [self.layer addSublayer:_scanlines];
+
+    // HUD corner brackets.
+    _brackets = [CAShapeLayer layer];
+    _brackets.fillColor = NSColor.clearColor.CGColor;
+    _brackets.strokeColor = [crimson colorWithAlphaComponent:0.30].CGColor;
+    _brackets.lineWidth = 1.5;
+    [self.layer addSublayer:_brackets];
+}
+
+/// Sublayers do not follow the view's size on their own, and the bracket path
+/// has to be rebuilt at every size.
+- (void)layout {
+    [super layout];
+    NSRect bounds = self.bounds;
+    if (NSIsEmptyRect(bounds)) return;
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+
+    CGFloat bloomHeight = NSHeight(bounds) * 0.45;
+    self.bloom.frame = CGRectMake(0, NSHeight(bounds) - bloomHeight,
+                                  NSWidth(bounds), bloomHeight);
+    self.scanlines.frame = bounds;
+    self.scanline.frame = CGRectMake(0, 0, NSWidth(bounds), 1.0);
+    self.scanlines.instanceCount = (NSInteger)ceil(NSHeight(bounds) / 3.0);
+
+    const CGFloat arm = 16.0, inset = 10.0;
+    CGRect frame = CGRectInset(bounds, inset, inset);
+    CGMutablePathRef path = CGPathCreateMutable();
+    const CGPoint corners[4] = {
+        { CGRectGetMinX(frame), CGRectGetMinY(frame) },
+        { CGRectGetMaxX(frame), CGRectGetMinY(frame) },
+        { CGRectGetMinX(frame), CGRectGetMaxY(frame) },
+        { CGRectGetMaxX(frame), CGRectGetMaxY(frame) },
+    };
+    const CGFloat dx[4] = { 1, -1, 1, -1 };
+    const CGFloat dy[4] = { 1, 1, -1, -1 };
+    for (int i = 0; i < 4; i++) {
+        CGPathMoveToPoint(path, NULL, corners[i].x + dx[i] * arm, corners[i].y);
+        CGPathAddLineToPoint(path, NULL, corners[i].x, corners[i].y);
+        CGPathAddLineToPoint(path, NULL, corners[i].x, corners[i].y + dy[i] * arm);
+    }
+    self.brackets.frame = bounds;
+    self.brackets.path = path;
+    CGPathRelease(path);
+
+    [CATransaction commit];
+}
+
+@end
+
+/// A button that looks like a control on a terminal, not a control in a
+/// preferences pane: void fill, crimson edge, monospaced title, crimson wash
+/// under the pointer. Drawn on its own layer so there is no bezel to fight.
+@interface SlopNetPanelButton : NSButton
+@property(nonatomic, assign) SlopNetButtonRole role;
+@property(nonatomic, assign) BOOL hovering;
+@property(nonatomic, strong) NSTrackingArea *hoverArea;
+- (void)refreshChrome;
+@end
+
+@implementation SlopNetPanelButton
+
+/// Remove only our own tracking area, never the whole set. Clearing every
+/// area here also clears the ones AppKit installs for the button, and putting
+/// one back re-triggers this method — a loop that starves the window of
+/// drawing and leaves it showing an unpainted backing store.
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (self.hoverArea != nil) {
+        [self removeTrackingArea:self.hoverArea];
+    }
+    self.hoverArea = [[NSTrackingArea alloc]
+        initWithRect:self.bounds
+             options:(NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp |
+                      NSTrackingInVisibleRect)
+               owner:self
+            userInfo:nil];
+    [self addTrackingArea:self.hoverArea];
+}
+
+- (void)mouseEntered:(NSEvent *)event { (void)event; self.hovering = YES; [self refreshChrome]; }
+- (void)mouseExited:(NSEvent *)event  { (void)event; self.hovering = NO;  [self refreshChrome]; }
+
+- (void)setHighlighted:(BOOL)highlighted {
+    [super setHighlighted:highlighted];
+    [self refreshChrome];
+}
+
+- (void)setEnabled:(BOOL)enabled {
+    [super setEnabled:enabled];
+    [self refreshChrome];
+}
+
+/// The title is drawn from an attributed string, so setting the plain title
+/// has to rebuild it — otherwise `button.title = @"Hide"` silently keeps the
+/// old words on screen.
+- (void)setTitle:(NSString *)title {
+    [super setTitle:title];
+    [self refreshChrome];
+}
+
+/// A disabled control must still be legible — somebody has to be able to read
+/// what they are not allowed to press yet, and why.
+- (void)refreshChrome {
+    NSColor *crimson = [SlopNetBrand crimsonColor];
+    NSColor *title, *border, *fill;
+    CGFloat width = 1.0;
+
+    if (!self.isEnabled) {
+        title  = [[SlopNetBrand ghostColor] colorWithAlphaComponent:0.85];
+        border = [crimson colorWithAlphaComponent:0.14];
+        fill   = [NSColor colorWithSRGBRed:1 green:1 blue:1 alpha:0.02];
+    } else {
+        switch (self.role) {
+            case SlopNetButtonRolePrimary:
+                title  = [NSColor colorWithSRGBRed:1.0 green:0.42 blue:0.52 alpha:1.0];
+                border = [crimson colorWithAlphaComponent:0.95];
+                fill   = [crimson colorWithAlphaComponent:0.20];
+                width  = 1.5;
+                break;
+            case SlopNetButtonRoleDanger:
+                title  = crimson;
+                border = [crimson colorWithAlphaComponent:0.55];
+                fill   = [crimson colorWithAlphaComponent:0.06];
+                break;
+            case SlopNetButtonRoleNormal:
+            default:
+                title  = [SlopNetBrand inkColor];
+                border = [crimson colorWithAlphaComponent:0.30];
+                fill   = [NSColor colorWithSRGBRed:1 green:1 blue:1 alpha:0.035];
+                break;
+        }
+        if (self.isHighlighted) {
+            fill   = [crimson colorWithAlphaComponent:0.38];
+            border = crimson;
+        } else if (self.hovering) {
+            fill   = [crimson colorWithAlphaComponent:0.16];
+            border = [crimson colorWithAlphaComponent:0.75];
+        }
+    }
+
+    self.layer.backgroundColor = fill.CGColor;
+    self.layer.borderColor = border.CGColor;
+    self.layer.borderWidth = width;
+
+    // Follow whatever alignment the caller set — the sidebar rows read as
+    // navigation and want their words on the left, not centred.
+    NSMutableParagraphStyle *paragraph = [[NSMutableParagraphStyle alloc] init];
+    paragraph.alignment = self.alignment;
+    self.attributedTitle = [[NSAttributedString alloc]
+        initWithString:self.title
+            attributes:@{ NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11.5
+                                                                           weight:NSFontWeightMedium],
+                          NSForegroundColorAttributeName: title,
+                          NSKernAttributeName: @(0.3),
+                          NSParagraphStyleAttributeName: paragraph }];
+}
+
+@end
+
 @implementation SlopNetBrand
 
 + (const SlopNetBrandEntry *)entryForProvider:(NSString *)providerId {
@@ -179,11 +428,18 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
 // Host surface behind chrome glass — near-black with a red lift so crimson
 // glass has something to refract. Never used as the console cell field.
 + (NSColor *)chromeFieldColor {
-    return [NSColor colorWithSRGBRed:0.06 green:0.02 blue:0.03 alpha:1.0];
+    return [NSColor colorWithSRGBRed:0.035 green:0.012 blue:0.018 alpha:1.0];
 }
 // Matrix-adjacent shell: StormCode crimson through the liquid material.
+//
+// Liquid Glass *lightens* whatever it is tinted with, so #FF003C at 0.42 came
+// out as flat bubblegum pink — the opposite of the Terminator HUD it was
+// meant to be. That red is a light emitting on black; as a surface fill it
+// wants to be dark. A deep oxblood at low alpha keeps the hue and lets the
+// black underneath stay black, so crimson text still reads as the bright
+// thing on the panel rather than competing with its own background.
 + (NSColor *)chromeTintColor {
-    return [[self crimsonColor] colorWithAlphaComponent:0.42];
+    return [NSColor colorWithSRGBRed:0.42 green:0.02 blue:0.09 alpha:0.16];
 }
 + (NSColor *)phosphorColor { return SlopNetColorFromHex(0x00AB23); }
 
@@ -280,6 +536,189 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     if (label == nil) return;
     label.font = [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightSemibold];
     label.textColor = [[self crimsonColor] colorWithAlphaComponent:0.85];
+}
+
+#pragma mark - panel chrome
+
++ (NSColor *)okColor    { return [self phosphorColor]; }
++ (NSColor *)warnColor  { return [self crimsonColor]; }
++ (NSColor *)quietColor { return [self ghostColor]; }
+
++ (void)applyPanelChromeToWindow:(NSWindow *)window {
+    if (window == nil) return;
+    window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+}
+
++ (NSView *)panelBackdrop {
+    SlopNetBackdropView *backdrop = [[SlopNetBackdropView alloc] initWithFrame:NSZeroRect];
+    backdrop.translatesAutoresizingMaskIntoConstraints = NO;
+    return backdrop;
+}
+
++ (NSView *)hairline {
+    SlopNetRuleView *rule = [[SlopNetRuleView alloc] initWithFrame:NSZeroRect];
+    rule.fill = [[self crimsonColor] colorWithAlphaComponent:0.28];
+    rule.translatesAutoresizingMaskIntoConstraints = NO;
+    [rule.heightAnchor constraintEqualToConstant:1].active = YES;
+    return rule;
+}
+
++ (NSView *)sectionHeaderWithTitle:(NSString *)title {
+    // Reads as `▬ YOUR SERVER ──────────`: the same three beats headerANSI:
+    // draws inside the console — a solid lead-in, the name, then a rule that
+    // runs out to the edge.
+    SlopNetRuleView *lead = [[SlopNetRuleView alloc] initWithFrame:NSZeroRect];
+    lead.fill = [self crimsonColor];
+    lead.translatesAutoresizingMaskIntoConstraints = NO;
+    [lead.widthAnchor constraintEqualToConstant:18].active = YES;
+    [lead.heightAnchor constraintEqualToConstant:3].active = YES;
+
+    NSTextField *label = [NSTextField labelWithString:title.uppercaseString];
+    label.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightBold];
+    label.textColor = [self crimsonColor];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.attributedStringValue = [[NSAttributedString alloc]
+        initWithString:title.uppercaseString
+            attributes:@{ NSFontAttributeName: label.font,
+                          NSForegroundColorAttributeName: [self crimsonColor],
+                          NSKernAttributeName: @(1.6) }];
+
+    SlopNetRuleView *trail = [[SlopNetRuleView alloc] initWithFrame:NSZeroRect];
+    trail.fill = [[self crimsonColor] colorWithAlphaComponent:0.45];
+    trail.translatesAutoresizingMaskIntoConstraints = NO;
+    [trail.heightAnchor constraintEqualToConstant:1].active = YES;
+    // The rule is the only part that may stretch; the words must not.
+    [trail setContentHuggingPriority:NSLayoutPriorityDefaultLow - 1
+                      forOrientation:NSLayoutConstraintOrientationHorizontal];
+    [label setContentHuggingPriority:NSLayoutPriorityRequired
+                      forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+    NSStackView *row = [NSStackView stackViewWithViews:@[lead, label, trail]];
+    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    row.alignment = NSLayoutAttributeCenterY;
+    row.spacing = 9;
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    return row;
+}
+
++ (void)stylePanelLabel:(NSTextField *)label size:(CGFloat)size {
+    if (label == nil) return;
+    label.font = [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightRegular];
+    label.textColor = [self inkColor];
+}
+
++ (void)stylePanelHelp:(NSTextField *)label {
+    if (label == nil) return;
+    label.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular];
+    // Brighter than SHELL_GHOST: this is the text that explains the app to a
+    // beginner, and #666666 on black is too thin to read a paragraph of.
+    label.textColor = [NSColor colorWithSRGBRed:0.62 green:0.63 blue:0.65 alpha:1.0];
+}
+
++ (void)stylePanelColumnHeading:(NSTextField *)label {
+    if (label == nil) return;
+    label.attributedStringValue = [[NSAttributedString alloc]
+        initWithString:label.stringValue.uppercaseString
+            attributes:@{ NSFontAttributeName: [NSFont monospacedSystemFontOfSize:9.5
+                                                                           weight:NSFontWeightSemibold],
+                          NSForegroundColorAttributeName:
+                              [[self crimsonColor] colorWithAlphaComponent:0.75],
+                          NSKernAttributeName: @(1.4) }];
+}
+
++ (NSView *)panelFieldBoxWrapping:(NSTextField *)field {
+    if (field == nil) return [[NSView alloc] initWithFrame:NSZeroRect];
+
+    field.bordered = NO;
+    field.bezeled = NO;
+    field.drawsBackground = NO;
+    field.focusRingType = NSFocusRingTypeNone;
+    field.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
+    field.textColor = [self inkColor];
+    field.translatesAutoresizingMaskIntoConstraints = NO;
+    if (field.placeholderString.length > 0) {
+        field.placeholderAttributedString = [[NSAttributedString alloc]
+            initWithString:field.placeholderString
+                attributes:@{ NSFontAttributeName: field.font,
+                              NSForegroundColorAttributeName: [self ghostColor] }];
+    }
+
+    // The box is what gives the field its padding and its edge. Doing it this
+    // way rather than with a custom NSTextFieldCell keeps the field an
+    // ordinary NSTextField, so callers' pointers and bindings still work.
+    NSView *box = [[NSView alloc] initWithFrame:NSZeroRect];
+    box.translatesAutoresizingMaskIntoConstraints = NO;
+    box.wantsLayer = YES;
+    box.layer.backgroundColor = [self voidColor].CGColor;
+    box.layer.borderColor = [[self crimsonColor] colorWithAlphaComponent:0.40].CGColor;
+    box.layer.borderWidth = 1.0;
+    box.layer.cornerRadius = 3.0;
+    // Without a bezel of its own, a secure field draws its AutoFill affordance
+    // outside its bounds and it lands on whatever is next to it. Clip it.
+    box.clipsToBounds = YES;
+    [box addSubview:field];
+    [NSLayoutConstraint activateConstraints:@[
+        [field.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:8],
+        [field.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-8],
+        [field.topAnchor constraintEqualToAnchor:box.topAnchor constant:5],
+        [field.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-5],
+    ]];
+    return box;
+}
+
++ (NSButton *)panelButtonWithTitle:(NSString *)title
+                              role:(SlopNetButtonRole)role
+                            target:(id)target
+                            action:(SEL)action {
+    SlopNetPanelButton *button = [[SlopNetPanelButton alloc] initWithFrame:NSZeroRect];
+    button.title = title ?: @"";
+    button.role = role;
+    button.target = target;
+    button.action = action;
+    button.bordered = NO;
+    button.buttonType = NSButtonTypeMomentaryChange;
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.wantsLayer = YES;
+    button.layer.cornerRadius = 3.0;
+    button.alignment = NSTextAlignmentCenter;
+    // A default height, not a fixed one: the sidebar rows are taller, and a
+    // required constraint here would fight the one they add.
+    NSLayoutConstraint *height = [button.heightAnchor constraintEqualToConstant:26];
+    height.priority = NSLayoutPriorityDefaultHigh;
+    height.active = YES;
+    [button refreshChrome];
+    return button;
+}
+
++ (void)setPanelButton:(NSButton *)button role:(SlopNetButtonRole)role {
+    if (![button isKindOfClass:SlopNetPanelButton.class]) return;
+    SlopNetPanelButton *panel = (SlopNetPanelButton *)button;
+    panel.role = role;
+    [panel refreshChrome];
+}
+
++ (void)styleFieldEditor:(NSText *)editor {
+    if ([editor isKindOfClass:NSTextView.class]) {
+        NSTextView *view = (NSTextView *)editor;
+        view.insertionPointColor = [self crimsonColor];
+        view.selectedTextAttributes = @{
+            NSBackgroundColorAttributeName: [[self crimsonColor] colorWithAlphaComponent:0.35],
+            NSForegroundColorAttributeName: [self inkColor],
+        };
+    }
+}
+
++ (NSAttributedString *)markAttributedForProvider:(NSString *)providerId
+                                             size:(CGFloat)size {
+    if (providerId.length == 0) return nil;
+    if ([self entryForProvider:providerId] == NULL) return nil;
+    NSString *mark = [self markForProvider:providerId];
+    if (mark.length == 0) return nil;
+    NSDictionary *attributes = @{
+        NSFontAttributeName: [self consoleFontOfSize:size],
+        NSForegroundColorAttributeName: [self markColorForProvider:providerId],
+    };
+    return [[NSAttributedString alloc] initWithString:mark attributes:attributes];
 }
 
 + (NSColor *)backgroundColorForProvider:(NSString *)providerId {

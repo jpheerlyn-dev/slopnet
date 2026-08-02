@@ -115,7 +115,7 @@ fi
 
 mkdir -p "$contents/MacOS" "$contents/Resources"
 clang -fobjc-arc -Wall -Wextra -mmacosx-version-min=13.0 \
-  -framework AppKit -framework CoreText \
+  -framework AppKit -framework CoreText -framework QuartzCore \
   -I "$source_pkg" "$source_pkg/SlopNetLauncher.m" "$source_pkg/SlopNetConsole.m" \
   "$source_pkg/SlopNetEntryView.m" \
   "$source_pkg/SlopNetSettings.m" "$source_pkg/SlopNetTools.m" \

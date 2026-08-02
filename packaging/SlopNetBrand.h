@@ -58,6 +58,72 @@
 /// Monospaced label colour for section rails ("RECENT REQUESTS", version…).
 + (void)styleChromeCaption:(NSTextField *)label;
 
+#pragma mark - panel chrome (Settings, Tools, and other AppKit surfaces)
+
+// The console already reads as a terminal. Everything else was stock AppKit,
+// so the app looked like an office panel bolted onto a hacker screen. These
+// give an ordinary AppKit surface the same voice the console has: void field,
+// crimson rules, monospaced type, phosphor for good news. Nothing here draws
+// a PTY — the console keeps its own path.
+
+/// Status colours by meaning, so panels stop reaching for systemGreenColor.
++ (NSColor *)okColor;       // phosphor — ready, installed, connected
++ (NSColor *)warnColor;     // crimson — refused, failed, missing
++ (NSColor *)quietColor;    // ghost — unknown, not applicable
+
+/// Dark appearance and a void background for a panel window.
++ (void)applyPanelChromeToWindow:(NSWindow *)window;
+
+/// The surface a panel's content sits on: void field, a crimson bloom at the
+/// top, faint scanlines, and HUD corner brackets. Add content as a subview.
++ (NSView *)panelBackdrop;
+
+/// `▬ TITLE ─────────────` in crimson — the same shape `headerANSI:` draws
+/// inside the console, so a panel section and a console section rhyme.
++ (NSView *)sectionHeaderWithTitle:(NSString *)title;
+
+/// A one-point crimson rule that stretches to fill whatever it is given.
++ (NSView *)hairline;
+
+/// Monospaced ink body text at `size`.
++ (void)stylePanelLabel:(NSTextField *)label size:(CGFloat)size;
+/// Monospaced ghost help text that wraps.
++ (void)stylePanelHelp:(NSTextField *)label;
+/// Monospaced, letterspaced, crimson column heading — always upper case.
++ (void)stylePanelColumnHeading:(NSTextField *)label;
+
+/// Style a field as a terminal input — void fill, ink monospace, no bezel —
+/// and return it wrapped in a crimson-edged box that gives it its padding.
+/// The field itself is unchanged as an object, so callers keep their pointer
+/// to it and read `stringValue` exactly as before.
++ (NSView *)panelFieldBoxWrapping:(NSTextField *)field;
+
+typedef NS_ENUM(NSInteger, SlopNetButtonRole) {
+    SlopNetButtonRoleNormal = 0,   // ink on void, quiet crimson edge
+    SlopNetButtonRolePrimary,      // the one thing this panel is for
+    SlopNetButtonRoleDanger,       // uninstall, forget — crimson throughout
+};
+
+/// A terminal-shaped button: void fill, crimson edge, monospaced title, and a
+/// crimson wash under the pointer. Replaces the stock rounded bezel.
++ (NSButton *)panelButtonWithTitle:(NSString *)title
+                              role:(SlopNetButtonRole)role
+                            target:(id)target
+                            action:(SEL)action;
+
+/// Change a panel button's role after it has been made — used to show which
+/// of a pair of buttons is the page you are currently looking at.
++ (void)setPanelButton:(NSButton *)button role:(SlopNetButtonRole)role;
+
+/// Give a window's field editor a crimson caret. Call from the window
+/// delegate's `windowWillReturnFieldEditor:toObject:`.
++ (void)styleFieldEditor:(NSText *)editor;
+
+/// The provider's colour badge sized for a panel row, or nil when the
+/// provider is unknown. Falls back to the plain Unicode mark without the font.
++ (NSAttributedString *)markAttributedForProvider:(NSString *)providerId
+                                             size:(CGFloat)size;
+
 /// Panel background for a provider (BRAND bg); the void colour when unknown.
 + (NSColor *)backgroundColorForProvider:(NSString *)providerId;
 /// Text colour to use inside that provider's panel (BRAND fg).

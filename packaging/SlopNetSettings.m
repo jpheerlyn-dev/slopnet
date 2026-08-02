@@ -1,9 +1,13 @@
 #import "SlopNetSettings.h"
 #import "SlopNetBrand.h"
 
-@interface SlopNetSettings ()
+@interface SlopNetSettings () <NSWindowDelegate>
 @property(nonatomic, strong) NSTextField *host;      // shown when revealed
 @property(nonatomic, strong) NSSecureTextField *hiddenHost;
+// The crimson-edged boxes those two fields live in. Showing and hiding is
+// done on the box, because hiding only the field would leave its edge behind.
+@property(nonatomic, strong) NSView *hostBox;
+@property(nonatomic, strong) NSView *hiddenHostBox;
 @property(nonatomic, strong) NSButton *revealHost;
 @property(nonatomic, strong) NSTextField *port;
 @property(nonatomic, strong) NSTextField *user;
@@ -12,6 +16,9 @@
 @property(nonatomic, strong) NSTextField *localHelperNote;
 @property(nonatomic, strong) NSButton *localHelperButton;
 @property(nonatomic, assign) BOOL connected;
+/// One shared field editor for this window, so every field gets the crimson
+/// caret. AppKit keeps exactly one per window; so do we.
+@property(nonatomic, strong) NSTextView *fieldEditor;
 @end
 
 @implementation SlopNetSettings
@@ -28,22 +35,43 @@
                       defer:NO];
     window.title = @"Settings";
     window.minSize = NSMakeSize(520, 360);
-    window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    [SlopNetBrand applyPanelChromeToWindow:window];
     self = [super initWithWindow:window];
     if (!self) return nil;
+    window.delegate = self;
     _connected = connected;
     [self buildWithHost:host port:port user:user];
     return self;
+}
+
+/// A crimson caret in every field on this window, to match the console's.
+///
+/// This must build and return its own editor. Asking the window for one from
+/// inside this method calls the method again, which is a stack overflow, not
+/// a caret.
+- (id)windowWillReturnFieldEditor:(NSWindow *)sender toObject:(id)client {
+    (void)sender; (void)client;
+    if (self.fieldEditor == nil) {
+        NSTextView *editor = [[NSTextView alloc] initWithFrame:NSZeroRect];
+        editor.fieldEditor = YES;
+        [SlopNetBrand styleFieldEditor:editor];
+        self.fieldEditor = editor;
+    }
+    return self.fieldEditor;
 }
 
 #pragma mark - little builders
 
 - (NSTextField *)label:(NSString *)text size:(CGFloat)size grey:(BOOL)grey bold:(BOOL)bold {
     NSTextField *label = [NSTextField labelWithString:text];
-    label.font = bold ? [NSFont boldSystemFontOfSize:size] : [NSFont systemFontOfSize:size];
+    label.font = [NSFont monospacedSystemFontOfSize:size
+                                             weight:bold ? NSFontWeightBold
+                                                         : NSFontWeightRegular];
     label.lineBreakMode = NSLineBreakByWordWrapping;
     label.translatesAutoresizingMaskIntoConstraints = NO;
-    if (grey) label.textColor = [NSColor secondaryLabelColor];
+    if (grey) [SlopNetBrand stylePanelHelp:label];
+    else [SlopNetBrand stylePanelLabel:label size:size];
+    if (bold) label.font = [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightBold];
     return label;
 }
 
@@ -57,33 +85,36 @@
     return label;
 }
 
+/// A field row label: quiet crimson, so the eye runs down the labels and
+/// stops on the one it wants.
+- (NSTextField *)rowLabel:(NSString *)text {
+    NSTextField *label = [NSTextField labelWithString:text];
+    label.font = [NSFont monospacedSystemFontOfSize:11.5 weight:NSFontWeightRegular];
+    label.textColor = [[SlopNetBrand crimsonColor] colorWithAlphaComponent:0.80];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    return label;
+}
+
 - (NSTextField *)field:(NSString *)value placeholder:(NSString *)placeholder {
     NSTextField *field = [[NSTextField alloc] initWithFrame:NSZeroRect];
     field.stringValue = value ?: @"";
     field.placeholderString = placeholder;
     field.translatesAutoresizingMaskIntoConstraints = NO;
-    [field.heightAnchor constraintEqualToConstant:24].active = YES;
     return field;
 }
 
 - (NSButton *)button:(NSString *)title action:(SEL)action {
-    NSButton *button = [[NSButton alloc] initWithFrame:NSZeroRect];
-    button.title = title;
-    button.bezelStyle = NSBezelStyleRounded;
-    button.target = self;
-    button.action = action;
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    return button;
+    return [self button:title action:action role:SlopNetButtonRoleNormal];
+}
+
+- (NSButton *)button:(NSString *)title action:(SEL)action role:(SlopNetButtonRole)role {
+    return [SlopNetBrand panelButtonWithTitle:title role:role target:self action:action];
 }
 
 /// A real hairline. Plain [NSBox new] draws an empty bordered frame, which
 /// is what made the page look broken.
-- (NSBox *)separator {
-    NSBox *line = [[NSBox alloc] initWithFrame:NSZeroRect];
-    line.boxType = NSBoxSeparator;
-    line.translatesAutoresizingMaskIntoConstraints = NO;
-    [line.heightAnchor constraintEqualToConstant:1].active = YES;
-    return line;
+- (NSView *)separator {
+    return [SlopNetBrand hairline];
 }
 
 #pragma mark - layout
@@ -100,27 +131,31 @@
     self.hiddenHost.stringValue = host ?: @"";
     self.hiddenHost.placeholderString = @"address or name of your server";
     self.hiddenHost.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.hiddenHost.heightAnchor constraintEqualToConstant:24].active = YES;
-    [self.hiddenHost.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
-    self.host.hidden = YES;
 
-    self.revealHost = [NSButton buttonWithTitle:@"Show"
-                                          target:self
-                                          action:@selector(toggleHostVisible:)];
-    self.revealHost.bezelStyle = NSBezelStyleRounded;
-    self.revealHost.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.revealHost.widthAnchor constraintEqualToConstant:60].active = YES;
+    self.hostBox = [SlopNetBrand panelFieldBoxWrapping:self.host];
+    self.hiddenHostBox = [SlopNetBrand panelFieldBoxWrapping:self.hiddenHost];
+    [self.hostBox.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
+    [self.hiddenHostBox.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
+    self.hostBox.hidden = YES;
+
+    self.revealHost = [SlopNetBrand panelButtonWithTitle:@"Show"
+                                                    role:SlopNetButtonRoleNormal
+                                                  target:self
+                                                  action:@selector(toggleHostVisible:)];
+    [self.revealHost.widthAnchor constraintEqualToConstant:64].active = YES;
 
     NSStackView *addressRow = [NSStackView stackViewWithViews:
-        @[self.hiddenHost, self.host, self.revealHost]];
+        @[self.hiddenHostBox, self.hostBox, self.revealHost]];
     addressRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    addressRow.alignment = NSLayoutAttributeCenterY;
     addressRow.spacing = 6;
     addressRow.translatesAutoresizingMaskIntoConstraints = NO;
     self.user = [self field:user.length ? user : @"root" placeholder:@"root"];
     self.port = [self field:port.length ? port : @"22" placeholder:@"22"];
-    [self.host.widthAnchor constraintGreaterThanOrEqualToConstant:240].active = YES;
-    [self.user.widthAnchor constraintEqualToConstant:170].active = YES;
-    [self.port.widthAnchor constraintEqualToConstant:70].active = YES;
+    NSView *userBox = [SlopNetBrand panelFieldBoxWrapping:self.user];
+    NSView *portBox = [SlopNetBrand panelFieldBoxWrapping:self.port];
+    [userBox.widthAnchor constraintEqualToConstant:170].active = YES;
+    [portBox.widthAnchor constraintEqualToConstant:78].active = YES;
 
     self.connectionNote = [self label:@"" size:11 grey:YES bold:NO];
     [self updateConnectionNote];
@@ -128,9 +163,9 @@
     // A grid keeps labels and fields aligned at any window size — hand-built
     // rows of fixed widths never manage that.
     NSGridView *connection = [NSGridView gridViewWithViews:@[
-        @[[self label:@"Address" size:12 grey:NO bold:NO], addressRow],
-        @[[self label:@"Login name" size:12 grey:NO bold:NO], self.user],
-        @[[self label:@"Port" size:12 grey:NO bold:NO], self.port],
+        @[[self rowLabel:@"Address"], addressRow],
+        @[[self rowLabel:@"Login name"], userBox],
+        @[[self rowLabel:@"Port"], portBox],
     ]];
     connection.translatesAutoresizingMaskIntoConstraints = NO;
     connection.rowSpacing = 8;
@@ -139,12 +174,15 @@
     [connection columnAtIndex:1].xPlacement = NSGridCellPlacementLeading;
 
     NSButton *connect = [self button:@"Connect and prepare this server"
-                             action:@selector(connectPressed:)];
+                              action:@selector(connectPressed:)
+                                role:SlopNetButtonRolePrimary];
     NSButton *forget = [self button:@"Forget this server" action:@selector(forgetPressed:)];
     // Dragging the app to the Trash leaves the remembered server, the saved
     // notes and the connection key behind, and leaves the private account on
     // the server running. This removes them.
-    NSButton *uninstall = [self button:@"Uninstall SlopNet…" action:@selector(uninstallPressed:)];
+    NSButton *uninstall = [self button:@"Uninstall SlopNet…"
+                               action:@selector(uninstallPressed:)
+                                 role:SlopNetButtonRoleDanger];
     NSStackView *connectionButtons = [NSStackView stackViewWithViews:@[connect, forget, uninstall]];
     connectionButtons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     connectionButtons.spacing = 10;
@@ -168,9 +206,10 @@
 
     self.localModel = [self field:@"ibm-granite/granite-4.1-3b-GGUF:Q4_K_M"
                        placeholder:@"owner/model:quant"];
-    [self.localModel.widthAnchor constraintGreaterThanOrEqualToConstant:360].active = YES;
+    NSView *localModelBox = [SlopNetBrand panelFieldBoxWrapping:self.localModel];
+    [localModelBox.widthAnchor constraintGreaterThanOrEqualToConstant:360].active = YES;
     NSGridView *localModelRow = [NSGridView gridViewWithViews:@[
-        @[[self label:@"Hugging Face GGUF" size:12 grey:NO bold:NO], self.localModel],
+        @[[self rowLabel:@"Hugging Face GGUF"], localModelBox],
     ]];
     localModelRow.translatesAutoresizingMaskIntoConstraints = NO;
     localModelRow.columnSpacing = 10;
@@ -179,7 +218,8 @@
 
     self.localHelperNote = [self helpText:@"Checking your server…"];
     self.localHelperButton = [self button:@"Install and test this model"
-                                      action:@selector(localHelperPressed:)];
+                                   action:@selector(localHelperPressed:)
+                                     role:SlopNetButtonRolePrimary];
     self.localHelperButton.enabled = self.connected;
     NSButton *checkLocal = [self button:@"Check local models"
                                    action:@selector(refreshLocalPressed:)];
@@ -192,7 +232,7 @@
 
     NSButton *done = [self button:@"Done" action:@selector(closePressed:)];
     done.keyEquivalent = @"\r";
-    [done.widthAnchor constraintGreaterThanOrEqualToConstant:90].active = YES;
+    [done.widthAnchor constraintGreaterThanOrEqualToConstant:110].active = YES;
 
     // The numbered path lives in the setup guide (SlopNetWizard) now, so these
     // headings no longer claim to be steps 1 and 2 of anything — two competing
@@ -207,27 +247,41 @@
         ? @"This small model runs only on your server for ordinary setup chat and request drafting. It cannot start coding, make a decision, or spend from a coding subscription. SlopNet shows capacity, downloads only after you approve, limits it to a small 4K context and a 15-minute test, and never opens a model port."
         : @"After the server passes, install the private local guide here or from the setup guide. It handles ordinary setup chat without using a coding subscription.";
 
+    NSView *serverHeader = [SlopNetBrand sectionHeaderWithTitle:serverTitle];
+    NSView *helperHeader = [SlopNetBrand sectionHeaderWithTitle:helperTitle];
+    NSView *firstRule = [self separator];
+    NSView *secondRule = [self separator];
+
     NSStackView *page = [NSStackView stackViewWithViews:@[
-        [self label:serverTitle size:15 grey:NO bold:YES],
+        serverHeader,
         [self helpText:serverHelp],
         connection,
         connectionButtons,
         self.connectionNote,
         utilityButtons,
-        [self separator],
-        [self label:helperTitle size:15 grey:NO bold:YES],
+        firstRule,
+        helperHeader,
         [self helpText:helperHelp],
         localModelRow,
         localButtons,
         self.localHelperNote,
-        [self separator],
+        secondRule,
         done,
     ]];
     page.orientation = NSUserInterfaceLayoutOrientationVertical;
     page.alignment = NSLayoutAttributeLeading;
     page.spacing = 12;
-    page.edgeInsets = NSEdgeInsetsMake(22, 24, 22, 24);
+    // Generous at the top: a sheet has no title bar to breathe against, and
+    // the first section heading was being clipped by the panel's own edge.
+    page.edgeInsets = NSEdgeInsetsMake(38, 28, 28, 28);
     page.translatesAutoresizingMaskIntoConstraints = NO;
+    // Section rules and hairlines run the full width of the page; everything
+    // else keeps its natural size against the leading edge.
+    for (NSView *full in @[serverHeader, helperHeader, firstRule, secondRule]) {
+        [full.widthAnchor constraintEqualToAnchor:page.widthAnchor
+                                         constant:-(page.edgeInsets.left +
+                                                    page.edgeInsets.right)].active = YES;
+    }
 
     // The scroll view is what stops a resize from breaking anything: make the
     // window small and the content stays reachable instead of being clipped.
@@ -241,6 +295,18 @@
     scroller.documentView = page;
 
     NSView *content = self.window.contentView;
+    // The void field, bloom, scanlines and corner brackets go behind
+    // everything. The scroller draws no background of its own, so the panel
+    // reads as one dark surface rather than a form on grey.
+    NSView *backdrop = [SlopNetBrand panelBackdrop];
+    [content addSubview:backdrop];
+    [NSLayoutConstraint activateConstraints:@[
+        [backdrop.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [backdrop.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [backdrop.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [backdrop.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+    ]];
+
     [content addSubview:scroller];
     [NSLayoutConstraint activateConstraints:@[
         [scroller.topAnchor constraintEqualToAnchor:content.topAnchor],
@@ -262,21 +328,22 @@
 }
 
 - (void)toggleHostVisible:(id)sender {
+    (void)sender;
     [self syncHostFields];
-    BOOL showing = self.host.hidden;          // about to become visible
-    self.host.hidden = !showing;
-    self.hiddenHost.hidden = showing;
+    BOOL showing = self.hostBox.hidden;       // about to become visible
+    self.hostBox.hidden = !showing;
+    self.hiddenHostBox.hidden = showing;
     self.revealHost.title = showing ? @"Hide" : @"Show";
 }
 
 - (void)updateConnectionNote {
     if (self.connected) {
         self.connectionNote.stringValue = @"●  This server is set up and ready.";
-        self.connectionNote.textColor = [NSColor systemGreenColor];
+        self.connectionNote.textColor = [SlopNetBrand okColor];
     } else {
         self.connectionNote.stringValue =
             @"Not set up yet. Fill in the details above, then press Connect.";
-        self.connectionNote.textColor = [NSColor secondaryLabelColor];
+        self.connectionNote.textColor = [SlopNetBrand quietColor];
     }
 }
 
@@ -295,7 +362,7 @@
     [self syncHostFields];
     if (self.host.stringValue.length == 0) {
         self.connectionNote.stringValue = @"Type your server's address first.";
-        self.connectionNote.textColor = [NSColor systemRedColor];
+        self.connectionNote.textColor = [SlopNetBrand warnColor];
         return;
     }
     [self.delegate settings:self
@@ -346,7 +413,7 @@
     if (![self localModelValid:model]) {
         self.localHelperNote.stringValue =
             @"Use public Hugging Face form owner/model:quant — no URLs or tokens.";
-        self.localHelperNote.textColor = NSColor.systemRedColor;
+        self.localHelperNote.textColor = [SlopNetBrand warnColor];
         return;
     }
     [self.delegate settings:self setupLocalHelperModel:model];
@@ -360,11 +427,11 @@
 - (void)refreshLocalHelperStatus {
     if (!self.connected || self.host.stringValue.length == 0) {
         self.localHelperNote.stringValue = @"Connect a server to inspect local models.";
-        self.localHelperNote.textColor = NSColor.secondaryLabelColor;
+        self.localHelperNote.textColor = [SlopNetBrand quietColor];
         return;
     }
     self.localHelperNote.stringValue = @"Checking the protected runtime account…";
-    self.localHelperNote.textColor = NSColor.secondaryLabelColor;
+    self.localHelperNote.textColor = [SlopNetBrand quietColor];
 
     // This is deliberately a read-only probe. It never starts a model, opens
     // a port, downloads a file, or reads anything outside SlopNet's own
@@ -417,7 +484,7 @@
             if (strongSelf == nil) return;
             if (finished.terminationStatus != 0 || text.length == 0) {
                 strongSelf.localHelperNote.stringValue = @"Could not inspect local models.";
-                strongSelf.localHelperNote.textColor = NSColor.systemRedColor;
+                strongSelf.localHelperNote.textColor = [SlopNetBrand warnColor];
                 return;
             }
             NSMutableDictionary<NSString *, NSString *> *values = [NSMutableDictionary dictionary];
@@ -431,7 +498,7 @@
             if (![values[@"runtime"] isEqualToString:@"yes"]) {
                 strongSelf.localHelperNote.stringValue =
                     @"Run Connect and prepare this server before adding a local model.";
-                strongSelf.localHelperNote.textColor = NSColor.secondaryLabelColor;
+                strongSelf.localHelperNote.textColor = [SlopNetBrand quietColor];
                 return;
             }
             NSString *disk = values[@"disk"] ?: @"unknown storage";
@@ -442,19 +509,19 @@
                     @"Ready: %@ • %@ MiB free storage • %@ MiB free memory%@.",
                     model, disk, memory,
                     [values[@"cache"] isEqualToString:@"yes"] ? @" • GGUF cache found" : @""];
-                strongSelf.localHelperNote.textColor = NSColor.systemGreenColor;
+                strongSelf.localHelperNote.textColor = [SlopNetBrand okColor];
             } else {
                 strongSelf.localHelperNote.stringValue = [NSString stringWithFormat:
                     @"No local helper yet • %@ MiB free storage • %@ MiB free memory.",
                     disk, memory];
-                strongSelf.localHelperNote.textColor = NSColor.secondaryLabelColor;
+                strongSelf.localHelperNote.textColor = [SlopNetBrand quietColor];
             }
         });
     };
     NSError *error = nil;
     if (![task launchAndReturnError:&error]) {
         self.localHelperNote.stringValue = @"Could not run the local-model check.";
-        self.localHelperNote.textColor = NSColor.systemRedColor;
+        self.localHelperNote.textColor = [SlopNetBrand warnColor];
     }
 }
 
