@@ -567,10 +567,15 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 }
 
 - (NSUInteger)visibleRows {
-    NSFont *font = self.output.font;
-    CGFloat lineHeight = [@"M" sizeWithAttributes:@{NSFontAttributeName: font}].height;
-    if (lineHeight < 4) lineHeight = 14;
-    NSUInteger rows = (NSUInteger)floor(self.scroller.contentSize.height / lineHeight);
+    // The same row height every line is pinned to, and the same inset the
+    // column count already allows for. Both were missing here: rows were
+    // measured from a glyph box and the top and bottom inset was ignored, so
+    // the PTY was told the window was several rows taller than it is.
+    CGFloat lineHeight = [self cellRowHeight];
+    CGFloat usable = self.scroller.contentSize.height -
+                     self.output.textContainerInset.height * 2;
+    if (usable < lineHeight) usable = lineHeight;
+    NSUInteger rows = (NSUInteger)floor(usable / lineHeight);
     return MAX((NSUInteger)10, MIN(rows, (NSUInteger)200));
 }
 
@@ -696,9 +701,23 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
 ///
 /// Pinning the line height to exactly the font's own line height, with no
 /// spacing, makes the rows tile the way cells do.
+/// The exact height of one console row.
+///
+/// `cellParagraph` pins every line to this, so anything that counts rows has
+/// to use the same number. `visibleRows` used to measure the height of an "M"
+/// instead, which is the glyph box and not the row, so it reported more rows
+/// than the view can show. The PTY was told it had that many, and a
+/// full-screen program like btop drew a screen taller than the window —
+/// which is where the scrollbar came from.
+- (CGFloat)cellRowHeight {
+    NSFont *font = self.output.font ?: [NSFont userFixedPitchFontOfSize:13.5];
+    CGFloat height = ceil([self.output.layoutManager defaultLineHeightForFont:font]
+                          * kRowHeightForBadges);
+    return height > 4 ? height : 14;
+}
+
 - (NSParagraphStyle *)cellParagraph {
     if (_cellParagraph == nil) {
-        NSFont *font = self.output.font ?: [NSFont userFixedPitchFontOfSize:13.5];
         // Tall enough for the badge bitmap, not just the letters.
         //
         // Every font on the row must stay the same size, because AppKit paints
@@ -706,8 +725,7 @@ static void SlopNetApplySGR(SlopNetInk *ink, NSString *parameters) {
         // a seam. So the badge cannot be shrunk to fit the row — the row has to
         // be big enough for the badge. One size, one background height, and no
         // glyph drawing outside its own line.
-        CGFloat height = ceil([self.output.layoutManager defaultLineHeightForFont:font]
-                              * kRowHeightForBadges);
+        CGFloat height = [self cellRowHeight];
         NSMutableParagraphStyle *style =
             [[NSMutableParagraphStyle alloc] init];
         style.minimumLineHeight = height;

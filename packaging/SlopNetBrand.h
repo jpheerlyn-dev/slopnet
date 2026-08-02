@@ -116,6 +116,24 @@ typedef NS_ENUM(NSInteger, SlopNetButtonRole) {
                             target:(id)target
                             action:(SEL)action;
 
+/// The same button with an SF Symbol in front of the words.
+///
+/// `symbolName` is a system symbol name — they ship with macOS, so nothing is
+/// bundled and nothing is redistributed. An unknown name simply leaves the
+/// button without an icon rather than failing.
++ (NSButton *)panelButtonWithTitle:(NSString *)title
+                            symbol:(NSString *)symbolName
+                              role:(SlopNetButtonRole)role
+                            target:(id)target
+                            action:(SEL)action;
+
+/// An SF Symbol drawn centred in a fixed square, so a column of buttons has
+/// its words on one vertical line however wide each symbol happens to be.
+/// Returns nil when the system has no symbol of that name.
++ (NSImage *)symbolImageNamed:(NSString *)symbolName
+                       boxSize:(CGFloat)box
+                     pointSize:(CGFloat)points;
+
 /// Change a panel button's role after it has been made — used to show which
 /// of a pair of buttons is the page you are currently looking at.
 + (void)setPanelButton:(NSButton *)button role:(SlopNetButtonRole)role;

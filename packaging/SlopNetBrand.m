@@ -300,7 +300,8 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
 @property(nonatomic, assign) SlopNetButtonRole role;
 @property(nonatomic, assign) BOOL hovering;
 @property(nonatomic, strong) NSTrackingArea *hoverArea;
-- (void)refreshChrome;
+/// Kept so the icon can be re-tinted whenever the role or state changes.
+@property(nonatomic, copy) NSString *symbolName;
 @end
 
 @implementation SlopNetPanelButton
@@ -387,6 +388,10 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     self.layer.backgroundColor = fill.CGColor;
     self.layer.borderColor = border.CGColor;
     self.layer.borderWidth = width;
+
+    // The symbol is a template image, so tinting it is how it takes the same
+    // colour as the words next to it.
+    if (self.symbolName.length > 0) self.contentTintColor = title;
 
     // Follow whatever alignment the caller set — the sidebar rows read as
     // navigation and want their words on the left, not centred.
@@ -715,6 +720,53 @@ static NSString *SlopNetRepeat(NSString *unit, NSInteger times) {
     height.priority = NSLayoutPriorityDefaultHigh;
     height.active = YES;
     [button refreshChrome];
+    return button;
+}
+
++ (NSImage *)symbolImageNamed:(NSString *)symbolName
+                       boxSize:(CGFloat)box
+                     pointSize:(CGFloat)points {
+    if (symbolName.length == 0) return nil;
+    NSImage *symbol = [NSImage imageWithSystemSymbolName:symbolName
+                                accessibilityDescription:nil];
+    if (symbol == nil) return nil;
+    symbol = [symbol imageWithSymbolConfiguration:
+        [NSImageSymbolConfiguration configurationWithPointSize:points
+                                                        weight:NSFontWeightRegular
+                                                         scale:NSImageSymbolScaleMedium]];
+    NSSize drawn = symbol.size;
+    // Centred in a fixed square. Symbols are not the same width — a wrench is
+    // far wider than a plus — so without a common box the words beside them
+    // start at a different place on every row.
+    NSImage *canvas = [NSImage imageWithSize:NSMakeSize(box, box)
+                                     flipped:NO
+                              drawingHandler:^BOOL(NSRect bounds) {
+        (void)bounds;
+        [symbol drawInRect:NSMakeRect(round((box - drawn.width) / 2),
+                                      round((box - drawn.height) / 2),
+                                      drawn.width, drawn.height)];
+        return YES;
+    }];
+    canvas.template = YES;
+    return canvas;
+}
+
++ (NSButton *)panelButtonWithTitle:(NSString *)title
+                            symbol:(NSString *)symbolName
+                              role:(SlopNetButtonRole)role
+                            target:(id)target
+                            action:(SEL)action {
+    NSButton *button = [self panelButtonWithTitle:title role:role
+                                           target:target action:action];
+    NSImage *icon = [self symbolImageNamed:symbolName boxSize:18 pointSize:14];
+    if (icon == nil) return button;
+    if ([button isKindOfClass:SlopNetPanelButton.class]) {
+        ((SlopNetPanelButton *)button).symbolName = symbolName;
+    }
+    button.image = icon;
+    button.imagePosition = NSImageLeft;
+    button.imageHugsTitle = YES;
+    [SlopNetBrand setPanelButton:button role:role];   // re-tint with the icon in place
     return button;
 }
 

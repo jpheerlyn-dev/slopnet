@@ -288,10 +288,20 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 // Sidebar rows look and behave like navigation: the whole row is the click
 // target, not just the words.
 - (NSButton *)sidebarButton:(NSString *)title action:(SEL)action {
+    return [self sidebarButton:title symbol:nil action:action];
+}
+
+/// Sidebar rows carry an SF Symbol rather than a typed-in glyph. The old
+/// characters (an hourglass, a hammer, a domino) were whatever the console
+/// font happened to have, sat at whatever size that font drew them, and lined
+/// up with nothing. System symbols are the right weight for the type beside
+/// them and sit in a fixed box, so every row starts on the same line.
+- (NSButton *)sidebarButton:(NSString *)title symbol:(NSString *)symbol action:(SEL)action {
     // The same control Settings and Tools use, so the whole app has one
     // button. The glass bezel that used to be here drew crimson-on-crimson
     // and the words were all but invisible.
     NSButton *button = [SlopNetBrand panelButtonWithTitle:title
+                                                   symbol:symbol
                                                      role:SlopNetButtonRoleNormal
                                                    target:self
                                                    action:action];
@@ -505,7 +515,7 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
 
     self.graniteButton = [self sidebarButton:@"Granite"
                                        action:@selector(returnToGranite:)];
-    NSButton *newButton = [self sidebarButton:@"＋   New"
+    NSButton *newButton = [self sidebarButton:@"New" symbol:@"plus"
                                        action:@selector(newConversation:)];
 
     NSTextField *historyTitle = [self label:@"RECENT REQUESTS" size:10 grey:YES];
@@ -521,15 +531,15 @@ typedef NS_ENUM(NSInteger, SlopNetTurn) {
     spacer.translatesAutoresizingMaskIntoConstraints = NO;
     [spacer setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationVertical];
 
-    self.settingsToggle = [self sidebarButton:@"⚙   Settings"
+    self.settingsToggle = [self sidebarButton:@"Settings" symbol:@"gearshape"
                                        action:@selector(openSettings:)];
     // Tools: install and launch. Settings is connection and model only.
-    NSButton *toolsButton = [self sidebarButton:@"⚒   Tools"
+    NSButton *toolsButton = [self sidebarButton:@"Tools" symbol:@"wrench.and.screwdriver"
                                          action:@selector(openTools:)];
-    NSButton *providersButton = [self sidebarButton:@"◫   Providers"
+    NSButton *providersButton = [self sidebarButton:@"Providers" symbol:@"square.grid.2x2"
                                             action:@selector(showProviders:)];
     // Setup is discoverable from the main window, not only from Settings.
-    NSButton *wizardButton = [self sidebarButton:@"◷   Setup guide"
+    NSButton *wizardButton = [self sidebarButton:@"Setup guide" symbol:@"list.bullet.rectangle"
                                          action:@selector(openWizard:)];
 
     NSTextField *versionLabel =
